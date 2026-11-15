@@ -165,27 +165,41 @@ def _b64(u8):
     return base64.b64encode(bytes(u8)).decode("ascii")
 
 
-def paint_json(tri_count, layer_ids, painted, vert_count=None):
+def paint_json(tri_count, layer_ids, painted, vert_count=None, soft=None):
     """paint.json (PaintTree.toJSON of serialize({leafCov: true})) for whole
     base triangles: no splits (every code 0), one state stream per layer,
-    no soft coverage. leafCov (all null) marks it weld-independent, so
-    BumpMesh replays it onto its own weld of model.stl."""
-    states = []
+    and the soft brush's coverage (soft: {layer id: {corners, values}}) per
+    leaf corner. leafCov marks it weld-independent, so BumpMesh replays it
+    onto its own weld of model.stl."""
+    states, leaf = [], []
     for lid in layer_ids:
         s = np.zeros(tri_count, dtype=np.uint8)
         idx = [t for t in painted.get(lid, ()) if 0 <= t < tri_count]
         s[idx] = 1
         states.append(_b64(s))
+        sc = (soft or {}).get(lid)
+        lc = None
+        if sc and sc.get("corners"):
+            v = np.zeros(tri_count * 3, dtype="<f4")
+            c = np.asarray(sc["corners"], np.int64)
+            ok = (c >= 0) & (c < tri_count * 3)
+            v[c[ok]] = np.asarray(sc["values"], "<f4")[ok]
+            f = np.nonzero((v.reshape(-1, 3) > 0).any(axis=1))[0]
+            if len(f):
+                lc = {"idx": _b64(f.astype("<i4").tobytes()), "val": _b64(v.reshape(-1, 3)[f].reshape(-1).tobytes())}
+        leaf.append(lc)
     return {"version": 1, "baseTriCount": tri_count, "baseVertCount": vert_count if vert_count is not None else tri_count * 3,
             "nodeCount": tri_count, "vertCount": vert_count if vert_count is not None else tri_count * 3,
             "codes": _b64(np.zeros(tri_count, dtype=np.uint8)), "layerIds": list(layer_ids),
-            "states": states, "cov": [None] * len(layer_ids), "leafCov": [None] * len(layer_ids)}
+            "states": states, "cov": [None] * len(layer_ids), "leafCov": leaf}
 
 
 def decode_paint(j):
     """{layer id: sorted base triangles} of a paint.json: a base triangle
     counts when at least half its leaves are painted (hard state, or a soft
-    leaf whose mean coverage reaches 0.5). None when the version is unknown."""
+    leaf whose mean coverage reaches 0.5). None when the version is unknown.
+    An unsplit triangle counts only by its hard state: its soft coverage is
+    decode_soft's."""
     if not j or j.get("version") != 1:
         return None
     codes = np.frombuffer(base64.b64decode(j["codes"]), dtype=np.uint8)
@@ -214,11 +228,54 @@ def decode_paint(j):
             else:
                 stack.append(1 + bin(mask).count("1"))
             pos += 1
+        flat = leaves == [pos - 1]
         for li, lid in enumerate(j["layerIds"]):
             st, sc = states[li], soft[li]
-            hit = sum(1 for p in leaves if st[p] or sc.get(p, 0.0) >= 0.5)
+            hit = sum(1 for p in leaves if st[p] or (not flat and sc.get(p, 0.0) >= 0.5))
             if leaves and hit * 2 >= len(leaves):
                 out[lid].append(f)
+    return out
+
+
+def decode_soft(j):
+    """{layer id: {corners, values}} of a paint.json's soft coverage on
+    unsplit triangles (the soft Standard brush), per corner, as the draft
+    keeps it; layers without any are left out."""
+    if not j or j.get("version") != 1 or not j.get("leafCov"):
+        return {}
+    codes = np.frombuffer(base64.b64decode(j["codes"]), dtype=np.uint8)
+    root_of, pos = {}, 0   # stream position of each unsplit base triangle
+    for f in range(int(j["baseTriCount"])):
+        if codes[pos] & 7 == 0:
+            root_of[pos] = f
+            pos += 1
+            continue
+        stack = [1]
+        while stack:
+            stack[-1] -= 1
+            if stack[-1] == 0:
+                stack.pop()
+            m = int(codes[pos]) & 7
+            if m:
+                stack.append(1 + bin(m).count("1"))
+            pos += 1
+    out = {}
+    for lid, lc in zip(j["layerIds"], j["leafCov"]):
+        if not lc:
+            continue
+        idx = np.frombuffer(base64.b64decode(lc["idx"]), dtype="<i4")
+        val = np.frombuffer(base64.b64decode(lc["val"]), dtype="<f4").reshape(-1, 3)
+        corners, values = [], []
+        for i, v in zip(idx.tolist(), val.tolist()):
+            f = root_of.get(i)
+            if f is None:
+                continue
+            for k in range(3):
+                if v[k] > 0:
+                    corners.append(f * 3 + k)
+                    values.append(float(v[k]))
+        if corners:
+            out[lid] = {"corners": corners, "values": values}
     return out
 
 
@@ -308,8 +365,9 @@ def build(draft, model=None, include_model=True, include_texture=True, texture_p
         # BumpMesh writes the paint whenever the model goes in; mask.json is the
         # active layer's paint as a face list, for older readers.
         n = len(tris)
+        soft = {L["id"]: L["mask"]["soft"] for L in draft.layers if L["mask"].get("soft")}
         files["paint.json"] = json.dumps(paint_json(n, [L["id"] for L in draft.layers], painted,
-                                                    _vert_count(tris))).encode("utf-8")
+                                                    _vert_count(tris), soft)).encode("utf-8")
         payload["paint"] = "paint.json"
         A = draft.layer()
         exc = [t for t in painted[A["id"]] if t < n]
@@ -497,8 +555,11 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
                             warnings.append("The saved paint does not match the loaded model")
                         else:
                             ids = [d.get("id") for d in files]
+                            soft = decode_soft(pj)
                             for i, L in enumerate(layers):
                                 L["mask"]["triangles"] = sorted(by_id.get(ids[i], []))
+                                if ids[i] in soft:
+                                    L["mask"]["soft"] = soft[ids[i]]
                             restored = True
                 except (ValueError, KeyError, TypeError) as e:
                     warnings.append("Could not restore the paint: %s" % e)

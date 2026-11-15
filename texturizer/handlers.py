@@ -959,18 +959,73 @@ def texture_mask(s, a):
             d.mask_add(faces=sorted(_faces_by(shape, a["add_by"], ref, a)), layer=i)
         if a.get("fill") is not None:
             f = a["fill"] if isinstance(a["fill"], dict) else {"faces": a["fill"]}
+            if f.get("triangles") is not None or not getattr(shape, "Faces", None):
+                _fill_triangles(d, i, o, f)
+                f = None
+        if a.get("fill") is not None and f is not None:
             seeds = f.get("faces")
             seeds = sorted(face_names(shape, seeds)) if seeds is not None else list(((live.GUI and live.GUI.selected_faces()) or (None, []))[1])
             if not seeds:
                 raise ToolError("invalid_input", "fill: a seed face (faces), or pick one.")
             ang = num(f.get("maxAngle", d.get("bucketThreshold") if "bucketThreshold" in d.ui else 20), "fill.maxAngle")
             d.mask_add(faces=sorted(_flood(shape, seeds, ang)), layer=i)
+    strokes = _paint_strokes(d, i, o, a["paint"]) if a.get("paint") is not None else 0
     m = d.mask(i)
     L = d.layer(i)
     return {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", "faces": list(m["faces"]),
-            "triangles": len(m["triangles"]),
+            "triangles": len(m["triangles"]), **({"strokes": strokes} if strokes else {}),
+            **({"soft": len(m["soft"]["corners"])} if m.get("soft") else {}),
             "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or m["triangles"] else
                     ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
+
+
+def _fill_triangles(d, i, o, f):
+    """Fill on the triangles (a Mesh part, or fill.triangles): BumpMesh's
+    bucket fill through the engine's Mask.flood; erase removes."""
+    from . import paint
+
+    seeds = f.get("triangles")
+    if not seeds:
+        raise ToolError("invalid_input", "fill: seed triangles on a Mesh part ({triangles: [i], maxAngle}).")
+    pos, ft = live.mesh_for(o)
+    srf = paint.surface_for(pos)
+    seeds = seeds if isinstance(seeds, list) else [seeds]
+    if any(isinstance(t, bool) or not isinstance(t, int) or not 0 <= t < srf.n for t in seeds):
+        raise ToolError("invalid_input", f"fill.triangles: indices 0 to {srf.n - 1}.")
+    ang = num(f.get("maxAngle", d.get("bucketThreshold")), "fill.maxAngle")
+    erase = bool(f.get("erase"))
+    paint.commit(d, srf, i, lambda st: [paint.fill(st, t, ang, erase) for t in seeds], ft)
+
+
+def _paint_strokes(d, i, o, pa):
+    """paint: {strokes, size, hardness, type, erase}: BumpMesh's brush
+    (paint.py), each stroke one undo step. Checked whole before any paints."""
+    from . import paint
+
+    if not isinstance(pa, dict) or not isinstance(pa.get("strokes"), list) or not pa["strokes"]:
+        raise ToolError("invalid_input", "paint: {strokes: [[hit, ...], ...]}, a hit {point, normal, triangle}.")
+    if pa.get("mode", "standard") != "standard":
+        raise ToolError("invalid_input", "paint.mode: standard (Precision comes later).")
+    kind = pa.get("type", "circle" if d.get("brushIsRadius") else "single")
+    if kind not in ("circle", "single"):
+        raise ToolError("invalid_input", "paint.type: circle or single.")
+    size = num(pa.get("size", d.get("brushSize")), "paint.size")
+    hard = num(pa.get("hardness", d.get("brushHardness")), "paint.hardness")
+    pos, ft = live.mesh_for(o)
+    srf = paint.surface_for(pos)
+    try:
+        brush = paint.Brush(kind == "circle", size, hard)
+        strokes = []
+        for st in pa["strokes"]:
+            if not isinstance(st, list) or not st:
+                raise ValueError("a stroke is a list of hits")
+            strokes.append([paint.parse_hit(srf, h) for h in st])
+    except (ValueError, TypeError) as e:
+        raise ToolError("invalid_input", f"paint: {e}.")
+    erase = bool(pa.get("erase"))
+    for st in strokes:
+        paint.commit(d, srf, i, lambda state, st=st: paint.apply_stroke(state, st, brush, erase), ft)
+    return len(strokes)
 
 
 def texture_layer(s, a):
