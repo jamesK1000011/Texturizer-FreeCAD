@@ -11,9 +11,12 @@ tests/_fakeqt.py
 tests/_fc.py
 tests/test_api.py
 tests/test_gui.py
+tests/test_preview.py
+tests/test_quicklook.py
 tests/test_sidebar.py
 tests/test_texture.py
 tests/tools/gen_controls.py
+tests/tools/uv_js.mjs
 texturizer/__init__.py
 texturizer/agentlink_families.py
 texturizer/commands.py
@@ -31,7 +34,11 @@ texturizer/icons/Texturizer_Workbench.svg
 texturizer/mesh.py
 texturizer/meshdist.py
 texturizer/panel.py
+texturizer/preview.py
 texturizer/qt.py
+texturizer/quicklook.py
+texturizer/quicklook_glsl.py
 texturizer/refusal.py
 texturizer/sidebar.py
 texturizer/theme.py
+texturizer/uvmath.py
