@@ -226,13 +226,20 @@ class Workbench(unittest.TestCase):
         self.assertEqual(out["icons"], [os.path.join(PKG, "icons")])
         self.assertTrue(os.path.isfile(out["icon"]))
         self.assertIn("CNC Kitchen", out["tip"])
-        self.assertEqual(out["toolbars"], [["Texturizer", commands.NAMES]])
+        header = ["Texturizer_Undo", "Texturizer_Redo", "Texturizer_Reset", "Texturizer_SaveProject", "Texturizer_LoadProject",
+                  "Texturizer_Gallery", "Texturizer_ExportSTL", "Texturizer_Export3MF"]
+        self.assertEqual(out["toolbars"], [["Texturizer", header], ["View", commands.VIEW_TOOLBAR],
+                                           ["Check", [commands.PREPARE, commands.CHECK]]])
+        self.assertEqual([out["commands"][n]["MenuText"] for n in header],
+                         ["Undo", "Redo", "Reset to defaults", "Save Project", "Load Project", "Texture Gallery", "Export STL", "Export 3MF"])
+        self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Wireframe", "Perspective View", "Section View"])
         self.assertIn("Texturizer_About", out["menus"][0][1])
+        self.assertEqual(out["menus"][0][1][0], commands.TEXTURE)
         self.assertEqual(sorted(out["commands"]), sorted(commands.NAMES + ["Texturizer_About"]))
-        for name, res in out["commands"].items():
+        for name, res in out["commands"].items():  # every command's Pixmap resolves
             pix = res["Pixmap"]
             self.assertTrue(os.path.isfile(os.path.join(PKG, "icons", pix + ".svg")) or pix in FREECAD_ICONS, pix)
-            if name != commands.PANEL:
+            if name not in [commands.PANEL] + commands.VIEW_TOOLBAR:
                 self.assertIn("Stefan Hermann (CNC Kitchen)", res["ToolTip"], name)
         self.assertEqual(out["agentlink"], [])
 

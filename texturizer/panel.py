@@ -80,6 +80,15 @@ def summary(check):
     return lines
 
 
+def applied_line(out):
+    """The last texture_apply answer in one line (pure: tested)."""
+    if not out:
+        return "Nothing textured yet: the sidebar's Add to document makes a Textured object."
+    verb = "Updated" if out.get("updated") else "Made"
+    return f"{verb} {out.get('label')} from {out.get('body')}: {out.get('triangles', 0):,} triangles" + (
+        f", {len(out['warnings'])} warning(s)" if out.get("warnings") else "")
+
+
 if QtWidgets is not None:
 
     class TexturePanel(QtWidgets.QWidget):
@@ -96,6 +105,12 @@ if QtWidgets is not None:
             self.prepared.setRootIsDecorated(False)
             self.prepared.itemDoubleClicked.connect(self._reveal)
             lay.addWidget(self.prepared)
+            head3 = QtWidgets.QLabel("Last result")
+            head3.setProperty("role", "title")
+            lay.addWidget(head3)
+            self.applied = QtWidgets.QLabel()
+            self.applied.setWordWrap(True)
+            lay.addWidget(self.applied)
             head2 = QtWidgets.QLabel("Last check")
             head2.setProperty("role", "title")
             lay.addWidget(head2)
@@ -104,6 +119,10 @@ if QtWidgets is not None:
             self.check.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             lay.addWidget(self.check)
             row = QtWidgets.QHBoxLayout()
+            side = QtWidgets.QPushButton("Open Texturizer sidebar")
+            side.setToolTip("The settings sidebar and the Texture Gallery, laid out as BumpMesh. " + CREDIT)
+            side.clicked.connect(self._sidebar)
+            lay.addWidget(side)
             for text, tip, slot in (("Prepare…", "Prepare the selected faces for a texture. " + CREDIT, self._prepare),
                                     ("Check…", "Check a textured STL against its body. " + CREDIT, self._check)):
                 b = QtWidgets.QPushButton(text)
@@ -132,6 +151,7 @@ if QtWidgets is not None:
                 it.setToolTip(2, f"{p.get('stl')}\nmask: {p.get('mask')}")
                 it.setData(0, QtCore.Qt.UserRole, p.get("stl"))
                 self.prepared.addTopLevelItem(it)
+            self.applied.setText(_esc(applied_line(handlers.LAST.get("applied"))))
             c = handlers.LAST["check"]
             colour = {"ok": theme.OK, "check": theme.WARN}.get((c or {}).get("verdict"), "")
             text = "<br>".join(_esc(x).replace("  ", "&nbsp;&nbsp;") for x in summary(c))
@@ -141,6 +161,11 @@ if QtWidgets is not None:
             from . import commands
 
             commands.reveal(item.data(0, QtCore.Qt.UserRole))
+
+        def _sidebar(self):
+            from . import commands
+
+            commands.open_sidebar()
 
         def _prepare(self):
             from . import commands

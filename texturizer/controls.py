@@ -1078,17 +1078,16 @@ CATEGORIES = [{'id': 'geometric', 'label_key': 'gallery.catGeometric', 'label': 
  {'id': 'mold', 'label_key': 'gallery.catMold', 'label': 'Molded'},
  {'id': 'tires', 'label_key': 'gallery.catTires', 'label': 'Tires'}]
 
-DEFAULT_FAVOURITES = ['Crystal',
- 'Knurling',
+NOT_SHIPPED = ['Crystal', 'Leather 2', 'Brick']
+
+DEFAULT_FAVOURITES = ['Knurling',
  'Carbon Fiber',
  'Hexagons',
  'Voronoi',
- 'Leather 2',
  'Weave 1',
  'Grip Surface',
  'Labyrinth',
  'Square Setts',
- 'Brick',
  'Wood 1']
 
 CREDITS = {'hero': {'badge': 'HP', 'title': 'Hero Patterns (CC BY 4.0)'},
@@ -1099,7 +1098,7 @@ MAX_LAYERS = 4
 
 UNDO_LIMIT = 50
 
-DEFAULT_TEXTURE = 'Crystal'
+DEFAULT_TEXTURE = 'Knurling'
 
 
 BY_KEY = {c["key"]: c for c in CONTROLS}

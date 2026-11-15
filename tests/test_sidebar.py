@@ -52,7 +52,7 @@ def unload_gui():
 
 def fake_library():
     return [
-        {"id": "crystal", "name": "Crystal", "category": "geometric", "thumb": None, "image": None, "credit": None,
+        {"id": "hexagons", "name": "Hexagons", "category": "geometric", "thumb": None, "image": None, "credit": None,
          "licence": "AGPL-3.0", "source_url": None, "defaults": {"scaleU": 20}},
         {"id": "knurling", "name": "Knurling", "category": "grip", "thumb": None, "image": None, "credit": None,
          "licence": "AGPL-3.0", "source_url": None, "defaults": {}},
@@ -392,8 +392,8 @@ class SidebarWidget(unittest.TestCase):
     def test_favourites_grid_and_texture_pick(self):
         d, sb = self.make()
         ids = [t.entry["id"] for t in sb.favgrid.tiles]
-        self.assertEqual(ids[:2], ["crystal", "knurling"])  # BumpMesh's default favourites, by name
-        sb.favgrid.tiles[1].click()
+        self.assertEqual(ids[:2], ["knurling", "hexagons"])  # BumpMesh's default favourites, by name
+        sb.favgrid.tiles[0].click()
         self.assertEqual(d.layer()["texture"], "knurling")
         self.assertIn("Knurling", sb.credit_line.text())
 
@@ -425,13 +425,13 @@ class GalleryFilter(unittest.TestCase):
 
     def test_badges(self):
         b = {e["id"]: self.g.badge(e)[0] for e in fake_library()}
-        self.assertEqual(b, {"crystal": "CNC Kitchen", "knurling": "CNC Kitchen", "aztec": "HP", "bark": "CC0",
+        self.assertEqual(b, {"hexagons": "CNC Kitchen", "knurling": "CNC Kitchen", "aztec": "HP", "bark": "CC0",
                              "basket": "FF", "tread": "CNC Kitchen", "custom:logo": "Yours"})
 
     def test_favourites_store(self):
         path = os.path.join(tempfile.mkdtemp(), "f.json")
         f = self.g.Favourites(path=path, entries=fake_library())
-        self.assertEqual(f.shown(fake_library()), ["crystal", "knurling"])
+        self.assertEqual(f.shown(fake_library()), ["knurling", "hexagons"])
         self.assertTrue(f.toggle("bark"))
         self.assertEqual(self.g.Favourites(path=path).ids[-1], "bark")
         f.reset(fake_library())
@@ -465,7 +465,7 @@ class GalleryDock(unittest.TestCase):
         self.assertEqual(g.fav_count.text(), "Favorites: 3")
         g.search.setText("")
         g.chips["favourites"].click()
-        self.assertEqual(sorted(g.tiles), ["aztec", "crystal", "knurling"])
+        self.assertEqual(sorted(g.tiles), ["aztec", "hexagons", "knurling"])
         g.chips["tires"].click()
         self.assertEqual(list(g.tiles), ["tread"])
         g.chips["custom"].click()

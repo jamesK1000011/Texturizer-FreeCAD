@@ -64,9 +64,22 @@ texturizer/gallery.py
 texturizer/guides/texture.md
 texturizer/handlers.py
 texturizer/icons/CREDITS.md
+texturizer/icons/Texturizer_AddToDocument.svg
 texturizer/icons/Texturizer_Check.svg
+texturizer/icons/Texturizer_Export3MF.svg
+texturizer/icons/Texturizer_ExportSTL.svg
+texturizer/icons/Texturizer_Gallery.svg
+texturizer/icons/Texturizer_LoadProject.svg
+texturizer/icons/Texturizer_Perspective.svg
 texturizer/icons/Texturizer_Prepare.svg
+texturizer/icons/Texturizer_Redo.svg
+texturizer/icons/Texturizer_Reset.svg
+texturizer/icons/Texturizer_SaveProject.svg
+texturizer/icons/Texturizer_Section.svg
+texturizer/icons/Texturizer_Undo.svg
+texturizer/icons/Texturizer_Wireframe.svg
 texturizer/icons/Texturizer_Workbench.svg
+texturizer/live.py
 texturizer/mesh.py
 texturizer/meshdist.py
 texturizer/panel.py
@@ -272,3 +285,4 @@ texturizer/textures/woodgrain_02.png
 texturizer/textures/woodgrain_03.png
 texturizer/theme.py
 texturizer/uvmath.py
+texturizer/window.py

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>Texturizer_Redo</title>
+<defs><linearGradient id="Texturizer_Redo_g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eeeeec"/><stop offset="1" stop-color="#babdb6"/></linearGradient><linearGradient id="Texturizer_Redo_g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9b96e"/><stop offset="1" stop-color="#c17d11"/></linearGradient><linearGradient id="Texturizer_Redo_g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#729fcf"/><stop offset="1" stop-color="#204a87"/></linearGradient></defs>
+<g transform="translate(64,0) scale(-1,1)"><path d="M24,10 L6,26 L24,42 V32 H38 C48,32 54,38 54,46 C54,50 52,54 50,56 C58,52 62,44 62,36 C62,26 54,20 40,20 H24 Z" fill="url(#Texturizer_Redo_g2)" stroke="#8f5902" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g>
+</svg>
