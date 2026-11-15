@@ -156,13 +156,14 @@ SPEC = [
          added_tip="Picked faces of the body; Add by… selects by facing direction, box or same surface."),
     dict(s="masking", k="brushIsRadius", show={"exclusionTool": ["brush"]}, t="buttons", sc="ui", group="brush", l="labels.type",
          opts=[(False, "brushType.single", "excl-brush-single", None), (True, "brushType.circle", "excl-brush-radius-btn", None)]),
-    # Precision (paintTree) is P4: Standard until then, with Hardness (design 4.2, P3).
+    # Standard marks whole triangles; Precision (paintTree, design 4.2 P4) refines under the stroke and
+    # is the only mode with Hardness, as main.js's setBrushPrecision shows and hides the row.
     dict(s="masking", k="brushPrecision", show={"exclusionTool": ["brush"], "brushIsRadius": [True]}, t="buttons", sc="ui", group="brush", l="brushMode.label",
-         d=False, d_src="Texturizer: Standard until Precision (P4)", later_opts={True: "Precision: phase P4"},
+         d=True, d_src="main.js brushPrecision",
          opts=[(False, "brushMode.standard", "excl-brush-standard", "brushMode.standardTitle"),
                (True, "brushMode.precision", "excl-brush-precision", "brushMode.precisionTitle")]),
     dict(s="masking", k="brushSize", show={"exclusionTool": ["brush"], "brushIsRadius": [True]}, t="slider", id="excl-brush-radius-slider", box="excl-brush-radius-val", l="labels.size", sc="ui", group="brush"),
-    dict(s="masking", k="brushHardness", show={"exclusionTool": ["brush"], "brushIsRadius": [True]}, t="slider", id="excl-brush-hardness-slider", box="excl-brush-hardness-val", l="labels.hardness", tip="tooltips.hardness", sc="ui", group="brush"),
+    dict(s="masking", k="brushHardness", show={"exclusionTool": ["brush"], "brushIsRadius": [True], "brushPrecision": [True]}, t="slider", id="excl-brush-hardness-slider", box="excl-brush-hardness-val", l="labels.hardness", tip="tooltips.hardness", sc="ui", group="brush"),
     dict(s="masking", k="bucketThreshold", show={"exclusionTool": ["bucket"]}, t="slider", id="excl-threshold-slider", box="excl-threshold-val", l="labels.maxAngle", tip="tooltips.maxAngle", sc="ui", group="bucket"),
     dict(s="masking", k="shiftHint", t="note", id="excl-shift-hint", l="excl.shiftHint", sc="ui"),
     dict(s="masking", k="clearAll", t="button", id="excl-clear-btn", l="ui.clearAll", sc="action"),

@@ -2,11 +2,13 @@
 # Copyright (c) 2026 the Texturizer for FreeCAD contributors.
 # Part of Texturizer for FreeCAD, based on BumpMesh by Stefan Hermann
 # (CNC Kitchen), AGPL-3.0, github.com/CNCKitchen/stlTexturizer.
-"""The mask brush (paint.py): Circle and Single, erase, soft coverage at
-Hardness 50, Fill, each against BumpMesh's own paintTree.js and main.js run
-in node (tests/tools/paint_js.mjs); one undo step per stroke; a painted
-mask through .bumpmesh and back (and through BumpMesh's own paint.json
-code); viewer events with a fake pick; texture_mask paint and mesh fill."""
+"""The mask brush (paint.py, painttree.py): Circle and Single, Standard and
+Precision (the split tree), erase, soft coverage at Hardness 50, Fill, each
+against BumpMesh's own paintTree.js and main.js run in node
+(tests/tools/paint_js.mjs) as the flattened mesh and its paint; one undo
+step per stroke; a painted mask through .bumpmesh and back (and through
+BumpMesh's own paint.json code); split masks in the engine; viewer events
+with a fake pick; texture_mask paint and mesh fill."""
 import json
 import os
 import shutil
@@ -24,7 +26,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "tools"))
 
 import gen_controls  # noqa: E402
-from texturizer import draft, live, paint, project  # noqa: E402
+from texturizer import draft, live, paint, painttree, project  # noqa: E402
 
 SRC = os.environ.get("BUMPMESH_SRC", gen_controls.DEFAULT_SRC)
 HAVE_JS = os.path.exists(os.path.join(SRC, "js", "paintTree.js")) and shutil.which("node")
@@ -72,37 +74,51 @@ def hit_at(x, y, view=DOWN):
     return dict(h, view=list(view))
 
 
+def snapshot(tree):
+    flat = tree.flatten()
+    p, h = tree.flat_paint(0, flat)
+    return {"hard": h.tolist(), "paint": p.tolist(), "positions": flat["positions"].tolist(),
+            "parent": flat["faceParentId"].tolist()}
+
+
 def run_py(ops, positions=POS):
     s = paint.Surface(positions)
     st = paint.State(s)
     snaps = []
     for op in ops:
         if op["kind"] == "snapshot":
-            snaps.append({"hard": st.hard.tolist(), "paint": st.corners().tolist()})
+            snaps.append(snapshot(st.tree))
         elif op["kind"] == "fill":
             paint.fill(st, op["seed"], op["maxAngle"], op.get("erase", False))
         else:
-            b = paint.Brush(op["circle"], op["size"], op["hardness"])
+            b = paint.Brush(op["circle"], op["size"], op["hardness"], "precision" if op["precision"] else "standard")
             paint.apply_stroke(st, op["hits"], b, op.get("erase", False))
     return snaps, st
 
 
-def stroke(hits, circle=True, size=10.0, hardness=50.0, erase=False):
-    return {"kind": "stroke", "hits": hits, "circle": circle, "size": size, "hardness": hardness, "erase": erase}
+def stroke(hits, circle=True, size=10.0, hardness=50.0, erase=False, precision=True):
+    return {"kind": "stroke", "hits": hits, "circle": circle, "size": size, "hardness": hardness, "erase": erase,
+            "precision": precision}
 
 
 SNAP = {"kind": "snapshot"}
 CASES = {
     "single vs circle": [stroke([hit_at(11.3, 9.1)], circle=False), SNAP,
-                         stroke([hit_at(11.3, 9.1)], hardness=100), SNAP],
+                         stroke([hit_at(11.3, 9.1)], hardness=100, precision=False), SNAP],
+    "standard ignores hardness": [stroke([hit_at(12.2, 12.7)], size=10, hardness=30, precision=False), SNAP],
+    "precision hard edge": [stroke([hit_at(12.2, 12.7)], size=7, hardness=100), SNAP,
+                            stroke([hit_at(14.5, 12.7)], size=3, hardness=100, erase=True), SNAP,
+                            stroke([hit_at(12.2, 12.7)], size=12, hardness=100, erase=True), SNAP],
     "hard drag with a break": [stroke([hit_at(3, 3), hit_at(6, 4), None, hit_at(16, 16), hit_at(19, 13)],
-                                      size=4, hardness=100), SNAP],
+                                      size=4, hardness=100), SNAP,
+                               stroke([hit_at(3, 3), hit_at(6, 4)], size=4, hardness=100, precision=False), SNAP],
     "soft at 50": [stroke([hit_at(12.2, 12.7)], size=10, hardness=50), SNAP,
                    stroke([hit_at(5, 18), hit_at(9, 20), hit_at(13, 21)], size=6, hardness=50), SNAP],
     "erase": [stroke([hit_at(12, 12)], size=14, hardness=100), SNAP,
               stroke([hit_at(12, 12)], size=6, hardness=100, erase=True), SNAP,
               stroke([hit_at(8, 12)], size=6, hardness=50, erase=True), SNAP,
-              stroke([hit_at(12, 17.5)], circle=False, erase=True), SNAP],
+              stroke([hit_at(12, 17.5)], circle=False, erase=True), SNAP,
+              stroke([hit_at(12, 12)], size=20, hardness=100, precision=False, erase=True), SNAP],
     "soft at the wall": [stroke([hit_at(23.5, 12)], size=8, hardness=30), SNAP],
     "fill": [{"kind": "fill", "seed": 5, "maxAngle": 30}, SNAP,    # the sheet, not the wall
              {"kind": "fill", "seed": 300, "maxAngle": 30}, SNAP,
@@ -112,9 +128,10 @@ CASES = {
 
 class Brush(unittest.TestCase):
     def test_single_is_the_triangle_circle_reaches_out(self):
-        snaps, _ = run_py(CASES["single vs circle"])
+        snaps, st = run_py(CASES["single vs circle"])
         t = hit_at(11.3, 9.1)["triangle"]
         self.assertEqual(np.nonzero(snaps[0]["hard"])[0].tolist(), [t])
+        self.assertFalse(st.split)   # Standard paints whole triangles
         got = set(np.nonzero(snaps[1]["hard"])[0].tolist())
         self.assertIn(t, got)
         self.assertGreater(len(got), 10)
@@ -125,21 +142,41 @@ class Brush(unittest.TestCase):
     def test_soft_coverage_follows_brush_coverage(self):
         snaps, st = run_py(CASES["soft at 50"][:2])
         self.assertFalse(any(snaps[0]["hard"]))
+        self.assertTrue(st.split)   # Precision refines under the rim
         h = hit_at(12.2, 12.7)
-        for v in range(SURF.vert_count):
-            x, y, _z = SURF.V[v]
-            d = np.hypot(x - h["point"][0], y - h["point"][1])
+        t = st.tree
+        cov = t.layers[0].cov
+        for v in range(t.vert_count):
+            if v >= SURF.vert_count and t.mid_ref[v] == 0:
+                continue   # a midpoint merged away
+            d = np.hypot(t.vx[v] - h["point"][0], t.vy[v] - h["point"][1])
             want = paint.brush_coverage(d, 5, 0.5) if d <= 5 else 0
-            if st.cov[v] or want:
-                self.assertAlmostEqual(float(st.cov[v]), want, places=6)
-        self.assertEqual(float(st.cov.max()), 1.0)
+            if cov[v] or want:
+                self.assertAlmostEqual(float(cov[v]), want, places=6)
+        self.assertEqual(max(cov), 1.0)
+
+    def test_precision_follows_the_circle(self):
+        """A hard Precision dab: the painted leaves' centroids lie inside the
+        circle and the unpainted ones outside, to the edge limit (r / 5)."""
+        snaps, st = run_py(CASES["precision hard edge"][:2])
+        g = snaps[0]
+        h = hit_at(12.2, 12.7)
+        c = np.asarray(g["positions"]).reshape(-1, 3, 3).mean(axis=1)
+        d = np.hypot(c[:, 0] - h["point"][0], c[:, 1] - h["point"][1])
+        on = np.asarray(g["hard"], bool)
+        self.assertLessEqual(d[on].max(), 3.5)
+        self.assertGreaterEqual(d[~on & (d < 6)].min(), 3.5 - 0.7 / 2)
+        self.assertGreater(len(on), SURF.n)   # split along the rim only, merged inside
+        self.assertLess(len(on), SURF.n * 4)
 
     def test_brush_limits(self):
         b = paint.Brush(True, 500, 120)
         self.assertEqual((b.size, b.hardness), (100, 100))
         self.assertEqual(paint.Brush(True, 0, -1).size, 0.2)
+        self.assertEqual((paint.Brush().mode, paint.Brush(hardness=40).h), ("precision", 0.4))
+        self.assertEqual(paint.Brush(hardness=40, mode="standard").h, 1.0)   # Standard: no Hardness
         with self.assertRaises(ValueError):
-            paint.Brush(mode="precision")
+            paint.Brush(mode="soft")
 
     @unittest.skipUnless(HAVE_JS, SKIP_JS)
     def test_against_bumpmesh(self):
@@ -150,6 +187,8 @@ class Brush(unittest.TestCase):
             self.assertEqual(len(got), len(want), k)
             for i, (g, w) in enumerate(zip(got, want)):
                 with self.subTest(case=k, snapshot=i):
+                    self.assertEqual(g["parent"], w["parent"])
+                    np.testing.assert_array_equal(g["positions"], np.asarray(w["positions"], np.float32))
                     self.assertEqual(g["hard"], w["hard"])
                     np.testing.assert_allclose(g["paint"], w["paint"], atol=1e-6)
 
@@ -157,12 +196,14 @@ class Brush(unittest.TestCase):
 class Drafted(unittest.TestCase):
     def test_one_undo_step_per_stroke(self):
         d = draft.Draft()
-        b = paint.Brush(True, 6, 100)
+        b = paint.Brush(True, 6, 100, "standard")
         paint.commit(d, SURF, 0, lambda st: paint.apply_stroke(st, [hit_at(5, 5), hit_at(8, 5)], b))
         one = json.loads(json.dumps(d.mask()))
         paint.commit(d, SURF, 0, lambda st: paint.apply_stroke(st, [hit_at(18, 18)], paint.Brush(True, 6, 50)))
         self.assertNotIn("soft", one)
+        self.assertNotIn("split", one)
         self.assertIn("soft", d.mask())   # a soft stroke paints coverage, no hard triangles
+        self.assertIn("split", d.mask())  # Precision split the triangles under its rim
         self.assertEqual(d.mask()["triangles"], one["triangles"])
         d.undo()
         self.assertEqual(d.mask(), one)
@@ -180,15 +221,15 @@ class Drafted(unittest.TestCase):
         self.assertEqual(m["faces"], ["Face2"])
         self.assertEqual(m["triangles"], [t for t in range(24) if t != 3])
 
-    def test_round_trip_through_bumpmesh_project(self):
+    def round_trip(self, standard):
         d = draft.Draft()
         d.add_layer()
-        b = paint.Brush(True, 8, 40)
+        mode = "standard" if standard else "precision"
+        b = paint.Brush(True, 8, 40, mode)
         paint.commit(d, SURF, 0, lambda st: paint.apply_stroke(st, [hit_at(6, 6), hit_at(10, 8)], b))
-        paint.commit(d, SURF, 1, lambda st: paint.apply_stroke(st, [hit_at(16, 16)], paint.Brush(True, 6, 100)))
+        paint.commit(d, SURF, 1, lambda st: paint.apply_stroke(st, [hit_at(16, 16)], paint.Brush(True, 6, 100, mode)))
         paint.commit(d, SURF, 1, lambda st: paint.apply_stroke(st, [hit_at(19, 16)], b))
         before = [json.loads(json.dumps(L["mask"])) for L in d.layers]
-        self.assertTrue(before[0].get("soft") and before[1]["triangles"])
         model = POS.reshape(-1, 3, 3)
         files = project.build(d, model=model)
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,20 +241,35 @@ class Drafted(unittest.TestCase):
         if HAVE_JS:   # BumpMesh's own importProject path: PaintTree.fromJSON + deserialize
             pj = json.loads(files["paint.json"])
             got = run_js([{"positions": POS.tolist(), "ops": [{"kind": "load", "json": pj}, SNAP]}])[0][0]
-            st = paint.state_from_mask(SURF, before[0])
-            self.assertEqual(got["hard"], st.hard.tolist())
-            np.testing.assert_allclose(got["paint"], st.corners(), atol=1e-7)
+            t = painttree.PaintTree(SURF)   # the same file read here: BumpMesh's shared tree
+            t.add_layer(1)
+            self.assertTrue(t.deserialize(painttree.from_json(pj)))
+            want = snapshot(t)
+            self.assertEqual(got["parent"], want["parent"])
+            self.assertEqual(got["hard"], want["hard"])
+            np.testing.assert_allclose(got["paint"], want["paint"], atol=1e-7)
+        return before
+
+    def test_round_trip_through_bumpmesh_project(self):
+        before = self.round_trip(standard=True)   # whole triangles: BumpMesh's unsplit paint.json
+        self.assertTrue(before[1]["triangles"] and not any(m.get("split") for m in before))
+        before = self.round_trip(standard=False)  # Precision: the split tree
+        self.assertTrue(before[0].get("soft") and before[0].get("split") and before[1].get("split"))
 
     @unittest.skipUnless(HAVE_JS, SKIP_JS)
     def test_bumpmesh_soft_paint_json_reads_here(self):
         ops = CASES["soft at 50"] + [{"kind": "save"}]
         js = run_js([{"positions": POS.tolist(), "ops": ops}])[0]
         pj = js[-1]["json"]
-        soft = project.decode_soft(pj)[1]
-        tris = project.decode_paint(pj)[1]
-        st = paint.state_from_mask(SURF, {"triangles": tris, "soft": soft})
-        self.assertEqual(st.hard.tolist(), js[1]["hard"])
-        np.testing.assert_allclose(st.corners(), js[1]["paint"], atol=1e-7)
+        m = project.decode_split(pj, POS.reshape(-1, 3, 3))[1]
+        got = snapshot(paint.state_from_mask(SURF, m).tree)
+        self.assertEqual(got["parent"], js[1]["parent"])
+        self.assertEqual(got["hard"], js[1]["hard"])
+        np.testing.assert_allclose(got["paint"], js[1]["paint"], atol=1e-7)
+        ops = CASES["soft at 50"][:1] + [{"kind": "save"}]   # an unsplit standard paint.json still reads
+        pj = run_js([{"positions": POS.tolist(), "ops": [dict(ops[0], precision=False), {"kind": "save"}]}])[0][-1]["json"]
+        self.assertIsNone(project.decode_split(pj, POS.reshape(-1, 3, 3)))
+        self.assertTrue(project.decode_paint(pj)[1])
 
 
 class Engine(unittest.TestCase):
@@ -228,6 +284,51 @@ class Engine(unittest.TestCase):
         W = window.layer_weights(4, tri, 12, [{"mask": m}, {"mask": m, "includeOnly": True}], {})
         np.testing.assert_allclose(W[:, 0], 1 - p)
         np.testing.assert_allclose(W[:, 1], p)
+
+
+class SplitEngine(unittest.TestCase):
+    """The Precision brush's split masks in the engine: flattened for an export
+    (BumpMesh's _pipelineInputs), sampled per refined corner in the preview."""
+
+    def painted(self, include=False):
+        d = draft.Draft("P")
+        if include:
+            d.set("includeOnly", True)
+        paint.commit(d, SURF, 0, lambda st: paint.apply_stroke(st, [hit_at(12.2, 12.7)], paint.Brush(True, 7, 100)))
+        self.assertTrue(d.mask().get("split"))
+        return d
+
+    def test_export_input_is_the_flattened_tree(self):
+        from texturizer import engine, handlers
+
+        d = self.painted()
+        run = handlers.run_settings(d, {})
+        st = paint.state_from_mask(SURF, d.mask())
+        flat = st.tree.flatten()
+        got = paint.flatten_masks(POS, run["layers"])
+        np.testing.assert_array_equal(got[0], flat["positions"])
+        np.testing.assert_array_equal(got[2], flat["faceParentId"])
+        np.testing.assert_array_equal(got[1][0]["mask"]["paint"], st.tree.flat_paint(0, flat)[0])
+        p = engine.Pipeline(POS, run, mode="bake")
+        self.assertEqual(p.map()["pin"]["inputTriangles"], flat["triCount"])
+        self.assertEqual(int(p.flat_parent.max()), SURF.n - 1)
+
+    def test_preview_samples_the_tree(self):
+        from texturizer import engine
+
+        h = hit_at(12.2, 12.7)["point"]
+        for include in (False, True):
+            d = self.painted(include)
+            r = engine.preview({"draft": d.to_dict(), "mesh": {"positions": POS}, "tri_budget": 60000})
+            V, W = r["mesh"]["vertices"], r["mesh"]["weights"][:, 0]
+            top = V[:, 2] > -0.9   # the sheet, not the wall
+            dist = np.hypot(V[:, 0] - h[0], V[:, 1] - h[1])
+            inside, outside = top & (dist < 3.5 - 0.8), top & (dist > 3.5 + 0.8)
+            want_in, want_out = (1.0, 0.0) if include else (0.0, 1.0)
+            with self.subTest(include=include):
+                np.testing.assert_allclose(W[inside], want_in, atol=1e-6)
+                np.testing.assert_allclose(W[outside], want_out, atol=1e-6)
+                self.assertTrue(inside.any() and outside.any())
 
 
 class Events(unittest.TestCase):
@@ -259,14 +360,22 @@ class Events(unittest.TestCase):
         self.assertFalse(t.button(paint.LEFT, False, 3, 1))
         want = paint.State(SURF)
         paint.apply_stroke(want, [hit_at(5, 5), hit_at(7, 5), None, hit_at(9, 6)], paint.Brush(True, 10, 100))
-        self.assertEqual(d.mask()["triangles"], np.nonzero(want.hard)[0].tolist())
+        wm = paint.mask_from_state(want, {})
+        self.assertTrue(wm.get("split"))   # Precision, the default Mode
+        self.assertEqual(d.mask(), json.loads(json.dumps(wm)))
         self.assertEqual(len(d._undo), 1)
         self.assertTrue(t.button(paint.LEFT, True, 2, 1, shift=True))   # Shift erases
         self.assertTrue(t.button(paint.LEFT, False, 2, 1))
         self.assertEqual(len(d._undo), 2)
-        self.assertLess(len(d.mask()["triangles"]), int(want.hard.sum()))
+        self.assertNotEqual(d.mask(), json.loads(json.dumps(wm)))
         d.undo()
-        self.assertEqual(d.mask()["triangles"], np.nonzero(want.hard)[0].tolist())
+        self.assertEqual(d.mask(), json.loads(json.dumps(wm)))
+        d.set("brushPrecision", False)   # Standard: whole triangles
+        d.mask_clear()
+        self.assertTrue(t.button(paint.LEFT, True, 1, 1))
+        self.assertTrue(t.button(paint.LEFT, False, 1, 1))
+        std = paint.apply_stroke(paint.State(SURF), [hit_at(5, 5)], paint.Brush(True, 10, 100, "standard"))
+        self.assertEqual(d.mask(), {"faces": [], "triangles": np.nonzero(std.hard)[0].tolist()})
 
     def test_fill_click(self):
         self.d.set("exclusionTool", "bucket")
@@ -321,15 +430,19 @@ class Agent(unittest.TestCase):
         want = paint.State(SURF)
         for s_ in ([a, b], [hit_at(18, 18)]):
             paint.apply_stroke(want, s_, paint.Brush(True, 6, 100))
-        self.assertEqual(d.mask()["triangles"], np.nonzero(want.hard)[0].tolist())
+        self.assertEqual(d.mask(), json.loads(json.dumps(paint.mask_from_state(want, {}))))
         n = len(d._undo)
         ok, out = self.run("texture_mask", {"paint": {"strokes": [[{"point": a["point"]}]], "erase": True, "size": 3}})
         self.assertTrue(ok, out)
         self.assertEqual(len(d._undo), n + 1)
         ok, out = self.run("texture_mask", {"paint": {"strokes": [[{"point": [1, 2]}]]}})
         self.assertFalse(ok)
-        ok, out = self.run("texture_mask", {"paint": {"strokes": [[a]], "mode": "precision"}})
+        ok, out = self.run("texture_mask", {"paint": {"strokes": [[a]], "mode": "soft"}})
         self.assertFalse(ok)
+        ok, out = self.run("texture_mask", {"clear": True})
+        ok, out = self.run("texture_mask", {"paint": {"strokes": [[a]], "mode": "standard", "size": 6}})
+        self.assertTrue(ok, out)
+        self.assertNotIn("split", d.mask())
         ok, out = self.run("texture_mask", {"clear": True, "fill": {"triangles": [5], "maxAngle": 30}})
         self.assertTrue(ok, out)
         st = paint.fill(paint.State(SURF), 5, 30)

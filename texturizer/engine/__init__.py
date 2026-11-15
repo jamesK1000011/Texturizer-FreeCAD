@@ -111,13 +111,21 @@ def _mask_dict(mask, n_tri):
         tris = mask.get("triangles") or []
         mode = mask.get("mode") or ("include" if mask.get("includeOnly") else "exclude")
         soft = mask.get("soft")
-        if not len(tris) and mode == "exclude" and not soft:
+        split = mask.get("split")
+        if not len(tris) and mode == "exclude" and not soft and not split:
             return None
         m = from_triangles(n_tri, tris, mode).as_dict()
         if soft:  # the soft brush's coverage per corner (paint.py, BumpMesh's softMask)
             c = np.asarray(soft["corners"], np.int64)
             ok = (c >= 0) & (c < n_tri * 3)
             np.maximum.at(m["paint"], c[ok], np.asarray(soft["values"], F32)[ok])
+        if split:  # the Precision brush's split triangles: sampled on the refined mesh (paint.sample_split)
+            from ..paint import split_marker
+
+            pm = m["paint"].reshape(-1, 3)
+            sm = split_marker(mask, n_tri)
+            on = (sm > 0).all(axis=1)
+            pm[on] = sm[on]
         return m
     return from_triangles(n_tri, mask).as_dict()
 
@@ -154,7 +162,8 @@ def load_layers(specs, n_tri, base=None, prepared=True):
         if isinstance(m, dict) and s.get("includeOnly") and "mode" not in m and m.get("paint") is None:
             m = dict(m, mode="include")
         out.append({"image": img, "settings": s.get("settings") or {}, "mask": _mask_dict(m, n_tri),
-                    "blendAdd": bool(s.get("blendAdd")), "visible": True})
+                    "blendAdd": bool(s.get("blendAdd")), "visible": True,
+                    "split": bool(isinstance(m, dict) and m.get("split") and m.get("paint") is None)})
     return out
 
 
@@ -248,9 +257,14 @@ class Pipeline:
     def map(self):
         if "map" not in self.results:
             R = _rotation_of(self.settings)
-            pos = _rotate(self.mesh, R)
+            specs = layer_specs(self.settings, self.mask)
+            mesh, self.flat_parent = self.mesh, None
+            flat = _flatten_split(mesh, specs)
+            if flat is not None:  # the Precision brush split triangles: its flattened mesh goes in
+                mesh, specs, self.flat_parent = flat
+            pos = _rotate(mesh, R)
             n = len(pos) // 9
-            layers = load_layers(layer_specs(self.settings, self.mask), n, base=self.settings)
+            layers = load_layers(specs, n, base=self.settings)
             glob = {k: v for k, v in self.settings.items() if k in GLOBAL_KEYS or k in LAYER_KEYS}
             self.results["map"] = {"pin": prepare_input(pos, layers, glob), "R": R}
         return self.results["map"]
@@ -272,8 +286,8 @@ class Pipeline:
             res = finish_result(m["pin"], self.subdivide(), fin)
             if self.mode == "bake":
                 parents = np.asarray(self.subdivide()["faceParentId"], np.int64)
-                res["faceParentId"] = parents
                 res["bakedTriangles"] = baked_triangles(m["pin"]["faceWeights"], parents)
+                res["faceParentId"] = parents if self.flat_parent is None else self.flat_parent[parents]
             if m["R"] is not None:
                 res["positions"] = _rotate(res["positions"], m["R"], inverse=True)
                 res["normals"] = _rotate(res["normals"], m["R"], inverse=True)
@@ -286,6 +300,14 @@ class Pipeline:
             return self.finish()
         except Aborted:
             return None
+
+
+def _flatten_split(mesh, specs):
+    if not any(isinstance(L.get("mask"), dict) and L["mask"].get("split") for L in specs):
+        return None
+    from ..paint import flatten_masks
+
+    return flatten_masks(as_positions(mesh), specs)
 
 
 def baked_triangles(face_weights, parents):
@@ -368,6 +390,8 @@ def _resolve_masks(layers, face_triangles):
                      "mode": "include" if L.get("includeOnly") else "exclude"}
         if m.get("soft"):
             L["mask"]["soft"] = m["soft"]
+        if m.get("split"):
+            L["mask"]["split"] = m["split"]
     return layers
 
 
@@ -529,9 +553,21 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
         cb = lambda p: prog("displace", 0.1 + 0.85 * p)
         if pin.get("layers"):
             refined = []
-            for L in pin["layers"]:
+            shown = [x for x in specs if x.get("visible") is not False]
+            for L, spec in zip(pin["layers"], shown):
                 hf = None if L.get("hardFaces") is None else np.asarray(L["hardFaces"], np.uint8)[parents]
                 ex = None if L.get("exclude") is None else interpolate_from_parents(geom["position"], parents, pin["positions"], L["exclude"])
+                m = spec.get("mask") or {}
+                if m.get("split"):  # the Precision brush: its tree sampled per refined corner (_sampledPaint)
+                    from ..paint import sample_split
+
+                    got = sample_split(pos, m, m.get("mode") == "include", sub["positions"], parents)
+                    if got is not None:
+                        rows, sx, sh = got
+                        ex = np.zeros(len(parents) * 3, F32) if ex is None else np.array(ex, F32)
+                        ex.reshape(-1, 3)[rows] = sx
+                        hf = np.zeros(len(parents), np.uint8) if hf is None else np.array(hf, np.uint8)
+                        hf[rows] = hf[rows] | sh
                 refined.append({"image": L["image"], "settings": L["settings"], "blendAdd": L["blendAdd"],
                                 "hardFaces": hf, "stampDepth": L.get("stampDepth"), "exclude": ex})
             out = apply_displacement_layers(geom, refined, st, bounds, cb, collect)

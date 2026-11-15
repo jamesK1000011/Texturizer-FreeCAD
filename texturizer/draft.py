@@ -14,6 +14,8 @@ texture_* tools all edit.
               includeOnly (By Surface mode), settings (BumpMesh's LAYER_KEYS)
               and mask {faces: [face names], triangles: [indices]}, plus
               soft {corners, values} where the brush painted soft coverage
+              and split [[triangle, codes, states, cov]] where the
+              Precision brush split triangles (paint.split_of)
     active    the index of the layer the sidebar edits
     settings  global settings (resolution, triangle limit, angle masks,
               Advanced, preview)
@@ -90,6 +92,11 @@ def _clamp(c, v):
             return int(v)
         return v
     return v
+
+
+def _split_copy(split):
+    """The Precision brush's split triangles (paint.split_of), as plain lists."""
+    return [[int(r[0]), [int(c) for c in r[1]], [int(x) for x in r[2]], [float(v) for v in r[3]]] for r in split]
 
 
 class Draft:
@@ -404,6 +411,8 @@ class Draft:
         if mask.get("soft"):
             new["soft"] = {"corners": [int(c) for c in mask["soft"]["corners"]],
                            "values": [float(v) for v in mask["soft"]["values"]]}
+        if mask.get("split"):
+            new["split"] = _split_copy(mask["split"])
         if new == self.layers[i]["mask"]:
             return
         self._push(coalesce=coalesce)
@@ -413,7 +422,7 @@ class Draft:
     def mask_clear(self, layer=None):
         i = self.active if layer is None else layer
         m = self.layers[i]["mask"]
-        if not m["faces"] and not m["triangles"] and not m.get("soft"):
+        if not m["faces"] and not m["triangles"] and not m.get("soft") and not m.get("split"):
             return
         self._push()
         self.layers[i]["mask"] = {"faces": [], "triangles": []}
@@ -421,7 +430,7 @@ class Draft:
 
     def mask_count(self, layer=None):
         m = self.mask(layer)
-        return len(m["faces"]) + len(m["triangles"])
+        return len(m["faces"]) + len(m["triangles"]) + len(m.get("split") or ())
 
     # -- whole draft -------------------------------------------------------------
     def reset(self):
@@ -473,6 +482,8 @@ class Draft:
             L["mask"] = {"faces": list(m.get("faces", [])), "triangles": sorted(int(t) for t in m.get("triangles", []))}
             if m.get("soft"):
                 L["mask"]["soft"] = copy.deepcopy(m["soft"])
+            if m.get("split"):
+                L["mask"]["split"] = _split_copy(m["split"])
             self.layers.append(L)
             self._seq = max(self._seq, L["id"])
         self.active = min(max(0, int(data.get("active", 0))), len(self.layers) - 1)

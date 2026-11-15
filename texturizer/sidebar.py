@@ -1165,6 +1165,7 @@ if QtWidgets is not None:
                 self.pages.addWidget(page)
             self.pages.setCurrentWidget(self.gallery_page)
             self.show()
+            self._gallery.opened()   # BumpMesh's openGallery: the Turntable spins unless switched off
             return self._gallery
 
         def hide_gallery(self):

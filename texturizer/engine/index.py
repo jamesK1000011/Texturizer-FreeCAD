@@ -250,7 +250,8 @@ def prepare_input(positions, layers, settings=None, centered=True):
     L0 = layers[0]
     paint0 = None if not L0.get("mask") else L0["mask"].get("paint")
     whole = paint0 is None or _is_whole_faces(paint0)
-    single = len(out) == 1 and out[0]["stampDepth"] is None and whole
+    # A layer the Precision brush split is sampled per refined corner: the layered path.
+    single = len(out) == 1 and out[0]["stampDepth"] is None and whole and not L0.get("split")
     if single:
         include = bool(L0.get("mask")) and L0["mask"].get("mode") == "include"
         painted = set()

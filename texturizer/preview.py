@@ -82,7 +82,9 @@ def stage_for(event, draft=None):
         return STAGE_OF.get(key, "subdivide")
     if kind == "mask":
         keep = draft is not None and draft.get("preserveUntextured")
-        return "subdivide" if keep else "displace"  # a new face set with Preserve Untextured
+        # A new face set with Preserve Untextured; else the map stage, which
+        # builds each layer's mask (its cover and hard faces) for the displace.
+        return "subdivide" if keep else "map"
     if kind in ("frame", "part", "layers", "layer", "texture", "active"):
         return STAGE_OF[kind]
     return "subdivide"  # reset, load, undo, redo

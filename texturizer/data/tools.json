@@ -210,7 +210,7 @@
      },
      "paint": {
       "type": "object",
-      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface); Hardness under 100 fades the paint per vertex to the rim. Each stroke is one undo step.",
+      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface). Mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle, and Hardness under 100 fades it to the rim; standard paints every touched triangle whole. Each stroke is one undo step.",
       "properties": {
        "strokes": {
         "type": "array",
@@ -236,13 +236,15 @@
         "type": "number",
         "minimum": 0,
         "maximum": 100,
-        "description": "%, 100 = whole triangles (the sidebar's, 50)."
+        "description": "%, Precision only: 100 = a hard edge (the sidebar's, 50)."
        },
        "mode": {
         "type": "string",
         "enum": [
+         "precision",
          "standard"
-        ]
+        ],
+        "description": "The sidebar's Mode when left out (Precision)."
        },
        "erase": {
         "type": "boolean",

@@ -32,6 +32,7 @@ tests/test_sidebar.py
 tests/test_texture.py
 tests/test_theme_loop.py
 tests/test_tooltips.py
+tests/test_turntable.py
 tests/test_wiring.py
 tests/tools/bm_hooks.mjs
 tests/tools/bm_js.mjs
@@ -95,6 +96,7 @@ texturizer/live.py
 texturizer/mesh.py
 texturizer/meshdist.py
 texturizer/paint.py
+texturizer/painttree.py
 texturizer/paintview.py
 texturizer/panel.py
 texturizer/preview.py
@@ -298,6 +300,7 @@ texturizer/textures/wood.png
 texturizer/textures/woodgrain_02.png
 texturizer/textures/woodgrain_03.png
 texturizer/theme.py
+texturizer/turntable.py
 texturizer/uvmath.py
 texturizer/window.py
 texturizer/workbench.py

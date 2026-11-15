@@ -1196,14 +1196,16 @@ def _fill_triangles(d, i, o, f):
 
 
 def _paint_strokes(d, i, o, pa):
-    """paint: {strokes, size, hardness, type, erase}: BumpMesh's brush
-    (paint.py), each stroke one undo step. Checked whole before any paints."""
+    """paint: {strokes, size, hardness, type, mode, erase}: BumpMesh's brush
+    (paint.py; mode precision refines under the stroke, standard paints whole
+    triangles), each stroke one undo step. Checked whole before any paints."""
     from . import paint
 
     if not isinstance(pa, dict) or not isinstance(pa.get("strokes"), list) or not pa["strokes"]:
         raise ToolError("invalid_input", "paint: {strokes: [[hit, ...], ...]}, a hit {point, normal, triangle}.")
-    if pa.get("mode", "standard") != "standard":
-        raise ToolError("invalid_input", "paint.mode: standard (Precision comes later).")
+    mode = pa.get("mode", "precision" if d.get("brushPrecision") else "standard")
+    if mode not in paint.Brush.MODES:
+        raise ToolError("invalid_input", "paint.mode: precision or standard.")
     kind = pa.get("type", "circle" if d.get("brushIsRadius") else "single")
     if kind not in ("circle", "single"):
         raise ToolError("invalid_input", "paint.type: circle or single.")
@@ -1212,7 +1214,7 @@ def _paint_strokes(d, i, o, pa):
     pos, ft = live.mesh_for(o)
     srf = paint.surface_for(pos)
     try:
-        brush = paint.Brush(kind == "circle", size, hard)
+        brush = paint.Brush(kind == "circle", size, hard, mode)
         strokes = []
         for st in pa["strokes"]:
             if not isinstance(st, list) or not st:
