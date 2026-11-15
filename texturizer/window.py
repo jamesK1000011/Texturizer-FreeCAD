@@ -5,7 +5,7 @@
 # tint (teal textured, orange masked) and the Quick look follow BumpMesh's
 # js/previewMaterial.js; the Save / Load Project dialogs its index.html.
 """The window side of Texturizer (live.GUI): the Settings sidebar docked on
-the right with the Texture Gallery beside it, both on the one shared draft;
+the right (or where PanelLayout puts it) with the Texture Gallery inside it, both on the one shared draft;
 the live preview (PreviewController on BumpMesh's engine) drawn in the 3D view
 as Coin nodes (the CPU-displaced mesh and the shader Quick look); file
 dialogs; the selection. Every sidebar button runs through panel.run: Agent
@@ -21,6 +21,7 @@ from . import handlers, live, paintview, panel, preview, quicklook, sidebar
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
+WORKBENCH = "TexturizerWorkbench"
 FILTERS = {"stl": "STL (*.stl)", "3mf": "3MF (*.3mf)", "bumpmesh": "BumpMesh project (*.bumpmesh)",
            "image": "Images (*.png *.jpg *.jpeg *.webp)"}
 ORANGE = (0.85, 0.40, 0.15)
@@ -342,13 +343,12 @@ class Window:
             return False
 
     def open(self, load=False):
-        """The sidebar on the right and the gallery beside it; load: the
+        """The sidebar where the panel layout setting puts it; load: the
         selected body (or the one body shown) into the draft first."""
         mw = _gui().getMainWindow()
         if not self._alive():
             d = live.draft()
             self.sidebar = sidebar.Sidebar(d, runner=runner, list_textures=live.list_textures, parent=mw)
-            sidebar.dock(mw, self.sidebar)
             self.sidebar.visibilityChanged.connect(self._visibility)
             if self._unsub:
                 self._unsub()
@@ -358,9 +358,14 @@ class Window:
             self.controller = preview.PreviewController(live.engine_with(self._mesh_for), d, self.view,
                                                         quicklook_ok=self._detect(), post=post, schedule=_schedule)
             self.paint = paintview.PaintView(self)
-        self.sidebar.show()
-        self.sidebar.raise_()
-        self.sidebar.show_gallery()
+        # Where the panel layout setting puts it (layout.py): right by
+        # default, at most 360 px, the window kept at its size; the gallery
+        # slides out inside it from its Texture Gallery button.
+        from . import layout
+
+        p = layout.placer()
+        p.show(sidebar.NAME, self.sidebar, WORKBENCH, sidebar.TITLE)
+        p.reveal(sidebar.NAME)
         if load:
             self._load_selection()
         self._part_changed()
@@ -389,6 +394,10 @@ class Window:
     def _visibility(self, visible):
         c = self.controller
         if c is None or self.sidebar is None:
+            return
+        if self.sidebar.widget() is None:
+            # Its content is a Combo View tab or the slide-out (layout.py):
+            # the empty dock's own showing and hiding says nothing.
             return
         if not visible and self.sidebar.isHidden():
             c.close()

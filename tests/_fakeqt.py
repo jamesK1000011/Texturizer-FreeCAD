@@ -485,6 +485,36 @@ class QDockWidget(QWidget):
         return self._w
 
 
+class QStackedWidget(QWidget):
+    """Pages, one in front (the sidebar's settings and its gallery)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pages, self._cur = [], None
+
+    def addWidget(self, w):  # noqa: N802
+        self._pages.append(w)
+        if self._cur is None:
+            self._cur = w
+        return len(self._pages) - 1
+
+    def count(self):
+        return len(self._pages)
+
+    def widget(self, i):
+        return self._pages[i]
+
+    def indexOf(self, w):  # noqa: N802
+        return self._pages.index(w) if w in self._pages else -1
+
+    def currentWidget(self):  # noqa: N802
+        return self._cur
+
+    def setCurrentWidget(self, w):  # noqa: N802
+        if w in self._pages:
+            self._cur = w
+
+
 class QMainWindow(QWidget):
     def addDockWidget(self, area, dock):  # noqa: N802
         self.docks = getattr(self, "docks", []) + [(area, dock)]
@@ -600,7 +630,7 @@ def modules():
         setattr(gui, c.__name__, c)
     w = types.ModuleType("QtWidgets")
     for c in (QWidget, QLabel, QPushButton, QToolButton, QCheckBox, QSlider, QDoubleSpinBox, QLineEdit, QComboBox,
-              QListWidget, QMenu, QProgressBar, QScrollArea, QDockWidget, QMainWindow, QButtonGroup,
+              QListWidget, QMenu, QProgressBar, QScrollArea, QStackedWidget, QDockWidget, QMainWindow, QButtonGroup,
               QAbstractItemView, QMessageBox, QApplication, QVBoxLayout, QSizePolicy, QHBoxLayout, QGridLayout, QLayout):
         setattr(w, c.__name__, c)
     return core, gui, w

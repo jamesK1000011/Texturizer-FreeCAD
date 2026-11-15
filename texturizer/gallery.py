@@ -362,7 +362,7 @@ if QtWidgets is not None:
         favorites, Your textures, the hint, Done, and a credit per tile."""
 
         def __init__(self, list_textures, favourites=None, on_pick=None, draft=None, runner=None,
-                     on_favourites=None, spin=None, parent=None):
+                     on_favourites=None, spin=None, on_done=None, parent=None):
             super().__init__(S("gallery.title"), parent)
             self.setObjectName("TexturizerGallery")
             self.list_textures = list_textures
@@ -387,7 +387,9 @@ if QtWidgets is not None:
             self.turntable.toggled.connect(self.set_turntable)
             head.addWidget(self.turntable)
             self.done = QtWidgets.QPushButton(S("gallery.done"))
-            self.done.clicked.connect(lambda *_: self.close())
+            # Done: back to the settings when the gallery slides out inside
+            # the sidebar (on_done), else the dock closes.
+            self.done.clicked.connect(lambda *_: (on_done or self.close)())
             head.addWidget(self.done)
             v.addLayout(head)
 
@@ -477,9 +479,12 @@ if QtWidgets is not None:
                 self.turntable.setChecked(False)
                 self.turntable.blockSignals(False)
 
-        def closeEvent(self, ev):  # noqa: N802
+        def stop_spin(self):
             if self.turntable.isChecked():
                 self.turntable.setChecked(False)
+
+        def closeEvent(self, ev):  # noqa: N802
+            self.stop_spin()
             super().closeEvent(ev)
 
         def reset_favourites(self):

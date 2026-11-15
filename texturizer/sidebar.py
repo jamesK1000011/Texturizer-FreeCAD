@@ -22,7 +22,7 @@ own alone; the sidebar doesn't care which (ACTIONS lists what it asks).
 """
 import math
 
-from . import controls, gallery, title_case
+from . import controls, gallery, layout, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -428,7 +428,12 @@ if QtWidgets is not None:
             scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             scroll.setWidget(body)
             self.scroll = scroll
-            self.setWidget(scroll)
+            # The settings, and the Texture Gallery sliding out over them
+            # inside this panel (show_gallery; its Done slides it back): no
+            # dock of its own beside the sidebar, which widened the window.
+            self.pages = QtWidgets.QStackedWidget()
+            self.pages.addWidget(scroll)
+            self.setWidget(self.pages)
             self._unsub = draft.subscribe(self._on_draft)
             self.refresh()
             self.fit_width()
@@ -453,6 +458,8 @@ if QtWidgets is not None:
             except (AttributeError, TypeError):
                 pass
             w = min_dock_width(self.body.minimumSizeHint().width(), bar, scroll.frameWidth())
+            # Never past the panel's cap (layout.py): the rows wrap instead.
+            w = min(w, layout.width_cap(layout.read()))
             scroll.setMinimumWidth(w)
             return w
 
@@ -1070,18 +1077,34 @@ if QtWidgets is not None:
             self.draft.set_texture(entry["id"], defaults=entry.get("defaults"))
 
         def show_gallery(self):
+            """The Texture Gallery, slid out over the settings inside this
+            panel."""
             if self.open_gallery is not None:
                 return self.open_gallery()
             if self._gallery is None:
                 self._gallery = gallery.GalleryDock(self.textures, self.favourites, draft=self.draft, runner=self.runner,
-                                                    on_favourites=self.favgrid.refresh, parent=self.parentWidget())
-                mw = self.parentWidget()
-                if isinstance(mw, QtWidgets.QMainWindow):
-                    mw.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._gallery)
-                    mw.splitDockWidget(self, self._gallery, QtCore.Qt.Horizontal)
-            self._gallery.show()
-            self._gallery.raise_()
+                                                    on_favourites=self.favgrid.refresh, on_done=self.hide_gallery)
+                page = QtWidgets.QWidget()
+                v = QtWidgets.QVBoxLayout(page)
+                v.setContentsMargins(0, 0, 0, 0)
+                head = QtWidgets.QLabel(S("gallery.title"))
+                head.setProperty("role", "title")
+                v.addWidget(head)
+                v.addWidget(self._gallery.widget(), 1)
+                self.gallery_page = page
+                self.pages.addWidget(page)
+            self.pages.setCurrentWidget(self.gallery_page)
+            self.show()
             return self._gallery
+
+        def hide_gallery(self):
+            """The gallery slid back: the settings again."""
+            if self._gallery is not None:
+                self._gallery.stop_spin()
+            self.pages.setCurrentWidget(self.scroll)
+
+        def gallery_open(self):
+            return self._gallery is not None and self.pages.currentWidget() is self.gallery_page
 
         # -- outside updates ------------------------------------------------------------
         def set_anchor(self, mm):

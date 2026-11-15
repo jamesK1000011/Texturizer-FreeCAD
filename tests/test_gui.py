@@ -244,7 +244,8 @@ class Workbench(unittest.TestCase):
         header = ["Texturizer_Undo", "Texturizer_Redo", "Texturizer_Reset", "Texturizer_SaveProject", "Texturizer_LoadProject",
                   "Texturizer_Gallery", "Texturizer_ExportSTL", "Texturizer_Export3MF"]
         self.assertEqual(out["toolbars"], [["Texturizer", header], ["View", commands.VIEW_TOOLBAR],
-                                           ["Check", [commands.PREPARE, commands.CHECK]]])
+                                           ["Check", [commands.PREPARE, commands.CHECK]],
+                                           ["Texturizer Panel", [commands.TEXTURE]]])
         self.assertEqual([out["commands"][n]["MenuText"] for n in header],
                          ["Undo", "Redo", "Reset to Defaults", "Save Project", "Load Project", "Texture Gallery", "Export STL", "Export 3MF"])
         self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Wireframe", "Perspective View", "Section View"])

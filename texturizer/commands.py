@@ -291,7 +291,7 @@ class _Panel:
 
 
 def open_sidebar(load=False):
-    """The Settings sidebar (right) and the Texture Gallery beside it."""
+    """The Settings sidebar, where the panel layout setting puts it; its Texture Gallery slides out inside it."""
     from . import window
 
     return window.get().open(load=load)
@@ -306,9 +306,11 @@ class _Texture:
         return True
 
     def Activated(self):
-        from . import live
+        from . import layout, live
 
-        open_sidebar(load=live.draft().part is None)
+        # Slid out over the 3D view (PanelLayout left-slide): opens and
+        # closes it; else shows the sidebar.
+        layout.toggle_or(lambda: open_sidebar(load=live.draft().part is None))
 
 
 class _Press:

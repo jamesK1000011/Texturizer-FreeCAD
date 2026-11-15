@@ -91,6 +91,8 @@ def make_class(Gui):
             self.appendToolbar("Texturizer", commands.TOOLBAR)
             self.appendToolbar("View", commands.VIEW_TOOLBAR)
             self.appendToolbar("Check", commands.CHECK_TOOLBAR)
+            # The sidebar shown, or slid in and out (PanelLayout left-slide).
+            self.appendToolbar("Texturizer Panel", [commands.TEXTURE])
             self.appendMenu("Texturizer", [commands.TEXTURE, "Separator"] + commands.TOOLBAR + [commands.ADD, "Separator"]
                             + commands.VIEW_TOOLBAR + ["Separator"] + commands.CHECK_TOOLBAR
                             + [commands.PANEL, "Separator", "Texturizer_About"])

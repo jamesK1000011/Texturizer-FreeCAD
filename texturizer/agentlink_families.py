@@ -23,4 +23,7 @@ def _texture_tab(panel):
 
 
 texturizer._hosted = True
-hooks.register_tab("Texture", _texture_tab, order=60)
+try:  # the tab only while Texturizer is the workbench in front
+    hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench")
+except TypeError:  # an Agent Link before tabs per workbench
+    hooks.register_tab("Texture", _texture_tab, order=60)
