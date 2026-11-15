@@ -33,22 +33,39 @@ engine (same triangles, same float32 coordinates); see
 
 ## In FreeCAD
 
-The **Texturizer** workbench has, on its toolbar and menu:
+The **Texturizer** workbench is laid out as BumpMesh, so someone who knows
+BumpMesh finds every control where it was; that familiarity is part of the
+credit to Stefan Hermann (CNC Kitchen).
 
-- **Prepare for texture** — select the faces on a body, then set include or
-  exclude, the tolerance and where the STL goes (a task panel); the mask is
-  written beside it.
-- **Check textured mesh** — the textured STL, reach and flatness (a task
-  panel); the result goes to the Texture panel.
-- **Texture panel** — the last prepared files and the last check.
+- **Settings sidebar** (right, as BumpMesh's): BumpMesh's sections, headings,
+  labels, ranges and defaults in its order — Load Model…, Place on Face and
+  Rotate; Displacement Map (layer strip, favourites, Texture Gallery, Upload
+  custom map); Projection; Texture Depth (3D Preview, Quality Draft / Fine);
+  Transform; Masking (By Angle, By Surface with B-rep faces, Add by…, Fill,
+  Smooth Mask); Advanced / Beta Features; Export (Suggest values, Resolution,
+  Output Triangles, Add to document / Update, Export STL / 3MF).
+- **Texture Gallery** dock beside it: search, categories, favourites, your
+  own maps, and a credit badge on each tile (HP, CC0, CNC Kitchen, Yours).
+- **Live preview** in the 3D view: the shader Quick look while you change
+  things (3D Preview off, BumpMesh's default), and BumpMesh's engine's
+  displaced mesh with 3D Preview on (500 k triangles Draft, 1.5 M Fine). It
+  falls back to the CPU preview where the shader can't run.
+- **Toolbars**: "Texturizer" is BumpMesh's header row (Undo, Redo, Reset to
+  defaults, Save Project, Load Project, Texture Gallery, Export STL, Export
+  3MF); "View" is FreeCAD's own Wireframe, Perspective View and Section View
+  under BumpMesh's labels; "Check" has Prepare for texture and Check
+  textured mesh. Save / Load Project read and write BumpMesh's own
+  `.bumpmesh` files.
+- **Textured objects** keep the settings they were made with. When the body
+  changes they are marked out of date (never rerun on their own); Update
+  textures them again, and Load Model… on one brings its settings back.
 
-BumpMesh's own Settings sidebar and Texture Gallery, rebuilt in FreeCAD with
-its labels and layout, are the next step.
-
-With Agent Link installed, the Texture panel is a tab in Agent Link's panel
-and its buttons run through Agent Link (shown and logged); alone, it is a
-dock of its own beside the model tree. Its accent colours follow FreeCAD's
-theme; it never sets a stylesheet on FreeCAD itself.
+Entering the workbench opens the sidebar with the selected body loaded. With
+Agent Link installed, sidebar clicks run through Agent Link (shown and
+logged in Activity), and a small Texture tab in Agent Link's panel shows the
+last results and opens the sidebar; alone, Texturizer runs them itself. Its
+accent colours follow FreeCAD's theme; it never sets a stylesheet on FreeCAD
+itself.
 
 ## Installs alone
 
@@ -76,9 +93,18 @@ is installed beside it, agents get these tools (defined in
 |---|---|
 | `texture_list` | The texture library: id, name, category, credit, licence, default tile size. |
 | `texture_settings` | BumpMesh's settings, units and mapping modes; for a body, the predicted triangles and memory and BumpMesh's suggested resolution. |
-| `texture_apply` | BumpMesh's engine on a body: a new textured Mesh object (and STL / 3MF), one texture or up to 4 layers with face masks. |
+| `texture_draft` | Start or read the draft the sidebar shows: the part (a Textured object brings back its settings), a whole draft, Reset to defaults, Load Project. |
+| `texture_set` | Texture, settings by BumpMesh's names, Rotate / Place on Face, cylinder Auto-fit / Reset / From face, stamp; the sidebar moves live. |
+| `texture_mask` | By Surface: include / exclude, faces added or removed, Add by…, Fill, Clear All, per layer. |
+| `texture_layer` | The layer strip: add, remove, move, solo, visible, Cover / Add, name, active (up to 4). |
+| `texture_preview` | The engine's preview of the draft, shown in the 3D view: edge, triangles, time; Suggest values; Cancel. |
+| `texture_apply` | Add to document / Update / Bake Textures: a Textured Mesh object beside the body, re-texturable; or one texture / up to 4 layers given directly. |
+| `texture_export` | STL or 3MF (a Textured object, or the draft), or Save Project as `.bumpmesh`. |
 | `texture_prepare` | A body as an STL plus a mask of the faces to texture. |
 | `texture_check` | A textured STL checked against the body face by face; verdict `ok` or `check`. |
+
+The texturing in every one of them is BumpMesh's engine, ported to Python
+and credited to Stefan Hermann (CNC Kitchen).
 
 ## Credits
 
