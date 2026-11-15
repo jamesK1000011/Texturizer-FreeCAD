@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from . import handlers, live, paintview, panel, preview, quicklook, sidebar
+from . import gizmoview, handlers, live, paintview, panel, preview, quicklook, sidebar
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
@@ -309,6 +309,7 @@ class Window:
         self._poster = None
         self._unsub = None
         self.paint = None
+        self.gizmo = None
 
     # -- the part's mesh, read on the GUI thread only ------------------------------------------
     def snapshot(self):
@@ -358,6 +359,8 @@ class Window:
             self.controller = preview.PreviewController(live.engine_with(self._mesh_for), d, self.view,
                                                         quicklook_ok=self._detect(), post=post, schedule=_schedule)
             self.paint = paintview.PaintView(self)
+            self.gizmo = gizmoview.GizmoView(self)
+            self.sidebar.stamp_place = self.gizmo.arm_place
         # Where the panel layout setting puts it (layout.py): right by
         # default, at most 360 px, the window kept at its size; the gallery
         # slides out inside it from its Texture Gallery button.
@@ -403,6 +406,8 @@ class Window:
             c.close()
             if self.paint is not None:
                 self.paint._detach()
+            if self.gizmo is not None:
+                self.gizmo._detach()
         elif visible and c.showing is None and live.draft().part:
             self._part_changed()
 
@@ -410,6 +415,8 @@ class Window:
     def _on_draft(self, ev):
         if self.paint is not None:
             self.paint.on_draft(ev)
+        if self.gizmo is not None:
+            self.gizmo.on_draft(ev)
         if ev.get("kind") in ("part", "load", "reset"):
             self._part_changed()
         elif ev.get("key") in ("refineLength", "maxTriangles"):
@@ -425,6 +432,8 @@ class Window:
         size = (p.max(0) - p.min(0)).tolist() if len(p) else [0, 0, 0]
         sb.set_mesh_info(len(pos) // 9, size, len(pos) * 4 / 2 ** 20)
         self._estimate()
+        if self.gizmo is not None:
+            self.gizmo.sync()
         c = self.controller
         if c is not None:
             if c.showing is None:

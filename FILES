@@ -19,6 +19,7 @@ tests/reference/refs.json
 tests/test_api.py
 tests/test_engine_api.py
 tests/test_engine_parity.py
+tests/test_gizmo.py
 tests/test_gui.py
 tests/test_layout.py
 tests/test_layout_placer.py
@@ -73,6 +74,8 @@ texturizer/engine/textureanalysis.py
 texturizer/engine/writers.py
 texturizer/fam_texture.py
 texturizer/gallery.py
+texturizer/gizmo.py
+texturizer/gizmoview.py
 texturizer/guides/texture.md
 texturizer/handlers.py
 texturizer/icons/CREDITS.md
