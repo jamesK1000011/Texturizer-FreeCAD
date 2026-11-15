@@ -701,6 +701,31 @@ class Observer:
         except Exception:  # noqa: BLE001 — never raise into FreeCAD
             pass
 
+    # The preview stands in for the body by hiding it; a save meanwhile
+    # would keep the body hidden in the file, so it is saved shown.
+    _hid = None
+
+    def slotStartSaveDocument(self, doc, _name):  # noqa: N802 (FreeCAD)
+        try:
+            v = getattr(live.GUI, "view", None)
+            c = getattr(live.GUI, "controller", None)
+            if v is None or c is None or c.showing in (None, "body") or v.get_body_visible():
+                return
+            self._hid = v
+            v.set_body_visible(True)
+        except Exception:  # noqa: BLE001
+            self._hid = None
+
+    def slotFinishSaveDocument(self, doc, _name):  # noqa: N802 (FreeCAD)
+        v, self._hid = self._hid, None
+        if v is not None:
+            try:
+                v.set_body_visible(False)
+                g = getattr(__import__("FreeCADGui"), "getDocument")(doc.Name)
+                g.Modified = False  # a save just happened: the view's own change is not unsaved work
+            except Exception:  # noqa: BLE001
+                pass
+
 
 # ── the draft (design 5.1): one Draft, shared with the sidebar ─────────────
 
