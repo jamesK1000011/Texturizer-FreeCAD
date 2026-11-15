@@ -26,6 +26,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(ROOT, "texturizer", "controls.py")
+CATALOG = os.path.join(ROOT, "texturizer", "textures", "catalog.json")
+
+
+def shipped():
+    """The texture names Texturizer ships (texturizer/textures/catalog.json):
+    BumpMesh's presets less the Filter Forge ones, which are not ours to ship."""
+    with open(CATALOG, encoding="utf-8") as fh:
+        return {c["name"] for c in json.load(fh)}
+
+
+def not_shipped(names, have):
+    """Explicit filter: the names in BumpMesh's defaults that we do not ship."""
+    return list(dict.fromkeys(n for n in names if n not in have))
 
 
 def _find_src():
@@ -410,16 +423,20 @@ def build(src):
     sections = []
     for sid, hk, tk, collapsed in SECTIONS:
         sections.append({"id": sid, "title": text(hk, sid), "title_key": hk, "tooltip": text(tk, sid), "collapsed": collapsed})
+    have = shipped()
     data = {
         "SECTIONS": sections,
         "CONTROLS": rows,
         "STRINGS": {k: text(k, "STRINGS") for k in STRING_KEYS},
         "CATEGORIES": [dict(c, label=text(c["label_key"], "categories")) for c in parse_categories(presets)],
-        "DEFAULT_FAVOURITES": parse_favourites(presets),
+        # BumpMesh's favourites less the textures we do not ship (Filter Forge).
+        "NOT_SHIPPED": not_shipped([parse_const(main, "DEFAULT_PRESET_NAME")] + parse_favourites(presets), have),
+        "DEFAULT_FAVOURITES": [n for n in parse_favourites(presets) if n in have],
         "CREDITS": parse_credits(gallery),
         "MAX_LAYERS": parse_const(material, "MAX_LAYERS"),
         "UNDO_LIMIT": parse_const(main, "UNDO_LIMIT"),
-        "DEFAULT_TEXTURE": parse_const(main, "DEFAULT_PRESET_NAME"),
+        # BumpMesh's default, or its next default (the first favourite) we ship.
+        "DEFAULT_TEXTURE": next(n for n in [parse_const(main, "DEFAULT_PRESET_NAME")] + parse_favourites(presets) if n in have),
     }
     return data
 

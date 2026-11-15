@@ -1,16 +1,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Texturizer's FreeCAD commands, no agent needed: Prepare for texture (the
-# selected faces written as an STL and a mask), Check textured mesh (the
-# textured STL measured against its body) and the Texture panel. Each runs
-# the same handler the agent's tool does, through the panel's runner. The
-# texturing is BumpMesh's engine (Stefan Hermann, CNC Kitchen) in
-# texturizer.engine, run in FreeCAD.
+# Texturizer's FreeCAD commands, no agent needed. The Settings sidebar
+# (Texturizer_Texture) and BumpMesh's header row as a toolbar: Undo, Redo,
+# Reset to defaults, Save Project, Load Project, Texture Gallery, Export STL,
+# Export 3MF (each the sidebar's own button, so it runs the same tool through
+# the same runner); Add to document / Update; the "View" toolbar, FreeCAD's
+# own view commands under BumpMesh's labels; Prepare for texture, Check
+# textured mesh and the Texture panel. The texturing is BumpMesh's engine
+# (Stefan Hermann, CNC Kitchen) in texturizer.engine, run in FreeCAD.
 import os
 
-from . import CREDIT, handlers, panel
+from . import CREDIT, controls, handlers, panel
 
 PREPARE, CHECK, PANEL = "Texturizer_Prepare", "Texturizer_Check", "Texturizer_Panel"
-NAMES = [PREPARE, CHECK, PANEL]
+TEXTURE, ADD = "Texturizer_Texture", "Texturizer_AddToDocument"
+# BumpMesh's header row: (command, the sidebar button it presses, icon).
+HEADER = [("Texturizer_Undo", "undo"), ("Texturizer_Redo", "redo"), ("Texturizer_Reset", "resetSettings"),
+          ("Texturizer_SaveProject", "saveProject"), ("Texturizer_LoadProject", "loadProject"),
+          ("Texturizer_Gallery", "textureGallery"), ("Texturizer_ExportSTL", "exportStl"),
+          ("Texturizer_Export3MF", "export3mf")]
+# FreeCAD's own view commands under BumpMesh's labels (its viewport overlay).
+VIEW = [("Texturizer_Wireframe", "Wireframe", "Std_DrawStyle: Wireframe, again for As is."),
+        ("Texturizer_Perspective", "Perspective View", "Perspective or orthographic camera (FreeCAD's own)."),
+        ("Texturizer_Section", "Section View", "FreeCAD's clipping plane (Std_ToggleClipPlane).")]
+TOOLBAR = [n for n, _ in HEADER]
+VIEW_TOOLBAR = [n for n, _l, _t in VIEW]
+CHECK_TOOLBAR = [PREPARE, CHECK]
+NAMES = [TEXTURE] + TOOLBAR + [ADD] + VIEW_TOOLBAR + [PREPARE, CHECK, PANEL]
 
 
 def faces_from_selection(sel):
@@ -233,7 +248,7 @@ class _Check:
 class _Panel:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Workbench", "MenuText": "Texture panel",
-                "ToolTip": "The Texture panel: last prepared files and the last check. " + CREDIT}
+                "ToolTip": "The Texture panel: last results, the last check, and the sidebar. " + CREDIT}
 
     def IsActive(self):
         return True
@@ -242,9 +257,89 @@ class _Panel:
         panel.show_dock()
 
 
+def open_sidebar(load=False):
+    """The Settings sidebar (right) and the Texture Gallery beside it."""
+    from . import window
+
+    return window.get().open(load=load)
+
+
+class _Texture:
+    def GetResources(self):
+        return {"Pixmap": "Texturizer_Workbench", "MenuText": "Settings sidebar",
+                "ToolTip": "Open Texturizer's settings sidebar and the Texture Gallery, with the selected body loaded. " + CREDIT}
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        from . import live
+
+        open_sidebar(load=live.draft().part is None)
+
+
+class _Press:
+    """A header button: the sidebar's own button of the same name."""
+
+    def __init__(self, name, key):
+        self.name, self.key = name, key
+
+    def GetResources(self):
+        c = controls.BY_KEY[self.key]
+        return {"Pixmap": self.name, "MenuText": c["label"].replace(" ⓘ", ""),
+                "ToolTip": (c.get("tooltip") or c["label"]) + " " + CREDIT}
+
+    def IsActive(self):
+        import FreeCAD
+
+        return self.key in ("textureGallery", "loadProject") or FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from . import window
+
+        window.get().press(self.key)
+
+
+class _View:
+    def __init__(self, name, label, tip):
+        self.name, self.label, self.tip = name, label, tip
+
+    def GetResources(self):
+        return {"Pixmap": self.name, "MenuText": self.label, "ToolTip": self.tip}
+
+    def IsActive(self):
+        import FreeCADGui
+
+        return FreeCADGui.ActiveDocument is not None
+
+    def Activated(self):
+        import FreeCADGui
+
+        if self.name == "Texturizer_Wireframe":
+            self.on = not getattr(self, "on", False)
+            FreeCADGui.runCommand("Std_DrawStyle", 2 if self.on else 0)
+        elif self.name == "Texturizer_Perspective":
+            v = FreeCADGui.ActiveDocument.ActiveView
+            v.setCameraType("Orthographic" if v.getCameraType() == "Perspective" else "Perspective")
+        else:
+            FreeCADGui.runCommand("Std_ToggleClipPlane", 0)
+
+
+def commands():
+    """{name: command object}: every Texturizer command."""
+    out = {TEXTURE: _Texture()}
+    for name, key in HEADER:
+        out[name] = _Press(name, key)
+    out[ADD] = _Press(ADD, "addToDocument")
+    for name, label, tip in VIEW:
+        out[name] = _View(name, label, tip)
+    out.update({PREPARE: _Prepare(), CHECK: _Check(), PANEL: _Panel()})
+    return out
+
+
 def register():
     import FreeCADGui
 
-    for name, cmd in ((PREPARE, _Prepare()), (CHECK, _Check()), (PANEL, _Panel())):
+    for name, cmd in commands().items():
         FreeCADGui.addCommand(name, cmd)
     return NAMES

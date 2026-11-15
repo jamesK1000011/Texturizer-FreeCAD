@@ -26,6 +26,7 @@ import re
 import numpy as np
 
 from . import quicklook_glsl, uvmath
+from .engine import frame_matrix as engine_frame_matrix
 
 MAX_LAYERS = quicklook_glsl.MAX_LAYERS
 MAP_PX = 512          # BumpMesh's height-map size
@@ -35,15 +36,11 @@ PARAM_PREFIX = "QuickLook"
 
 # -- uniforms ------------------------------------------------------------------
 def frame_matrix(rotation):
-    """Object -> frame rotation, X then Y then Z (degrees), as 16 floats,
-    row-major with column vectors."""
-    ax, ay, az = (math.radians(float(a or 0)) for a in (list(rotation or []) + [0, 0, 0])[:3])
-    cx, sx, cy, sy, cz, sz = math.cos(ax), math.sin(ax), math.cos(ay), math.sin(ay), math.cos(az), math.sin(az)
-    rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
-    ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
-    rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    """Object -> frame rotation as 16 floats, row-major with column vectors:
+    exactly the engine's frame_matrix, BumpMesh's Rotate X / Y / Z (three.js
+    Euler 'XYZ', R = Rx·Ry·Rz)."""
     m = np.eye(4)
-    m[:3, :3] = rz @ ry @ rx
+    m[:3, :3] = engine_frame_matrix((list(rotation or []) + [0, 0, 0])[:3])
     return [float(x) for x in m.ravel()]
 
 
