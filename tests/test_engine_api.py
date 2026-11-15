@@ -69,7 +69,10 @@ class Library(unittest.TestCase):
     def test_licences_file_and_privacy_list(self):
         lic = _read(os.path.join(ROOT, "texturizer", "textures", "LICENSES.md"))
         self.assertIn("Hero Patterns by Steve Schoger", lic)
-        listed = _read(os.path.join(ROOT, ".github", "privacy", "images.txt"))
+        images = os.path.join(ROOT, ".github", "privacy", "images.txt")
+        if not os.path.isfile(images):
+            self.skipTest("not a git checkout (installed add-on: no .github)")
+        listed = _read(images)
         for e in engine.library.list():
             if e["category"] == "custom":
                 continue
