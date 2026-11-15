@@ -11,6 +11,7 @@ sees the wheel before the scene graph does). The left button is taken only
 on a ring, the stamp's patch or an armed placement; everything else,
 middle and right always, navigates as usual. GUI thread only."""
 from . import gizmo, live
+from .paintview import hold_events
 from .qt import QtCore
 
 RING_WIDTH = 3
@@ -43,6 +44,7 @@ class GizmoView:
         self.view = v
         for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
             self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), fn)))
+        hold_events(v, True)
         try:
             vp = v.graphicsView().viewport()
             self._filter = _WheelFilter(self.tool)
@@ -54,6 +56,8 @@ class GizmoView:
     def _detach(self):
         self.tool.cancel()
         v, self.view = self.view, None
+        if v is not None:
+            hold_events(v, False)
         for t, cb in self._cbs:
             try:
                 v.removeEventCallbackPivy(t, cb)

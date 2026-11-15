@@ -26,6 +26,27 @@ HOVER = (1.0, 0.933, 0.0)    # BumpMesh's hover preview yellow (0xffee00), at 45
 BODY = (0.80, 0.80, 0.80)
 RING = 64
 
+_held = {}
+
+
+def hold_events(view, on):
+    """While a tool listens on the view, its events go to the scene graph
+    first and on to the navigation style only when no callback handled them:
+    without this, Gesture (and other styles) orbit on a left drag even
+    after the brush or a ring took it. Counted, as the brush and the
+    gizmo may both hold the same view."""
+    n = _held.get(id(view), 0) + (1 if on else -1)
+    _held[id(view)] = max(n, 0)
+    if (on and n == 1) or (not on and n <= 0):
+        for name in ("redirectToSceneGraph", "setRedirectToSceneGraph"):
+            fn = getattr(view, name, None)
+            if fn is not None:
+                try:
+                    fn(bool(on))
+                except Exception:  # noqa: BLE001 - a closed view
+                    pass
+                return
+
 
 class PaintView:
     def __init__(self, window):
@@ -56,10 +77,13 @@ class PaintView:
         self.view = v
         for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
             self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), fn)))
+        hold_events(v, True)
 
     def _detach(self):
         self.tool.cancel()
         v, self.view = self.view, None
+        if v is not None:
+            hold_events(v, False)
         for t, cb in self._cbs:
             try:
                 v.removeEventCallbackPivy(t, cb)
