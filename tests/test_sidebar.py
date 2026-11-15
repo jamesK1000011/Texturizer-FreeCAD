@@ -297,6 +297,20 @@ class SidebarWidget(unittest.TestCase):
         self.assertIs(sb.pages.currentWidget(), sb.scroll)
         self.assertTrue(g)
 
+    def test_fits_a_narrow_panel(self):
+        """The sidebar never asks more than layout.CONTENT_MIN wide (it was
+        clipped in the 300 px slide-out), and a long check box label wraps
+        in a label of its own."""
+        from texturizer import layout
+
+        _d, sb = self.make()
+        self.assertLessEqual(sb.fit_width(), layout.CONTENT_MIN)
+        long_ = [k for k, b in sb.binds.items() if getattr(b, "wrapped", None) is not None]
+        self.assertTrue(long_)
+        for k in long_:
+            self.assertGreater(len(sb.binds[k].label()), self.sidebar.LONG_CHECK)
+            self.assertEqual(sb.binds[k].widgets[0].text(), "")
+
     def test_sections_in_bumpmesh_order(self):
         d, sb = self.make()
         self.assertEqual(sb.windowTitle(), "Texturizer")
