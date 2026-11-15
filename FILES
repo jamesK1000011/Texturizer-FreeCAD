@@ -24,6 +24,7 @@ tests/test_gui.py
 tests/test_layout.py
 tests/test_layout_placer.py
 tests/test_paint.py
+tests/test_paint_line.py
 tests/test_preview.py
 tests/test_project.py
 tests/test_projection_extras.py
