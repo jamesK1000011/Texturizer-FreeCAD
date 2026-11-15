@@ -40,22 +40,8 @@ def hold_events(view, on):
     if (on and n == 1) or (not on and n <= 0):
         try:  # on the view's viewer (View3DInventorViewerPy), not the view
             view.getViewer().setRedirectToSceneGraph(bool(on))
-        except Exception as e:  # noqa: BLE001 - a closed view: nothing to give back
-            _probe(f"redirect {on} failed: {e}")
-            return
-    try:
-        _probe(f"hold {on} n={n} view={id(view)} redirected={view.getViewer().isRedirectedToSceneGraph()}")
-    except Exception as e:  # noqa: BLE001
-        _probe(f"probe failed {e}")
-
-
-def _probe(msg):  # TEMP: live check of the redirect
-    try:
-        import FreeCAD
-
-        FreeCAD.Console.PrintWarning(f"Texturizer probe: {msg}\n")
-    except Exception:  # noqa: BLE001
-        pass
+        except Exception:  # noqa: BLE001 - a closed view: nothing to give back
+            pass
 
 
 class PaintView:
@@ -186,7 +172,10 @@ class PaintView:
     @staticmethod
     def _ray(coin, cam, vp, x, y):
         w, h = vp.getViewportSizePixels().getValue()
-        vv = cam.getViewVolume(vp.getViewportAspectRatio())
+        a = vp.getViewportAspectRatio()
+        vv = cam.getViewVolume(a)
+        if 0 < a < 1.0:  # a tall view: Coin widens the volume by 1 / aspect when it draws
+            vv.scale(1.0 / a)
         line = coin.SbLine()
         vv.projectPointToLine(coin.SbVec2f(x / max(w, 1), y / max(h, 1)), line)
         return line.getPosition().getValue(), line.getDirection().getValue()
