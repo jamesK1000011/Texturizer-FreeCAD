@@ -254,6 +254,56 @@ class Retexture(Session):
         self.assertEqual(live.draft().part, out["baked"])
         self.assertEqual(len(live.draft().layers), 1)
 
+    def test_bake_masks_just_baked_faces(self):
+        # BumpMesh's Mask just-baked faces: a cube with only Face5 (x = 10)
+        # textured and baked; the next layer leaves that face as baked.
+        self.ok("texture_draft", {})
+        self.ok("texture_set", {"settings": {"refineLength": 2.5, "bakeMask": True, "bottomAngleLimit": 0}})
+        d = live.draft()
+        d.set("includeOnly", True, layer=0)
+        d.mask_add(faces=["Face5"], layer=0)
+        out = self.ok("texture_apply", {"bake": True})
+        obj = live.find(self.doc, out["baked"])
+        self.assertTrue(obj.Baked)
+        tris = obj.Mesh.positions.reshape(-1, 3, 3)
+        mask = d.layers[0]["mask"]
+        self.assertFalse(d.layers[0]["includeOnly"])
+        self.assertEqual(out["maskedTriangles"], len(mask["triangles"]))
+        # The masked triangles are exactly the baked Face5: textured, near x = 10.
+        on_face = [i for i, t in enumerate(tris) if t[:, 0].min() > 9.0]
+        self.assertEqual(mask["triangles"], on_face)
+        self.assertGreater(len(on_face), 2)
+        # The next layer leaves it as baked: the engine only moves the vertices
+        # its edges share with textured faces (the part stays closed); every
+        # triangle from inside the masked face keeps its plane.
+        res = engine.texture(obj.Mesh.positions, handlers.run_settings(d, {}), mode="bake")
+        out_t = res["positions"].reshape(-1, 3, 3).astype(np.float64)
+        parents = res["faceParentId"]
+        key = lambda p: tuple(np.round(p, 4))  # noqa: E731
+        masked = set(mask["triangles"])
+        rest_v = {key(p) for i, t in enumerate(tris) if i not in masked for p in t}
+        inner = [i for i in masked if not any(key(p) in rest_v for p in tris[i])]
+        self.assertGreater(len(inner), 4)
+        moved = 0
+        for k in np.nonzero(np.isin(parents, inner))[0]:
+            a, b, c = tris[parents[k]].astype(np.float64)
+            n = np.cross(b - a, c - a)
+            moved += np.abs((out_t[k] - a) @ (n / np.linalg.norm(n))).max() > 1e-4
+        self.assertEqual(moved, 0)
+        # The rest of the part got the new layer.
+        rest = np.nonzero(~np.isin(parents, mask["triangles"]))[0]
+        self.assertGreater(np.abs(out_t[rest][:, :, 0] - np.clip(out_t[rest][:, :, 0], 0, 10)).max()
+                           + np.abs(out_t[rest][:, :, 1] - np.clip(out_t[rest][:, :, 1], 0, 10)).max(), 0.05)
+        # Through texture_apply too: the mask resolves on the baked part.
+        live.mesh_for = lambda part, doc=None, tol=None: (obj.Mesh.positions, {})
+        self.assertIsNotNone(live.find(self.doc, self.ok("texture_apply", {"new": True})["object"]))
+
+    def test_bake_without_mask(self):
+        self.ok("texture_draft", {})
+        self.ok("texture_set", {"settings": {"refineLength": 2.5, "bakeMask": False}})
+        out = self.ok("texture_apply", {"bake": True})
+        self.assertEqual((out["maskedTriangles"], live.draft().mask_count(0)), (0, 0))
+
 
 # -- mesh_for ---------------------------------------------------------------------------
 class V:

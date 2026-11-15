@@ -230,14 +230,14 @@ def _layers_from_args(s, a, o, per_face, n, settings):
     return layers, masked
 
 
-def _run_engine(s, a, pos, run):
+def _run_engine(s, a, pos, run, mode="export"):
     from . import engine
 
     est = engine.estimate(pos, run)
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
         raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
                         f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB): raise settings.refineLength (texture_settings suggests one).")
-    res = engine.texture(pos, run)
+    res = engine.texture(pos, run, mode=mode)
     if res is None:
         raise ToolError("failed", "Stopped before it finished.")
     return res
@@ -304,9 +304,10 @@ def run_settings(d, face_triangles):
     return s
 
 
-def _apply_draft(s, a, d, target=None, name=None):
+def _apply_draft(s, a, d, target=None, name=None, bake=False):
     """BumpMesh's engine on the draft's part: a new Textured object, or the
-    target updated in place."""
+    target updated in place. bake: BumpMesh's bake pipeline (no decimation),
+    out["bakedTriangles"] the textured triangles of the stored mesh."""
     import json
 
     from . import engine
@@ -316,16 +317,44 @@ def _apply_draft(s, a, d, target=None, name=None):
     run = run_settings(d, ft)
     if not any(L.get("visible", True) is not False for L in run["layers"]):
         raise ToolError("invalid_state", "Every layer is hidden: show one (texture_layer).")
-    res = _run_engine(s, a, pos, run)
+    bake = bake or bool(getattr(target, "Baked", False))
+    res = _run_engine(s, a, pos, run, "bake" if bake else "export")
     name = name or (target.Label if target is not None else f"{o.Label}_textured")
-    obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target, draft_json=json.dumps(d.to_dict()))
+    obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target,
+                    draft_json=json.dumps(d.to_dict()), baked=bake)
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "updated": target is not None, "triangles": res["triangles"], "inputTriangles": res["inputTriangles"],
            "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run),
            "layers": [{"layer": i + 1, "texture": L["texture"], "mode": "include" if L.get("includeOnly") else "exclude",
                        "faces": list(L["mask"]["faces"])} for i, L in enumerate(d.layers)]}
     _export_with(s, a, pos, run, res, out)
+    if bake and obj is not None:
+        out["bakedTriangles"] = _stored_triangles(obj, res["positions"], res["bakedTriangles"])
     return obj, out
+
+
+def _stored_triangles(obj, positions, tris):
+    """The engine's triangle indices as indices of obj's stored mesh: the same
+    when the mesh kept the facet order, else matched by centroid."""
+    import numpy as np
+
+    tris = [int(t) for t in tris]
+    try:
+        stored = live.mesh_positions(obj.Mesh)
+    except (AttributeError, TypeError, ValueError):
+        return tris
+    p = np.asarray(positions, np.float64).reshape(-1, 3, 3)
+    q = np.asarray(stored, np.float64).reshape(-1, 3, 3)
+    if len(p) == len(q) and np.allclose(p, q, atol=1e-4):
+        return tris
+    key = lambda c: tuple(np.round(c, 3))  # noqa: E731
+    where = {}
+    for i, c in enumerate(q.mean(axis=1)):
+        where.setdefault(key(c), []).append(i)
+    out = set()
+    for c in p[tris].mean(axis=1):
+        out.update(where.get(key(c), ()))
+    return sorted(out)
 
 
 def texture_apply(s, a):
@@ -377,24 +406,28 @@ def texture_apply(s, a):
         t = live.find(doc, live.TARGET["object"])
         if t is not None and getattr(t, "SourceBody", None) == d.part:
             target = t
-    obj, out = _apply_draft(s, a, d, target=target, name=a.get("name"))
+    obj, out = _apply_draft(s, a, d, target=target, name=a.get("name"), bake=bool(a.get("bake")))
+    baked = out.pop("bakedTriangles", None)
     if obj is not None:
         live.TARGET["object"] = obj.Name
     if a.get("bake") and obj is not None:
         # Bake Textures: the textured mesh becomes the part, with a fresh layer
-        # on the same global settings (BumpMesh's bake). The Textured object
-        # keeps its own settings and can still be updated.
+        # on the same global settings (BumpMesh's bake). Mask just-baked faces
+        # seeds that layer's exclude mask with the triangles textured this
+        # round (faceParentId of faces that weren't excluded), so the next
+        # pass doesn't double up. The Textured object keeps its own settings
+        # and can still be updated.
         bake_mask = bool(d.settings.get("bakeMask"))
         keep = dict(d.settings)
         with d.batch():
             d.reset()
             d.update({k: v for k, v in keep.items() if k in d.settings})
             d.set_part(obj.Name)
+            if bake_mask and baked:
+                d.mask_add(triangles=baked, layer=0)
         live.TARGET["object"] = None
         out["baked"] = obj.Name
-        if bake_mask:
-            out["warnings"] = list(out.get("warnings") or []) + [
-                "Mask just-baked faces: not available yet on a baked mesh; the new layer textures the whole part."]
+        out["maskedTriangles"] = len(baked or []) if bake_mask else 0
     out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check against the body; "
                    "texture_export for an STL / 3MF." % (out["object"] or ""))
     return remember("texture_apply", out)
@@ -426,10 +459,11 @@ PROPS = (("Credit", "App::PropertyString", "The credit this texture carries"),
          ("TextureArgs", "App::PropertyString", "The texture_apply arguments it was made with (JSON)"),
          ("SourceBody", "App::PropertyString", "The body it textures"),
          ("SourceSignature", "App::PropertyString", "The body's geometry when it was textured"),
-         ("OutOfDate", "App::PropertyBool", "The body changed since: Update to texture it again"))
+         ("OutOfDate", "App::PropertyBool", "The body changed since: Update to texture it again"),
+         ("Baked", "App::PropertyBool", "Made by Bake Textures: undecimated, so a mask on it keeps its triangles"))
 
 
-def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="", args=None):
+def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="", args=None, baked=False):
     """The textured mesh as a Mesh::Feature beside the body (or the target
     updated), carrying its credit, the settings it was made with, its body
     and the body's fingerprint."""
@@ -444,7 +478,7 @@ def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="",
     obj.Mesh = m
     vals = {"Credit": credit, "TextureSettings": json.dumps(_jsonable(run)), "TextureDraft": draft_json or "",
             "TextureArgs": json.dumps(args) if args else "", "SourceBody": body.Name,
-            "SourceSignature": live.signature(body), "OutOfDate": False}
+            "SourceSignature": live.signature(body), "OutOfDate": False, "Baked": bool(baked)}
     for prop, kind, doc_text in PROPS:
         if prop not in obj.PropertiesList:
             obj.addProperty(kind, prop, "Texturizer", doc_text)

@@ -182,8 +182,8 @@ SPEC = [
     dict(s="advanced", k="preserveUntexturedHeading", t="heading", l="ui.preserveUntexturedHeading", note="ui.preserveUntexturedDesc", sc="ui"),
     dict(s="advanced", k="preserveUntextured", t="checkbox", id="preserve-untextured-chk", l="ui.preserveUntextured", sc=G),
     dict(s="advanced", k="bakeTexturesHeading", t="heading", l="ui.bakeTexturesHeading", note="ui.bakeTexturesDesc", sc="ui"),
-    dict(s="advanced", k="bakeMask", later="Bake Textures: build step 9", t="checkbox", id="bake-mask-chk", l="ui.bakeMaskNewFaces", sc=G),
-    dict(s="advanced", k="bakeTextures", later="Bake Textures: build step 9", t="button", id="bake-btn", l="ui.bakeTextures", tip="tooltips.bakeTextures", sc="action"),
+    dict(s="advanced", k="bakeMask", t="checkbox", id="bake-mask-chk", l="ui.bakeMaskNewFaces", sc=G),
+    dict(s="advanced", k="bakeTextures", t="button", id="bake-btn", l="ui.bakeTextures", tip="tooltips.bakeTextures", sc="action"),
     # 8: Export
     dict(s="export", k="smartRes", t="button", id="smart-res-btn", l="labels.smartRes", tip="tooltips.smartRes", sc="action"),
     dict(s="export", k="refineLength", t="slider", id="refine-length", box="refine-length-val", l="labels.resolution", tip="tooltips.resolution", sc=G,

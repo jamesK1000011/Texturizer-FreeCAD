@@ -14,7 +14,7 @@ There is one draft per window, shared by the sidebar, the gallery and these tool
 3. `texture_set { texture, settings }` — e.g. `{ textureHeight: 0.5, scaleU: 5, mappingMode: "cubic" }`; `frame { rotation }` (BumpMesh's Rotate, Euler XYZ) or `frame { face }` (Place on Face); `cylinder` autofit / reset / from_face; `stamp` on / off / `{ point, normal }`.
 4. `texture_layer { action }` — add (a copy of the active layer, Include Only), remove, move, solo, visible, blend cover / add, up to 4.
 5. `texture_preview` — the engine's preview in the 3D view (Draft 500 k, Fine 1.5 M): edge, triangles, time, the export's size. Look with `view_snapshot`. `suggest: true` is BumpMesh's Suggest values.
-6. Say back the texture, depth, tile and the plain faces, then `texture_apply` — a Textured Mesh object beside the body (the body is untouched). Applying the same draft again updates that object; `new: true` makes another; `bake: true` is Bake Textures.
+6. Say back the texture, depth, tile and the plain faces, then `texture_apply` — a Textured Mesh object beside the body (the body is untouched). Applying the same draft again updates that object; `new: true` makes another; `bake: true` is Bake Textures: the result becomes the part, and with Mask just-baked faces on (`bakeMask`, the default) the fresh layer excludes what was just textured.
 7. `texture_export { format: stl | 3mf | bumpmesh, path }` — the file (3MF and STL carry the credit); `bumpmesh` is BumpMesh's Save Project.
 
 ## Out of date and Update

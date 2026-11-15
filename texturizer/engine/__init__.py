@@ -214,11 +214,17 @@ def fit_cylinder(mesh, settings=None):
 
 class Pipeline:
     """The export pipeline by stage, results kept: subdivide → map → displace →
-    finish (decimate, clamp, repair). rerun(from_stage) drops what follows."""
+    finish (decimate, clamp, repair). rerun(from_stage) drops what follows.
+    mode "bake" is BumpMesh's Bake Textures: no decimation, so the result
+    keeps faceParentId and bakedTriangles (the output triangles that were
+    textured, for Mask just-baked faces)."""
 
     ORDER = ("map", "subdivide", "displace", "finish")
 
-    def __init__(self, mesh, settings=None, mask=None, progress=None, should_abort=None):
+    def __init__(self, mesh, settings=None, mask=None, progress=None, should_abort=None, mode="export"):
+        if mode not in ("export", "bake"):
+            raise ValueError("mode: export or bake.")
+        self.mode = mode
         self.mesh = as_positions(mesh)
         self.settings = dict(settings or {})
         self.mask = mask
@@ -256,8 +262,12 @@ class Pipeline:
     def finish(self):
         if "finish" not in self.results:
             m = self.map()
-            fin = stage_finish(m["pin"], self.displace(), "export", self._prog(), self.should_abort)
+            fin = stage_finish(m["pin"], self.displace(), self.mode, self._prog(), self.should_abort)
             res = finish_result(m["pin"], self.subdivide(), fin)
+            if self.mode == "bake":
+                parents = np.asarray(self.subdivide()["faceParentId"], np.int64)
+                res["faceParentId"] = parents
+                res["bakedTriangles"] = baked_triangles(m["pin"]["faceWeights"], parents)
             if m["R"] is not None:
                 res["positions"] = _rotate(res["positions"], m["R"], inverse=True)
                 res["normals"] = _rotate(res["normals"], m["R"], inverse=True)
@@ -272,10 +282,22 @@ class Pipeline:
             return None
 
 
-def texture(mesh, settings=None, mask=None, progress=None, should_abort=None):
+def baked_triangles(face_weights, parents):
+    """bakeTextures' new exclusion set: every output triangle whose parent face
+    was not excluded (user mask, include mode, angle masking) was textured.
+    faceWeights[parent * 3] > 0.99 is the predicate subdivide skips on."""
+    parents = np.asarray(parents, np.int64)
+    if face_weights is None:
+        return np.arange(len(parents), dtype=np.int64)
+    w = np.asarray(face_weights).reshape(-1)
+    return np.nonzero(~(w[parents * 3] > 0.99))[0].astype(np.int64)
+
+
+def texture(mesh, settings=None, mask=None, progress=None, should_abort=None, mode="export"):
     """The textured, printable mesh: {"positions", "normals", "triangles", "inputTriangles",
-    "warnings", "repair"}; None when aborted. progress(stage, fraction, info)."""
-    return Pipeline(mesh, settings, mask, progress, should_abort).run()
+    "warnings", "repair"}; None when aborted. progress(stage, fraction, info).
+    mode "bake" skips decimation and adds faceParentId and bakedTriangles."""
+    return Pipeline(mesh, settings, mask, progress, should_abort, mode).run()
 
 
 def credit_of(settings):
