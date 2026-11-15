@@ -88,9 +88,7 @@ PERSISTED_KEYS = (
 )
 GLOBAL_KEYS = tuple(k for k in PERSISTED_KEYS if k not in LAYER_KEYS)
 STAMP_KEYS = ("stampCenterX", "stampCenterY", "stampCenterZ", "stampSide", "stampNormalX", "stampNormalY", "stampNormalZ")
-# Keys BumpMesh saves that the draft does not model, with BumpMesh's defaults;
-# per layer they live on draft.layers[i]["bumpmesh"] (see projection_extras.apply).
-LAYER_EXTRA_DEFAULTS = dict({k: None for k in STAMP_KEYS})
+# Global keys BumpMesh saves that the draft does not model, with BumpMesh's defaults.
 GLOBAL_EXTRA_DEFAULTS = {"cylinderPanelMinimized": False}
 
 
@@ -234,7 +232,7 @@ def _vert_count(triangles):
 # -- draft -> settings.json ------------------------------------------------------------
 def _layer_snapshot(L):
     """A draft layer's settings as BumpMesh's layer record settings."""
-    s, extra = L["settings"], L.get("bumpmesh") or {}
+    s = L["settings"]
     out = {}
     h = float(s.get("amplitude", 0.5))
     for k in LAYER_KEYS:
@@ -242,12 +240,8 @@ def _layer_snapshot(L):
             out[k] = h
         elif k == "amplitude":
             out[k] = (-1 if s.get("invertDisplacement") else 1) * h
-        elif k in s:
-            out[k] = s[k]
-        elif k in extra:
-            out[k] = extra[k]
         else:
-            out[k] = LAYER_EXTRA_DEFAULTS.get(k)
+            out[k] = s.get(k)
     out["stampOnce"] = bool(out.get("stampOnce"))
     out["scaleUnit"] = "mm"
     return out
@@ -396,10 +390,10 @@ def _migrate_scale(snap, bounds):
 
 
 def _layer_settings_from(saved, bounds):
-    """_layerSettingsFrom onto the draft's defaults: (draft settings, extras)."""
+    """_layerSettingsFrom onto the draft's defaults: the draft layer's settings."""
     from .draft import layer_defaults
 
-    s, extra = layer_defaults(), dict(LAYER_EXTRA_DEFAULTS)
+    s = layer_defaults()
     saved = saved if isinstance(saved, dict) else {}
     if saved.get("scaleUnit") != "mm":
         saved = _migrate_scale(dict(saved), bounds)
@@ -411,18 +405,16 @@ def _layer_settings_from(saved, bounds):
             continue
         if k in s:
             s[k] = v
-        elif k in extra:
-            extra[k] = v
     if "textureHeight" in saved and saved["textureHeight"] is not None:
         s["amplitude"] = float(saved["textureHeight"])
     elif saved.get("amplitude") is not None:
         s["amplitude"] = abs(float(saved["amplitude"]))
     if "stampOnce" not in saved:   # layers saved before stamps existed tile
         s["stampOnce"] = False
-        extra.update({k: None for k in STAMP_KEYS})
+        s.update({k: None for k in STAMP_KEYS})
     if s.get("mappingMode") == MODE_SURFACE_NORMAL and not s.get("stampOnce"):
         s["mappingMode"] = MODE_TRIPLANAR   # Surface normal is for stamps only
-    return s, extra
+    return s
 
 
 def _bounds_of(tris):
@@ -481,12 +473,12 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
         files = data["layers"][:controls.MAX_LAYERS]
         for i, d in enumerate(files):
             d = d if isinstance(d, dict) else {}
-            s, extra = _layer_settings_from(d.get("settings"), bounds)
+            s = _layer_settings_from(d.get("settings"), bounds)
             x = tz_layers[i] if i < len(tz_layers) and isinstance(tz_layers[i], dict) else {}
             L = {"id": int(d["id"]) if isinstance(d.get("id"), (int, float)) else i + 1,
                  "texture": texture_for(i, d, d.get("texture")), "visible": d.get("visible") is not False,
                  "blendAdd": bool(d.get("blendAdd")), "includeOnly": bool(d.get("includeOnly")), "settings": s,
-                 "solo": bool(x.get("solo")), "mask": {"faces": [], "triangles": []}, "bumpmesh": extra}
+                 "solo": bool(x.get("solo")), "mask": {"faces": [], "triangles": []}}
             if x.get("name"):
                 L["name"] = x["name"]
             if mode == LOAD_ALL:
@@ -518,12 +510,11 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
                         layers[i]["mask"]["triangles"] = _face_list(m, n)
     else:
         # A project from before layers: one layer, described by the top level.
-        s, extra = _layer_settings_from(top, bounds)
+        s = _layer_settings_from(top, bounds)
         cur = draft.layer()
         L = {"id": cur["id"] if mode == LOAD_SETTINGS else 1, "texture": None, "visible": True, "blendAdd": False,
              "includeOnly": cur["includeOnly"] if mode == LOAD_SETTINGS else False, "settings": s, "solo": False,
-             "mask": copy.deepcopy(cur["mask"]) if mode == LOAD_SETTINGS else {"faces": [], "triangles": []},
-             "bumpmesh": extra}
+             "mask": copy.deepcopy(cur["mask"]) if mode == LOAD_SETTINGS else {"faces": [], "triangles": []}}
         if proj.files.get("texture.png"):
             name = data.get("activeMapName") or "imported-texture.png"
             textures[0] = (name, proj.files["texture.png"])
@@ -548,8 +539,6 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
         else:
             new["frame"] = {"rotation": [0.0, 0.0, 0.0], "face": None}
     draft.load(new, undoable=True)
-    for i, L in enumerate(layers):   # the keys the draft does not model (draft.load drops them)
-        draft.layers[i]["bumpmesh"] = dict(L["bumpmesh"])
     return {"mode": mode, "model": model, "textures": textures, "warnings": warnings}
 
 

@@ -64,6 +64,12 @@ def _clamp(c, v):
         if allowed and v not in allowed:
             raise ValueError(f"{c['key']}: {v!r} is not one of {allowed}")
         return v
+    if t == "hidden":  # a stored number with no widget (the stamp's place): None or as given
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"{c['key']}: a number is needed")
+        return v if isinstance(v, int) else float(v)
     if t in ("slider", "log slider", "number"):
         if v is None:
             if c["default"] is None:

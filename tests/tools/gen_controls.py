@@ -56,7 +56,7 @@ SECTIONS = [
 
 # One row per control, in panel order. Fields:
 #   s section, k BumpMesh setting name (or the control's own name for buttons),
-#   t type, id HTML id (slider for sliders), box HTML id of the typed box,
+#   t type (hidden = a stored setting with no widget), id HTML id (slider for sliders), box HTML id of the typed box,
 #   l label key, tip tooltip key, sc scope (layer | global | frame | action | ui),
 #   opts [(value, label key, html id, tooltip key)] for buttons, d default override
 #   with its BumpMesh source, show {key: [values]} shown only then (as BumpMesh
@@ -101,6 +101,15 @@ SPEC = [
          added_tip="Read the centre, axis and radius from a picked cylindrical face."),
     dict(s="projection", k="stampOnce", t="toggle", id="stamp-mode-btn", l="ui.stampMode", tip="tooltips.stamp", sc=L),
     dict(s="projection", k="stampPlace", show={"stampOnce": [True]}, t="button", id="stamp-place-btn", l="ui.stampPlace", tip="tooltips.stampPlace", sc="action"),
+    # Where the stamp sits (Position on model writes them): per layer in
+    # BumpMesh's LAYER_KEYS, no widget of their own.
+    dict(s="projection", k="stampCenterX", t="hidden", sc=L),
+    dict(s="projection", k="stampCenterY", t="hidden", sc=L),
+    dict(s="projection", k="stampCenterZ", t="hidden", sc=L),
+    dict(s="projection", k="stampSide", t="hidden", sc=L),
+    dict(s="projection", k="stampNormalX", t="hidden", sc=L),
+    dict(s="projection", k="stampNormalY", t="hidden", sc=L),
+    dict(s="projection", k="stampNormalZ", t="hidden", sc=L),
     # 4: Texture Depth
     dict(s="textureDepth", k="amplitude", t="slider", id="amplitude", box="amplitude-val", l="labels.textureHeight", sc=L),
     dict(s="textureDepth", k="invertDisplacement", t="checkbox", id="invert-displacement", l="labels.invertDisplacement", sc=L),
@@ -311,6 +320,11 @@ def build(src):
         return page.ids[i]
 
     rows = []
+    layer_keys = re.findall(r"'(\w+)'", main.split("const LAYER_KEYS = [", 1)[1].split("];", 1)[0])
+    # textureHeight is |amplitude| in BumpMesh; project.py writes and reads it from amplitude.
+    missing = [k for k in layer_keys if k != "textureHeight" and not any(sp["k"] == k and sp["sc"] == L for sp in SPEC)]
+    if missing:
+        raise SpecError(f"LAYER_KEYS without a layer row: {missing}")
     for sp in SPEC:
         k, t = sp["k"], sp["t"]
         row = {"section": sp["s"], "key": k, "type": t, "scope": sp["sc"], "origin": "added" if sp.get("added") else "bumpmesh",
@@ -376,6 +390,10 @@ def build(src):
             else:
                 row["options"] = [{"value": v, "label": lab, "label_key": None, "tooltip": None, "origin": "added"} for v, lab in sp["added_opts"]]
                 row["default"] = sp["d"]
+        elif t == "hidden":
+            if k not in settings:
+                raise SpecError(f"{k}: not in main.js settings")
+            row["default"] = settings[k]
         elif "d" in sp:
             row["default"] = sp["d"]
         if sp.get("added") and t == "heading":
@@ -420,7 +438,7 @@ origin "added" are Texturizer's own (design section 2).
 
 Row fields: section, key (BumpMesh's setting name, or the control's own name
 for buttons), type (slider | log slider | checkbox | combo | buttons | toggle |
-number | button | heading | note | faces), scope (layer = per layer, BumpMesh's
+number | button | heading | note | faces | hidden = stored, no widget), scope (layer = per layer, BumpMesh's
 LAYER_KEYS; global; frame = the texturing frame; action = runs a tool; ui =
 panel state), label, label_key (en.js), tooltip, slider {min, max, step[, log]},
 box {min, max, step} (the typed box), default, options, group, note.

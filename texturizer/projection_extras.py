@@ -24,9 +24,8 @@ nothing then either):
 
 positions are the part's triangles in the texturing frame: an (N, 3, 3) or
 (N, 9) array or a flat list, as BumpMesh's non-indexed position array.
-The stamp fields are BumpMesh's own names; apply(draft, updates) sets the
-keys the draft has and keeps the others on the layer under "bumpmesh" (the
-draft has no stamp fields yet), which project.py saves.
+The stamp fields are BumpMesh's own names and per-layer draft settings;
+apply(draft, updates) sets them through draft.update (one undo step).
 
 No Qt or FreeCAD import here.
 """
@@ -340,16 +339,9 @@ def stamp_place(point, normal, settings, bounds=None, positions=None, pick_axis=
 
 # -- applying ------------------------------------------------------------------
 def apply(draft, updates, layer=None):
-    """Put updates on a draft layer: keys the draft knows through
-    draft.update (one undo step), BumpMesh keys it lacks (the stamp fields)
-    on the layer's "bumpmesh" dict."""
-    from . import controls
-
+    """Put updates (BumpMesh's names, the stamp fields included) on a draft
+    layer through draft.update: one undo step. Returns the values as set."""
     i = draft.active if layer is None else layer
-    known = {k: v for k, v in updates.items() if k in controls.BY_KEY}
-    extra = {k: v for k, v in updates.items() if k not in controls.BY_KEY}
-    if known:
-        draft.update(known, layer=i)
-    if extra:
-        draft.layers[i].setdefault("bumpmesh", {}).update(extra)
-    return known, extra
+    if updates:
+        draft.update(updates, layer=i)
+    return {k: draft.get(k, i) for k in updates}

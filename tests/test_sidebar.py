@@ -112,6 +112,8 @@ class ControlsTable(unittest.TestCase):
             main = f.read()
         body = main.split("const LAYER_KEYS = [", 1)[1].split("];", 1)[0]
         layer_keys = set(re.findall(r"'(\w+)'", body))
+        # Every per-layer setting is a layer row (textureHeight is |amplitude|).
+        self.assertEqual(layer_keys - {"textureHeight"} - set(draft.layer_defaults()), set())
         for c in controls.CONTROLS:
             if c["scope"] == "layer" and c["origin"] == "bumpmesh" and c["key"] != "includeOnly":
                 self.assertIn(c["key"], layer_keys, c["key"])
@@ -297,6 +299,9 @@ class SidebarWidget(unittest.TestCase):
         d, sb = self.make()
         got = sb.labels()
         for c in controls.CONTROLS:
+            if c["type"] == "hidden":   # stored on the layer, no widget
+                self.assertNotIn(c["key"], got)
+                continue
             self.assertIn(c["key"], got)
             if c.get("label") is not None:
                 self.assertEqual(got[c["key"]], c["label"], c["key"])
