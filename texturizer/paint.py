@@ -558,17 +558,20 @@ class PaintTool:
     its view) or None. on_cursor(hit or None, brush, erase) draws the brush
     circle; on_hover(source triangles or None, erase) BumpMesh's hover
     preview of what a click would mark (Standard and Single brush, Fill; the
-    Precision brush shows its footprint as the ring alone). Each method
-    returns True when it took the event (so FreeCAD does not navigate)."""
+    Precision brush shows its footprint as the ring alone); on_paint() after
+    each dab, to draw the stroke's own state. A stroke paints that state and
+    goes to the draft once, on release: one undo step and one mask change, so
+    the preview rebuilds once a stroke, not once a dab. Each method returns
+    True when it took the event (so FreeCAD does not navigate)."""
 
-    def __init__(self, draft, surface, pick, on_cursor=None, on_hover=None):
+    def __init__(self, draft, surface, pick, on_cursor=None, on_hover=None, on_paint=None):
         self.d = draft
         self.surface = surface
         self.pick = pick
         self.on_cursor = on_cursor or (lambda *a: None)
         self.on_hover = on_hover or (lambda *a: None)
-        self.stroke = None   # {"state", "prev", "erase", "tag", "layer", "ft"}
-        self._n = 0
+        self.on_paint = on_paint or (lambda: None)
+        self.stroke = None   # {"state", "prev", "erase", "layer", "ft", "brush", "s"}
         self._hover_key = None
 
     def _hover(self, faces, erase):
@@ -612,8 +615,7 @@ class PaintTool:
         if not down:
             if self.stroke is None:
                 return False
-            self.stroke = None
-            self.d.end_coalesce()
+            self._end()
             return True
         got = self.surface()
         hit = self.pick(x, y) if got else None
@@ -626,21 +628,23 @@ class PaintTool:
             ang = self.d.get("bucketThreshold")
             commit(self.d, s, layer, lambda st: fill(st, hit["triangle"], ang, shift), ft)
             return True
-        self._n += 1
-        brush = Brush.from_draft(self.d)
-        tag = ("paint", self._n)
         st = state_from_mask(s, self.d.mask(layer), ft)
-        self.stroke = {"state": st, "prev": None, "erase": bool(shift), "tag": tag, "layer": layer, "ft": ft,
-                       "brush": brush, "s": s}
+        self.stroke = {"state": st, "prev": None, "erase": bool(shift), "layer": layer, "ft": ft,
+                       "brush": Brush.from_draft(self.d), "s": s}
         self._dab(hit)
         return True
 
     def _dab(self, hit):
         k = self.stroke
-        commit(self.d, k["s"], k["layer"], lambda st: paint_hit(st, hit, k["brush"], k["erase"], k["prev"]),
-               k["ft"], coalesce=k["tag"], base=k["state"])
+        paint_hit(k["state"], hit, k["brush"], k["erase"], k["prev"])
         k["prev"] = hit["point"]
         self.on_cursor(hit, k["brush"], k["erase"])
+        self.on_paint()
+
+    def _end(self):
+        """The stroke's paint into the draft: one mask_set (none when nothing changed)."""
+        k, self.stroke = self.stroke, None
+        commit(self.d, k["s"], k["layer"], lambda st: None, k["ft"], base=k["state"])
 
     def move(self, x, y, shift=False):
         tool = self.tool()
@@ -664,8 +668,7 @@ class PaintTool:
         return True
 
     def cancel(self):
-        if self.stroke is not None:
-            self.stroke = None
-            self.d.end_coalesce()
+        if self.stroke is not None:   # a stroke cut short (the tool or view changed) keeps its paint
+            self._end()
         self.on_cursor(None, None, False)
         self._hover(None, False)
