@@ -68,6 +68,29 @@ POS = grid()
 SURF = paint.Surface(POS)
 
 
+def box(sx=40.0, sy=30.0, sz=20.0):
+    """A coarse body: a box of 12 triangles, two per face, as a CAD box tessellates."""
+    def v(i):
+        return [(-sx / 2, sx / 2)[i & 1], (-sy / 2, sy / 2)[(i >> 1) & 1], (0.0, sz)[(i >> 2) & 1]]
+    tris = []
+    for a, b, c, d in ((4, 5, 7, 6), (0, 2, 3, 1), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)):
+        tris += [[v(a), v(b), v(c)], [v(a), v(c), v(d)]]
+    return np.asarray(tris, np.float32).reshape(-1)
+
+
+BOX = box()
+BOX_FT = {f"Face{k + 1}": [2 * k, 2 * k + 1] for k in range(6)}
+
+
+def box_drag(n=31):
+    """The live test's drag: across the top face from (-12, -8) to (12, 8), looking down."""
+    out = []
+    for p in np.linspace([-12, -8, 20], [12, 8, 20], n):
+        h = paint.ray_hit(BOX, p + [0, 0, 10], [0, 0, -1])
+        out.append(dict(h, view=list(DOWN)))
+    return out
+
+
 def hit_at(x, y, view=DOWN):
     h = paint.ray_hit(POS, [x, y, 20.0], [0, 0, -1])
     assert h is not None, (x, y)
@@ -284,6 +307,38 @@ class Engine(unittest.TestCase):
         W = window.layer_weights(4, tri, 12, [{"mask": m}, {"mask": m, "includeOnly": True}], {})
         np.testing.assert_allclose(W[:, 0], 1 - p)
         np.testing.assert_allclose(W[:, 1], p)
+
+
+class CoarseBody(unittest.TestCase):
+    """The Precision brush on a 12-triangle box: a band under the stroke, and
+    the Quick look (3D Preview off) drawing it on the tree's leaves."""
+
+    def test_precision_paints_a_band_the_quick_look_shows(self):
+        from texturizer import window
+
+        d = draft.Draft("Box")
+        s = paint.Surface(BOX)
+        paint.commit(d, s, 0, lambda st: paint.apply_stroke(st, box_drag(), paint.Brush(True, 10, 50)), BOX_FT)
+        m = d.mask()
+        self.assertEqual(sorted(r[0] for r in m["split"]), [0, 1])   # the top face's two triangles
+        pts, tri, _n = window.quicklook_mesh(BOX, BOX_FT)
+        plain = window.layer_weights(len(tri), tri, len(pts), d.layers, BOX_FT)[:, 0]
+        self.assertTrue((plain == 1).all())   # the source corners alone cannot carry the band
+        got = window.quicklook_split(BOX, BOX_FT, d.layers)
+        self.assertIsNotNone(got)
+        fpos, fft, layers = got
+        self.assertEqual(sorted(fft), sorted(BOX_FT))
+        pts, tri, _n = window.quicklook_mesh(fpos, fft)
+        W = window.layer_weights(len(tri), tri, len(pts), layers, None)[:, 0]
+        a, b = np.array([-12.0, -8.0]), np.array([12.0, 8.0])
+        u = np.clip((pts[:, :2] - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
+        dist = np.linalg.norm(pts[:, :2] - (a + u[:, None] * (b - a)), axis=1)
+        top = pts[:, 2] > 19.9
+        self.assertTrue((W[top & (dist < 2.0)] < 0.01).all())   # masked along the stroke (Exclude)
+        self.assertTrue((W[top & (dist > 5.5)] == 1).all())     # textured beyond the brush
+        self.assertTrue((W[~top] == 1).all())
+        self.assertIsNone(window.quicklook_split(BOX, BOX_FT, [dict(L, mask={"faces": [], "triangles": [3]})
+                                                                for L in d.layers]))
 
 
 class SplitEngine(unittest.TestCase):

@@ -254,13 +254,17 @@ class QuickLook:
         p = np.asarray(points, float).reshape(-1, 3)
         t = np.asarray(triangles, np.int64).reshape(-1, 3)
         self.coords.point.setValues(0, len(p), p.tolist())
+        self.coords.point.setNum(len(p))   # a mesh may shrink (the Precision brush's leaves merge back)
         self.normals.vector.setValues(0, len(p), np.asarray(normals, float).reshape(-1, 3).tolist())
+        self.normals.vector.setNum(len(p))
         idx = np.hstack([t, -np.ones((len(t), 1), np.int64)]).ravel()
         self.faces.coordIndex.setValues(0, len(idx), idx.tolist())
+        self.faces.coordIndex.setNum(len(idx))
 
     def set_weights(self, W):
         packed = pack_weights(W)
         self.colors.orderedRGBA.setValues(0, len(packed), [int(x) for x in packed])
+        self.colors.orderedRGBA.setNum(len(packed))
 
     def show(self, on):
         self.root.whichChild = -3 if on else -1  # SO_SWITCH_ALL / NONE
