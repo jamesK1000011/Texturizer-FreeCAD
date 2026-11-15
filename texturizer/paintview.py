@@ -38,14 +38,10 @@ def hold_events(view, on):
     n = _held.get(id(view), 0) + (1 if on else -1)
     _held[id(view)] = max(n, 0)
     if (on and n == 1) or (not on and n <= 0):
-        for name in ("redirectToSceneGraph", "setRedirectToSceneGraph"):
-            try:
-                fn = getattr(view, name, None)
-                if fn is not None:
-                    fn(bool(on))
-                    return
-            except Exception:  # noqa: BLE001 - a closed view: nothing to give back
-                return
+        try:  # on the view's viewer (View3DInventorViewerPy), not the view
+            view.getViewer().setRedirectToSceneGraph(bool(on))
+        except Exception:  # noqa: BLE001 - a closed view: nothing to give back
+            pass
 
 
 class PaintView:
