@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>Texturizer</name>
-  <description>Surface textures for printed parts, based on BumpMesh by Stefan Hermann (CNC Kitchen): a part written as one closed mesh face by face, with a mask of the faces to texture, and the textured mesh checked against the part face by face (depth, faces it leaked onto, closed or not). A Python API (texturizer.mesh); tools for agents through Agent Link for FreeCAD when it is installed. Not affiliated with or endorsed by the FreeCAD project or the FPA.</description>
-  <version>0.1.0</version>
+  <description>Surface textures for printed parts: BumpMesh's texturing engine by Stefan Hermann (CNC Kitchen), ported to Python, running inside FreeCAD — BumpMesh's texture library, mapping modes and settings, up to 4 layers with face masks, the result as a mesh beside the body and as STL or 3MF; plus a part prepared face by face and the textured mesh checked against it. Tools for agents through Agent Link for FreeCAD when it is installed. Not affiliated with or endorsed by the FreeCAD project, the FPA or CNC Kitchen.</description>
+  <version>0.2.0</version>
   <date>2026-11-14</date>
   <maintainer email="jamesK1000011@users.noreply.github.com">jamesK1000011</maintainer>
   <license file="LICENSE">AGPL-3.0-only</license>
