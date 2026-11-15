@@ -41,11 +41,15 @@ post(fn) (back to the GUI thread: a Qt signal) and schedule(seconds, fn) ->
 cancel(). The defaults use threading, for headless use and tests.
 """
 import threading
+import time
+
+from . import timing
 
 STAGES = ("subdivide", "map", "displace", "colours")
 TRI_BUDGET = {"draft": 500_000, "fine": 1_500_000}
 MEMORY_LIMIT = 1 << 30
 DEBOUNCE_S = 0.150
+DRAG_DEBOUNCE_S = 0.120   # held (a ring, stamp or brush drag) with no Quick look to carry it
 NO_QUICKLOOK = "Quick look not available on this graphics setup"
 
 # Design 3.2: the stage each setting reruns from. Keys not listed (and not
@@ -89,7 +93,30 @@ def stage_for(event, draft=None):
         return "subdivide" if keep else "map"
     if kind in ("frame", "part", "layers", "layer", "texture", "active"):
         return STAGE_OF[kind]
-    return "subdivide"  # reset, load, undo, redo
+    if kind in ("undo", "redo") and isinstance(event.get("value"), dict):
+        return _undo_stage(event["value"], draft)
+    return "subdivide"  # reset, load (and an undo that does not say what it changed)
+
+
+def _undo_stage(ch, draft=None):
+    """The earliest stage an undo or redo touched (draft.changes), or None
+    when it changed nothing the preview draws."""
+    got = []
+    if ch.get("part"):
+        got.append("subdivide")
+    if ch.get("frame") or ch.get("layers"):
+        got.append("map")
+    if ch.get("masks"):
+        got.append(stage_for({"kind": "mask"}, draft))
+    if ch.get("layer"):
+        got.append(STAGE_OF["layer"])
+    if ch.get("active"):
+        got.append(STAGE_OF["active"])
+    for k in ch.get("keys") or ():
+        st = stage_for({"kind": "set", "key": k}, draft)
+        if st is not None:
+            got.append(st)
+    return min(got, key=STAGES.index) if got else None
 
 
 def _thread(fn):
@@ -131,6 +158,8 @@ class PreviewController:
         self._body = None
         self._unsub = None
         self.showing = None      # "quicklook", "cpu", "body" or None (closed)
+        self.held = False        # a drag in the view: the CPU rebuild waits (hold)
+        self._deferred = False   # a change came while held: one rebuild on release
 
     # -- state ---------------------------------------------------------------
     def _v(self, name, *a):
@@ -207,7 +236,8 @@ class PreviewController:
         if stage is None:
             return
         if self.quicklook_ok:
-            self._v("update_quicklook", stage)  # uniforms only: < 16 ms a frame
+            with timing.stage(f"preview quicklook update ({stage})"):
+                self._v("update_quicklook", stage)  # uniforms only: < 16 ms a frame
         self.request(stage)
 
     def _toggle_3d(self):
@@ -241,10 +271,32 @@ class PreviewController:
             else:
                 self._v("set_cpu_stale", True)  # 3.5: the last preview stays, grey
         self._cancel_pending_timer()
-        if immediate:
+        if self.held and not immediate:
+            self._deferred = True
+            if self.quicklook_ok:
+                return   # the Quick look carries the drag; one rebuild on release
+            self._cancel_timer = self.schedule(DRAG_DEBOUNCE_S, lambda: self.post(self._start))
+        elif immediate:
             self._start()
         else:
             self._cancel_timer = self.schedule(self.debounce, lambda: self.post(self._start))
+
+    def hold(self, on):
+        """A drag in the 3D view (a Rotate ring, a stamp, a brush stroke):
+        while held, changes update the Quick look (uniforms only) and the
+        CPU-displaced preview is not rebuilt per move: with the Quick look
+        it waits for the release; without it, it is coalesced at
+        DRAG_DEBOUNCE_S. The release starts one rebuild at once (when
+        anything changed), with the same inputs as any other change: the
+        settled result is the same mesh."""
+        on = bool(on)
+        if on == self.held:
+            return
+        self.held = on
+        if not on and self._deferred:
+            self._deferred = False
+            self._cancel_pending_timer()
+            self._start()
 
     def commit(self):
         """Enter in a box: what waits for the debounce runs now."""
@@ -265,6 +317,7 @@ class PreviewController:
         self._cancel_timer = None
         if not self.cpu_mode or self.showing is None:
             return
+        self._deferred = False
         if self.running is not None:
             self._pending = True  # one worker: this runs when the stale job stops
             return
@@ -277,21 +330,37 @@ class PreviewController:
                   "cache": {s: self.cache[s] for s in STAGES[:STAGES.index(start)]},
                   "tri_budget": TRI_BUDGET.get(quality, TRI_BUDGET["draft"]), "memory_limit": MEMORY_LIMIT}
         self.running = gen
+        marks = []   # (stage, perf_counter) as the worker reaches each stage: the timing probe
 
         def should_abort():
             return gen != self.gen
 
         def progress(stage, fraction):
+            if not marks or marks[-1][0] != stage:
+                marks.append((stage, time.perf_counter()))
             self.post(lambda: self._progress(gen, stage, fraction))
 
         def work():
+            t0 = time.perf_counter()
             try:
                 res, err = self.engine.preview(inputs, progress, should_abort), None
             except Exception as e:  # reported on the GUI thread
                 res, err = None, e
+            t1 = time.perf_counter()
+            self.post(lambda: self._timings(start, marks, t0, t1))
             self.post(lambda: self._done(gen, res, err))
 
         self.run_async(work)
+
+    @staticmethod
+    def _timings(start, marks, t0, t1):
+        """The worker's stages, printed on the GUI thread (timing.py)."""
+        if not timing.enabled():
+            return
+        for k, (st, t) in enumerate(marks):
+            end = marks[k + 1][1] if k + 1 < len(marks) else t1
+            timing.report(f"preview {st} (worker)", (end - t) * 1000.0)
+        timing.report(f"preview from {start} (worker, total)", (t1 - t0) * 1000.0)
 
     def _progress(self, gen, stage, fraction):
         if gen == self.gen:
@@ -316,7 +385,8 @@ class PreviewController:
         self.has_cpu = True
         if result.get("note"):
             self._v("note", result["note"])
-        self._v("show_cpu", result.get("mesh"))
+        with timing.stage("preview show_cpu (Coin mesh rebuild)"):
+            self._v("show_cpu", result.get("mesh"))
         self._v("progress", None, 1.0)
         self._swap()
 

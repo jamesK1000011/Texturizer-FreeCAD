@@ -22,7 +22,7 @@ own alone; the sidebar doesn't care which (ACTIONS lists what it asks).
 """
 import math
 
-from . import controls, gallery, layout, title_case
+from . import controls, gallery, layout, timing, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -214,6 +214,32 @@ def flow_rows(widths, avail, spacing=FLOW_SPACING):
     return rows
 
 
+def fit_line(widths, mins, avail, spacing=FLOW_SPACING, shrink=None):
+    """Widths for one flow line: when the items overrun avail, the item at
+    index shrink gives up width first, down to its minimum (a layer row's
+    name elides before its buttons wrap)."""
+    out = [int(w) for w in widths]
+    if shrink is None or not 0 <= shrink < len(out):
+        return out
+    need = sum(out) + spacing * max(0, len(out) - 1)
+    over = need - int(avail)
+    if over > 0:
+        out[shrink] = max(int(mins[shrink]), out[shrink] - over)
+    return out
+
+
+def elide(text, width, advance):
+    """text cut to width (advance(str) -> px) with an ellipsis, as Qt's
+    ElideRight; the whole text when it fits."""
+    if advance(text) <= width:
+        return text
+    for n in range(len(text) - 1, 0, -1):
+        t = text[:n].rstrip() + "…"
+        if advance(t) <= width:
+            return t
+    return "…"
+
+
 if QtWidgets is not None:
 
     class FlowLayout(QtWidgets.QLayout):
@@ -226,6 +252,7 @@ if QtWidgets is not None:
             super().__init__(parent)
             self._items = []
             self._gap = spacing
+            self.shrink = None   # an item that gives up width before the line wraps (fit_line)
             self.setContentsMargins(0, 0, 0, 0)
 
         def addItem(self, item):  # noqa: N802 (Qt)
@@ -270,7 +297,12 @@ if QtWidgets is not None:
             """Lay the items out in width from (x0, y0); the height used."""
             items = self._shown()
             sizes = [it.sizeHint() for it in items]
-            widths = [max(it.minimumSize().width(), min(sz.width(), width)) for it, sz in zip(items, sizes)]
+            mins = [it.minimumSize().width() for it in items]
+            widths = [max(m, min(sz.width(), width)) for m, sz in zip(mins, sizes)]
+            if self.shrink is not None:
+                k = next((i for i, it in enumerate(items) if it is self._items[self.shrink]), None) \
+                    if self.shrink < len(self._items) else None
+                widths = fit_line(widths, mins, width, self._gap, k)
             y = 0
             for row in flow_rows(widths, width, self._gap):
                 hh = max(sizes[i].height() for i in row)
@@ -342,6 +374,41 @@ if QtWidgets is not None:
         def add(self, w):
             self.rows.addWidget(w)
 
+    class LayerName(QtWidgets.QPushButton):
+        """A layer row's name: as wide as its whole text when there is room,
+        elided ("Layer 1 · Knur…") when the row is narrower, never below
+        "Layer n"; the whole name in the tooltip."""
+
+        PAD = 16
+
+        def __init__(self, full, least):
+            super().__init__(full)
+            self.full, self.least = full, least
+
+        def _adv(self, t):
+            return self.fontMetrics().horizontalAdvance(t)
+
+        def sizeHint(self):  # noqa: N802 (Qt)
+            return QtCore.QSize(self._adv(self.full) + self.PAD, super().sizeHint().height())
+
+        def minimumSizeHint(self):  # noqa: N802 (Qt)
+            return QtCore.QSize(self._adv(self.least) + self.PAD, super().minimumSizeHint().height())
+
+        def fit(self, width):
+            """The text for width px: the whole name, or elided."""
+            room = max(0, int(width) - self.PAD)
+            try:
+                t = self.fontMetrics().elidedText(self.full, QtCore.Qt.ElideRight, room)
+            except (AttributeError, TypeError):
+                t = elide(self.full, room, self._adv)
+            if t != self.text():
+                self.setText(t)
+            return t
+
+        def resizeEvent(self, ev):  # noqa: N802 (Qt)
+            super().resizeEvent(ev)
+            self.fit(self.width())
+
     class LayerStrip(QtWidgets.QWidget):
         """BumpMesh's layer strip: rows with eye, thumbnail, name, Cover/Add,
         delete (plus solo and up/down), and Add layer. Clicking a row makes it
@@ -378,7 +445,9 @@ if QtWidgets is not None:
             for i, L in enumerate(d.layers):
                 row = QtWidgets.QWidget()
                 row.setObjectName(f"layer_{i}")
-                h = FlowLayout(row)  # wraps in a narrow dock: Remove never under the scrollbar
+                # One line in the dock: the name elides first (FlowLayout.shrink);
+                # in a very narrow dock the buttons wrap as one group, never split.
+                h = FlowLayout(row)
                 eye = QtWidgets.QToolButton()
                 eye.setCheckable(True)
                 eye.setChecked(L["visible"])
@@ -392,30 +461,36 @@ if QtWidgets is not None:
                     thumb.setPixmap(gallery.thumb_icon(e, 24).pixmap(24, 24))
                     thumb.setToolTip(gallery.credit_line(e))
                 h.addWidget(thumb)
-                name = QtWidgets.QPushButton(L["name"] + (" · " + e["name"] if e else ""))
+                full = L["name"] + (" · " + e["name"] if e else "")
+                # "Layer n" always shows; the texture's name elides after it.
+                name = LayerName(full, S("layers.name", n=len(d.layers)))
                 name.setFlat(True)
                 name.setCheckable(True)
                 name.setChecked(i == d.active)
                 f = name.font()
                 f.setBold(i == d.active)
                 name.setFont(f)
-                name.setToolTip(S("layers.rowTitle", n=i + 1))
-                # "Layer n" always fits; the row wraps rather than clip the rest.
-                name.setMinimumWidth(name.fontMetrics().horizontalAdvance(S("layers.name", n=len(d.layers))) + 16)
+                name.setToolTip(full + "\n" + S("layers.rowTitle", n=i + 1))
                 name.clicked.connect(lambda *_, i=i: d.set_active(i))
                 h.addWidget(name)
+                h.shrink = 2
+                tools = QtWidgets.QWidget()
+                tools.setObjectName(f"layer_{i}_tools")
+                th = QtWidgets.QHBoxLayout(tools)
+                th.setContentsMargins(0, 0, 0, 0)
+                th.setSpacing(2)
                 solo = QtWidgets.QToolButton()
                 solo.setText("S")
                 solo.setCheckable(True)
                 solo.setChecked(L.get("solo", False))
                 solo.setToolTip("Solo: show only this layer in the preview")
                 solo.clicked.connect(lambda on, i=i: d.set_layer(i, solo=bool(on)))
-                h.addWidget(solo)
+                th.addWidget(solo)
                 blend = QtWidgets.QToolButton()
                 blend.setText(S("layers.blendAdd") if L["blendAdd"] else S("layers.blendCover"))
                 blend.setToolTip(S("layers.blendAddTitle") if L["blendAdd"] else S("layers.blendCoverTitle"))
                 blend.clicked.connect(lambda *_, i=i, b=L["blendAdd"]: d.set_layer(i, blendAdd=not b))
-                h.addWidget(blend)
+                th.addWidget(blend)
                 up, down = QtWidgets.QToolButton(), QtWidgets.QToolButton()
                 up.setText("▲")
                 down.setText("▼")
@@ -423,16 +498,18 @@ if QtWidgets is not None:
                 down.setEnabled(i < len(d.layers) - 1)
                 up.clicked.connect(lambda *_, i=i: d.move_layer(i, -1))
                 down.clicked.connect(lambda *_, i=i: d.move_layer(i, 1))
-                h.addWidget(up)
-                h.addWidget(down)
+                th.addWidget(up)
+                th.addWidget(down)
                 rm = QtWidgets.QToolButton()
                 rm.setText("✕")
                 rm.setToolTip(S("layers.remove"))
                 rm.setEnabled(len(d.layers) > 1)
                 rm.clicked.connect(lambda *_, i=i: d.remove_layer(i))
-                h.addWidget(rm)
+                th.addWidget(rm)
+                h.addWidget(tools)
                 self.list.addWidget(row)
-                self.rows.append({"row": row, "eye": eye, "name": name, "solo": solo, "blend": blend, "remove": rm})
+                self.rows.append({"row": row, "eye": eye, "name": name, "solo": solo, "blend": blend, "remove": rm,
+                                  "up": up, "down": down, "tools": tools, "flow": h})
             full = len(d.layers) >= controls.MAX_LAYERS
             self.add.setEnabled(not full)
             self.add.setToolTip(S("layers.max", n=controls.MAX_LAYERS) if full else S("layers.addTitle"))
@@ -531,6 +608,9 @@ if QtWidgets is not None:
 
         # -- library -------------------------------------------------------------
         def textures(self):
+            memo = self.__dict__.get("_tex_memo")
+            if memo is not None:   # inside one refresh: the library read once
+                return memo
             try:
                 return list(self.list_textures())
             except Exception:
@@ -1035,6 +1115,10 @@ if QtWidgets is not None:
                 self._updating = False
 
         def _on_draft(self, ev):
+            with timing.stage(f"sidebar refresh ({ev['kind']})"):
+                self._on_draft_(ev)
+
+        def _on_draft_(self, ev):
             kind = ev["kind"]
             self._header()
             if kind == "set" and ev["layer"] not in (None, self.draft.active):
@@ -1058,21 +1142,27 @@ if QtWidgets is not None:
             self.refresh()
 
         def refresh(self):
-            """Every widget from the draft (after undo, reset, load, layer switch)."""
-            for k in self.binds:
-                self._sync(k)
-            self.layers.refresh()
-            self.refresh_texture()
-            self._mask_text()
-            self._visibility()
-            self._header()
+            """Every widget from the draft (after undo, reset, load, layer
+            switch): each once, the layer strip rebuilt once, the texture
+            library read once."""
+            self._tex_memo = self.textures()
+            try:
+                for k in self.binds:
+                    self._sync(k)
+                self.refresh_texture()   # the layer strip with it
+                self._mask_text()
+                self._visibility()
+                self._header()
+            finally:
+                self._tex_memo = None
 
         def refresh_texture(self):
             tid = self.draft.layer()["texture"]
             self.favgrid.set_active(tid)
             e = next((e for e in self.textures() if e["id"] == tid), None)
             self.credit_line.setText(gallery.credit_line(e) if e else (tid or ""))
-            self.layers.refresh()
+            with timing.stage("sidebar layer strip rebuild"):
+                self.layers.refresh()
             n = len(self.textures())
             g = self.binds["textureGallery"].widgets[0]
             g.setText(title_case(controls.BY_KEY["textureGallery"]["label"]) + (f"  {n}" if n else ""))  # BumpMesh's count

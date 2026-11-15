@@ -516,10 +516,46 @@ class SidebarWidget(unittest.TestCase):
             self.assertGreater(flow.heightForWidth(cw), 0)
         load, undo = sb.binds["loadProject"].widgets[0], sb.binds["undo"].widgets[0]
         self.assertGreater(load.geom.y(), undo.geom.y())  # the header row wrapped
-        rm = sb.layers.rows[-1]["remove"]
-        self.assertLessEqual(rm.geom.right(), cw - 1)  # a layer row's last button
+        tools = sb.layers.rows[-1]["tools"]   # S, Cover, up, down, remove: one group
+        self.assertLessEqual(tools.geom.right(), cw - 1)  # a layer row's last button
         # The Mode combo can shrink: its minimum is a few characters, not its longest option.
         self.assertTrue(hasattr(self.sidebar.QtWidgets.QComboBox, "AdjustToMinimumContentsLengthWithIcon"))
+
+    def test_layer_row_is_one_line(self):
+        # Found live: in the 354 px dock the row "eye, swatch, Layer 1 ·
+        # Knurling, S, Cover, up" wrapped down and remove onto a second line.
+        # The name elides first; the buttons are one group that never splits.
+        d, sb = self.make()
+        d.set_texture("knurling")
+        d.add_layer()
+        r = sb.layers.rows[0]
+        self.assertEqual(r["name"].full, "Layer 1 · Knurling")
+        self.assertIn("Layer 1 · Knurling", r["name"].toolTip())
+        for w in (r["solo"], r["blend"], r["up"], r["down"], r["remove"]):
+            self.assertNotIn(w, r["flow"].widgets())   # inside the group, not flow items of their own
+        self.assertIn(r["tools"], r["flow"].widgets())
+        hint = r["flow"].sizeHint().width()
+        for width in (hint, hint - 30, hint - 60):
+            r["flow"].arrange(0, 0, width)
+            ys = {w.geom.y() for w in r["flow"].widgets()}
+            self.assertEqual(ys, {0}, width)   # one line
+            self.assertLessEqual(r["tools"].geom.right(), width - 1)
+        nw = r["name"].geom.width()
+        self.assertLess(nw, r["name"].sizeHint().width())
+        t = r["name"].fit(nw)
+        self.assertTrue(t.startswith("Layer 1") and t.endswith("…"), t)
+        self.assertEqual(r["name"].fit(r["name"].sizeHint().width()), "Layer 1 · Knurling")
+
+    def test_fit_line_and_elide(self):
+        fit, el = self.sidebar.fit_line, self.sidebar.elide
+        self.assertEqual(fit([20, 100, 50], [20, 40, 50], 200, 5, 1), [20, 100, 50])   # fits as is
+        self.assertEqual(fit([20, 100, 50], [20, 40, 50], 150, 5, 1), [20, 70, 50])    # the name gives way
+        self.assertEqual(fit([20, 100, 50], [20, 40, 50], 90, 5, 1), [20, 40, 50])     # not below its minimum
+        self.assertEqual(fit([20, 100, 50], [20, 40, 50], 90, 5, None), [20, 100, 50])
+        adv = lambda t: 7 * len(t)  # noqa: E731
+        self.assertEqual(el("Layer 1 · Knurling", 200, adv), "Layer 1 · Knurling")
+        self.assertEqual(el("Layer 1 · Knurling", 63, adv), "Layer 1…")
+        self.assertEqual(el("Layer", 3, adv), "…")
 
     def test_flow_rows(self):
         f = self.sidebar.flow_rows
