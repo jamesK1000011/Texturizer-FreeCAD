@@ -186,10 +186,14 @@ class Echo(unittest.TestCase):
         a = fam_attrs()
         self.assertEqual(a["WORKBENCHES"], {"texture_": "TexturizerWorkbench"})
         self.assertEqual(a["AREAS"], {"texture_": "Texture"})
-        self.assertEqual(a["COMMANDS"], {"texture_prepare": commands.PREPARE, "texture_check": commands.CHECK})
-        for tool in ("texture_prepare", "texture_check"):  # the tools with a button
-            self.assertIn(tool, a["COMMANDS"])
-        self.assertTrue(set(a["COMMANDS"]) <= set(tools_json()))
+        draft_tools = ("texture_draft", "texture_set", "texture_mask", "texture_layer", "texture_preview")
+        self.assertEqual({t: a["COMMANDS"][t] for t in draft_tools}, {t: commands.TEXTURE for t in draft_tools})
+        self.assertEqual((a["COMMANDS"]["texture_apply"], a["COMMANDS"]["texture_export"]), (commands.ADD, "Texturizer_ExportSTL"))
+        self.assertEqual((a["COMMANDS"]["texture_prepare"], a["COMMANDS"]["texture_check"]), (commands.PREPARE, commands.CHECK))
+        self.assertEqual(set(a["SHOWN"]), {"texture_preview", "texture_check"})
+        self.assertEqual(set(a["NO_BUTTON"]), {"texture_list"})
+        # every tool has a button or says it has none
+        self.assertEqual(set(a["COMMANDS"]) | set(a["NO_BUTTON"]) | {"texture_settings"}, set(tools_json()))
         self.assertTrue(set(a["COMMANDS"].values()) <= set(commands.NAMES))
 
 

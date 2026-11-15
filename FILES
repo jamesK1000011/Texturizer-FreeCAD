@@ -23,6 +23,7 @@ tests/test_projection_extras.py
 tests/test_quicklook.py
 tests/test_sidebar.py
 tests/test_texture.py
+tests/test_wiring.py
 tests/tools/bm_hooks.mjs
 tests/tools/bm_js.mjs
 tests/tools/gen_controls.py
