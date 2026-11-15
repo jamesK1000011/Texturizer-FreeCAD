@@ -110,9 +110,15 @@ def _mask_dict(mask, n_tri):
             return {"mode": mask.get("mode", "exclude"), "paint": np.asarray(mask["paint"], F32)}
         tris = mask.get("triangles") or []
         mode = mask.get("mode") or ("include" if mask.get("includeOnly") else "exclude")
-        if not len(tris) and mode == "exclude":
+        soft = mask.get("soft")
+        if not len(tris) and mode == "exclude" and not soft:
             return None
-        return from_triangles(n_tri, tris, mode).as_dict()
+        m = from_triangles(n_tri, tris, mode).as_dict()
+        if soft:  # the soft brush's coverage per corner (paint.py, BumpMesh's softMask)
+            c = np.asarray(soft["corners"], np.int64)
+            ok = (c >= 0) & (c < n_tri * 3)
+            np.maximum.at(m["paint"], c[ok], np.asarray(soft["values"], F32)[ok])
+        return m
     return from_triangles(n_tri, mask).as_dict()
 
 
@@ -360,6 +366,8 @@ def _resolve_masks(layers, face_triangles):
             tris.update(int(t) for t in (face_triangles or {}).get(f, []))
         L["mask"] = {"triangles": sorted(tris), "includeOnly": bool(L.get("includeOnly")),
                      "mode": "include" if L.get("includeOnly") else "exclude"}
+        if m.get("soft"):
+            L["mask"]["soft"] = m["soft"]
     return layers
 
 
@@ -573,6 +581,7 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
         V = _rotate(V, R, inverse=True).reshape(-1, 3)
         Nn = _rotate(Nn, R, inverse=True).reshape(-1, 3)
     drawable = {"vertices": V, "faces": vid.reshape(-1, 3).astype(np.int32), "normals": Nn,
+                "face_parent": np.asarray(sub["faceParentId"], np.int64),
                 "colours": ran["colours"]["colours"], "weights": W, "maps": dp["maps"],
                 "bounds": mp["bounds"], "edge": sub["edge"]}
     return {"stages": ran, "mesh": drawable, "note": note}

@@ -20,6 +20,7 @@ tests/test_api.py
 tests/test_engine_api.py
 tests/test_engine_parity.py
 tests/test_gui.py
+tests/test_paint.py
 tests/test_preview.py
 tests/test_project.py
 tests/test_projection_extras.py
@@ -36,6 +37,7 @@ tests/tools/js_shims/node_modules/fflate/package.json
 tests/tools/js_shims/node_modules/three/addons/loaders/STLLoader.js
 tests/tools/js_shims/node_modules/three/index.mjs
 tests/tools/js_shims/node_modules/three/package.json
+tests/tools/paint_js.mjs
 tests/tools/uv_js.mjs
 texturizer/__init__.py
 texturizer/agentlink_families.py
@@ -87,6 +89,8 @@ texturizer/icons/Texturizer_Workbench.svg
 texturizer/live.py
 texturizer/mesh.py
 texturizer/meshdist.py
+texturizer/paint.py
+texturizer/paintview.py
 texturizer/panel.py
 texturizer/preview.py
 texturizer/project.py
