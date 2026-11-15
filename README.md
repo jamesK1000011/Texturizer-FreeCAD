@@ -124,7 +124,7 @@ the agent works. The list is generated from `texturizer/data/tools.json` by
 | `texture_mask` | texture | BumpMesh's Masking, By Surface, for one layer: mode exclude or include, add or remove faces, add_by, fill, triangles, paint, clear. |
 | `texture_layer` | texture | BumpMesh's layer strip: add, remove, move, solo, visible, blend, name, active. |
 | `texture_preview` | texture | Build the CPU preview of the draft with BumpMesh's engine and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and … |
-| `texture_apply` | texture | Add to Document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |
+| `texture_apply` | texture | Add to document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |
 | `texture_export` | texture | Write a file: format stl or 3mf, or bumpmesh. |
 | `texture_prepare` | texture | A body made ready for a surface texture by BumpMesh: an STL written face by face from one mesh of the whole part, and a mask file of the triangles of … |
 | `texture_check` | texture | Check a textured mesh against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep … |
