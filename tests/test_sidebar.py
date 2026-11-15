@@ -488,6 +488,7 @@ class SidebarWidget(unittest.TestCase):
         walk(sb.body._layout)
         return out
 
+    @unittest.skipIf(REAL_QT, "reads the stand-in Qt's own layout records (_layout, children_widgets)")
     def test_rows_wrap_inside_the_viewport(self):
         # Found live: Load Project, a layer row's last button, the Mode
         # combo's arrow and Add Layer ran under the vertical scrollbar. A
@@ -612,6 +613,7 @@ class GalleryDock(unittest.TestCase):
         g.done.click()
         self.assertTrue(g.isHidden())
 
+    @unittest.skipIf(REAL_QT, "reads the stand-in Qt's own layout records (_layout, children_widgets)")
     def test_layout_and_turntable(self):
         spins = []
         ok = [True]
