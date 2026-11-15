@@ -22,6 +22,7 @@ from . import live, paint
 
 PAINT = (0.85, 0.40, 0.15)   # BumpMesh's user-mask orange
 ERASE = (0.60, 0.60, 0.60)   # BumpMesh's erase hover grey (0x999999)
+HOVER = (1.0, 0.933, 0.0)    # BumpMesh's hover preview yellow (0xffee00), at 45 % opacity
 BODY = (0.80, 0.80, 0.80)
 RING = 64
 
@@ -33,7 +34,8 @@ class PaintView:
         self._cbs = []
         self.ring = None
         self.overlay = None
-        self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor)
+        self.hover = None
+        self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor, self._hover)
 
     # -- on and off -------------------------------------------------------------------------
     def sync(self):
@@ -64,7 +66,7 @@ class PaintView:
             except Exception:  # noqa: BLE001 — a closed view
                 pass
         self._cbs = []
-        for name in ("ring", "overlay"):
+        for name in ("ring", "overlay", "hover"):
             node = getattr(self, name)
             if node is not None:
                 try:
@@ -200,6 +202,36 @@ class PaintView:
         self._xf.rotation.setValue(coin.SbRotation(coin.SbVec3f(0, 0, 1), coin.SbVec3f(*[-c for c in hit["view"]])))
         self._rc.rgb.setValue(*(ERASE if erase else PAINT))
 
+    def _hover(self, faces, erase):
+        """BumpMesh's hover preview: the triangles a click would mark, yellow (grey erasing)."""
+        g = self._graph()
+        snap = self.w.snapshot()
+        if g is None or snap is None:
+            return
+        from pivy import coin
+
+        if self.hover is None:
+            self.hover = coin.SoSwitch()
+            sep = coin.SoSeparator()
+            po = coin.SoPolygonOffset()
+            po.factor, po.units = -2.0, -2.0
+            self._hm, self._hc, self._hf = coin.SoMaterial(), coin.SoCoordinate3(), coin.SoFaceSet()
+            self._hm.transparency = 0.55
+            for n in (po, self._hm, self._hc, self._hf):
+                sep.addChild(n)
+            self.hover.addChild(sep)
+            g.addChild(self.hover)
+        if not faces:
+            self.hover.whichChild = -1
+            return
+        P = np.asarray(snap[1], np.float64).reshape(-1, 3, 3)[np.asarray(faces, np.int64)].reshape(-1, 3)
+        self._hc.point.setValues(0, len(P), P.tolist())
+        self._hc.point.setNum(len(P))
+        self._hf.numVertices.setValues(0, len(faces), [3] * len(faces))
+        self._hf.numVertices.setNum(len(faces))
+        self._hm.diffuseColor.setValue(*(ERASE if erase else HOVER))
+        self.hover.whichChild = 0
+
     def _draw_overlay(self):
         """The active layer's paint on the body's tessellation, while the CPU preview is not shown."""
         g = self._graph()
@@ -225,19 +257,19 @@ class PaintView:
             self.overlay.addChild(sep)
             g.addChild(self.overlay)
         s = paint.surface_for(snap[1])
-        st = paint.state_from_mask(s, live.draft().mask(), snap[2])
-        p = st.corners().reshape(-1, 3)
-        on = np.nonzero((p > 0).any(axis=1))[0]
-        if not len(on):
+        k = self.tool.stroke   # mid-stroke: the stroke's own state, no replay per dab
+        st = k["state"] if k is not None and k["s"] is s else paint.state_from_mask(s, live.draft().mask(), snap[2])
+        P, a = paint.overlay(st)
+        on = len(P) // 3
+        if not on:
             self.overlay.whichChild = -1
             return
-        P = s.positions.reshape(-1, 3, 3)[on].reshape(-1, 3).astype(float)
-        a = p[on].reshape(-1, 1).astype(float)
+        a = a.reshape(-1, 1)
         col = np.asarray(BODY) * (1 - a) + np.asarray(PAINT) * a
         self._oc.point.setValues(0, len(P), P.tolist())
         self._oc.point.setNum(len(P))
         self._om.diffuseColor.setValues(0, len(col), col.tolist())
         self._om.diffuseColor.setNum(len(col))
-        self._of.numVertices.setValues(0, len(on), [3] * len(on))
-        self._of.numVertices.setNum(len(on))
+        self._of.numVertices.setValues(0, on, [3] * on)
+        self._of.numVertices.setNum(on)
         self.overlay.whichChild = 0

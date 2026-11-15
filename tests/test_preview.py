@@ -140,7 +140,7 @@ class StageTable(unittest.TestCase):
             self.assertEqual(preview.stage_for(ev, d), want, ev)
         self.assertEqual(preview.stage_for({"kind": "mask"}, d), "subdivide")  # Preserve Untextured on
         d.set("preserveUntextured", False)
-        self.assertEqual(preview.stage_for({"kind": "mask"}, d), "displace")
+        self.assertEqual(preview.stage_for({"kind": "mask"}, d), "map")   # the masks are built there
 
 
 class Controller(unittest.TestCase):

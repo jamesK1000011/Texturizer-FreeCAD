@@ -35,6 +35,7 @@ import math
 
 import numpy as np
 
+from . import painttree
 from .engine import exclusion
 from .engine._js import F32
 from .engine.softmask import brush_coverage
@@ -68,11 +69,18 @@ class Surface:
 _CACHE = {}
 
 
+def _key(positions):
+    if isinstance(positions, np.ndarray):
+        return ("nd", positions.__array_interface__["data"][0], positions.size, positions.dtype.str)
+    return ("id", id(positions))
+
+
 def surface_for(positions):
-    """The Surface of a tessellation, kept while the same array is passed (the window's snapshot)."""
-    key = id(positions)
+    """The Surface of a tessellation, kept while the same array (or a view of
+    the same buffer, as the engine's reshapes) is passed (the window's snapshot)."""
+    key = _key(positions)
     got = _CACHE.get("s")
-    if got is not None and got[0] == key and got[1] is positions:
+    if got is not None and got[0] == key:
         return got[2]
     s = Surface(positions)
     _CACHE["s"] = (key, positions, s)
@@ -80,225 +88,84 @@ def surface_for(positions):
 
 
 class State:
-    """One layer's paint: hard (uint8 per triangle) and cov (float32 per welded vertex, or None)."""
+    """One layer's paint: a single-layer PaintTree (painttree.py) on the surface.
+    hard: the base triangles' own states (uint8), cov: soft coverage per welded
+    base vertex (float32) or None; both read the roots, as basePaint does."""
 
-    def __init__(self, surface, hard=None, cov=None):
+    def __init__(self, surface, hard=None, cov=None, tree=None):
         self.s = surface
-        self.hard = np.zeros(surface.n, np.uint8) if hard is None else np.asarray(hard, np.uint8).copy()
-        self.cov = None if cov is None else np.asarray(cov, F32).copy()
+        if tree is None:
+            tree = painttree.PaintTree(surface)
+            tree.add_layer(1)
+            L = tree.layers[0]
+            if hard is not None:
+                L.state[:surface.n] = [int(x) for x in np.asarray(hard, np.uint8).tolist()]
+            if cov is not None:
+                L.cov = np.asarray(cov, F32).tolist()   # float32 values, as Float32Array holds them
+        self.tree = tree
 
     def copy(self):
-        return State(self.s, self.hard, self.cov)
+        return State(self.s, tree=painttree.single(self.tree, 0))
+
+    @property
+    def layer(self):
+        return self.tree.layers[0]
+
+    @property
+    def hard(self):
+        return np.asarray(self.layer.state[:self.s.n], np.uint8)
+
+    @property
+    def cov(self):
+        c = self.layer.cov
+        return None if c is None else np.asarray(c[:self.s.vert_count], F32)
 
     def _ensure_cov(self):
-        if self.cov is None:
-            self.cov = np.zeros(self.s.vert_count, F32)
+        self.tree._ensure_cov(self.layer)
         return self.cov
 
     def corners(self):
-        """Paint per triangle corner (0..1): 1 on a hard triangle, else the vertex coverage."""
-        p = np.zeros((self.s.n, 3), F32)
-        if self.cov is not None:
-            p[:] = self.cov[self.s.tri]
-        p[self.hard.astype(bool)] = 1
-        return p.reshape(-1)
+        """Paint per base triangle corner (0..1) from the roots: 1 on a hard
+        triangle, else the vertex coverage (basePaint)."""
+        return self.tree.base_paint(0)[0]
+
+    @property
+    def split(self):
+        """True when the Precision brush split a triangle."""
+        return not self.tree.is_flat
 
 
 # -- BumpMesh's geometry -------------------------------------------------------------------
-def dist_sq_point_to_tri(px, py, pz, ax, ay, az, bx, by, bz, cx, cy, cz):
-    """distSqPointToTri (paintTree.js): the Voronoi-region method."""
-    abx, aby, abz = bx - ax, by - ay, bz - az
-    acx, acy, acz = cx - ax, cy - ay, cz - az
-    apx, apy, apz = px - ax, py - ay, pz - az
-    d1 = abx * apx + aby * apy + abz * apz
-    d2 = acx * apx + acy * apy + acz * apz
-    if d1 <= 0 and d2 <= 0:
-        return apx * apx + apy * apy + apz * apz
-    bpx, bpy, bpz = px - bx, py - by, pz - bz
-    d3 = abx * bpx + aby * bpy + abz * bpz
-    d4 = acx * bpx + acy * bpy + acz * bpz
-    if d3 >= 0 and d4 <= d3:
-        return bpx * bpx + bpy * bpy + bpz * bpz
-    cpx, cpy, cpz = px - cx, py - cy, pz - cz
-    d5 = abx * cpx + aby * cpy + abz * cpz
-    d6 = acx * cpx + acy * cpy + acz * cpz
-    if d6 >= 0 and d5 <= d6:
-        return cpx * cpx + cpy * cpy + cpz * cpz
-    vc = d1 * d4 - d3 * d2
-    if vc <= 0 and d1 >= 0 and d3 <= 0:
-        v = d1 / (d1 - d3)
-        qx, qy, qz = ax + v * abx - px, ay + v * aby - py, az + v * abz - pz
-        return qx * qx + qy * qy + qz * qz
-    vb = d5 * d2 - d1 * d6
-    if vb <= 0 and d2 >= 0 and d6 <= 0:
-        w = d2 / (d2 - d6)
-        qx, qy, qz = ax + w * acx - px, ay + w * acy - py, az + w * acz - pz
-        return qx * qx + qy * qy + qz * qz
-    va = d3 * d6 - d5 * d4
-    if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
-        w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-        qx, qy, qz = bx + w * (cx - bx) - px, by + w * (cy - by) - py, bz + w * (cz - bz) - pz
-        return qx * qx + qy * qy + qz * qz
-    den = 1 / (va + vb + vc)
-    v, w = vb * den, vc * den
-    qx, qy, qz = ax + abx * v + acx * w - px, ay + aby * v + acy * w - py, az + abz * v + acz * w - pz
-    return qx * qx + qy * qy + qz * qz
+dist_sq_point_to_tri = painttree.dist_sq_point_to_tri
 
 
-def _tri_dist2_projected(s, f, px, py, pz, vx, vy, vz):
-    """_triDist2Projected: point to triangle f, both projected onto the plane ⊥ view."""
-    t = []
-    for v in s._tl[f]:
-        x, y, z = s._Vl[v]
-        dx, dy, dz = x - px, y - py, z - pz
-        a = dx * vx + dy * vy + dz * vz
-        t += (dx - a * vx, dy - a * vy, dz - a * vz)
-    return dist_sq_point_to_tri(0.0, 0.0, 0.0, *t)
-
-
-def faces_in_disk(s, seed, cx, cy, cz, r2, vx, vy, vz):
-    """_facesInDisk: BFS from the seed over every face reaching into the disk,
-    spreading over front-facing neighbours only (the silhouette stops it)."""
-    visited = {seed}
-    queue = [seed]
-    touched = []
-    head = 0
-    fn = s._fn
-    while head < len(queue):
-        f = queue[head]
-        head += 1
-        if _tri_dist2_projected(s, f, cx, cy, cz, vx, vy, vz) > r2:
-            continue
-        touched.append(f)
-        for nb in s.neighbours[f]:
-            if nb in visited:
-                continue
-            visited.add(nb)
-            n = fn[nb]
-            if n[0] * vx + n[1] * vy + n[2] * vz >= 0:
-                continue
-            queue.append(nb)
-    return touched
-
-
-def edge_limit(radius, hardness):
-    """_brushEdgeLimit (main.js): r/5 for a hard brush, finer across a soft brush's fade band."""
-    edge = radius / 5
-    if hardness < 1:
-        band = (1 - hardness) * radius
-        edge = min(edge, max(band / 3, radius / 10))
-    return max(0.02, edge)
+edge_limit = painttree.edge_limit
 
 
 # -- painting ------------------------------------------------------------------------------
 def paint_faces(state, faces, erase=False):
     """paintFaces: whole triangles (Single brush, Fill); erasing also wipes soft coverage there."""
-    s = state.s
-    for f in faces:
-        f = int(f)
-        if 0 <= f < s.n:
-            state.hard[f] = 0 if erase else 1
-            if erase and state.cov is not None:
-                state.cov[s.tri[f]] = 0
+    state.tree.paint_faces(0, faces, erase)
 
 
-def paint_stroke(state, seed, frm, to, radius, view, hardness, erase=False, whole=None, edge=None):
-    """paintStroke on an unsplit tree: one dab, or the capsule swept from frm to to.
-    whole (default: hardness >= 1) paints every touched triangle in full
-    (Standard); otherwise soft coverage per vertex."""
-    s = state.s
-    if seed < 0 or seed >= s.n:
-        return
-    whole = hardness >= 1 if whole is None else whole
-    edge = edge_limit(radius, hardness) if edge is None else edge
-    r = float(radius)
-    r2 = r * r
-    soft = not whole and hardness < 1
-    if soft:
-        state._ensure_cov()
-    vx, vy, vz = (float(c) for c in view)
-    tx, ty, tz = (float(c) for c in to)
-    frm = to if frm is None else frm
-    sx, sy, sz = float(frm[0]) - tx, float(frm[1]) - ty, float(frm[2]) - tz
-    a = sx * vx + sy * vy + sz * vz
-    sx, sy, sz = sx - a * vx, sy - a * vy, sz - a * vz
-    seg2 = sx * sx + sy * sy + sz * sz
-    seg = math.sqrt(seg2)
-
-    def dist2(px, py, pz):
-        px, py, pz = px - tx, py - ty, pz - tz
-        al = px * vx + py * vy + pz * vz
-        px, py, pz = px - al * vx, py - al * vy, pz - al * vz
-        u = (px * sx + py * sy + pz * sz) / seg2 if seg2 > 0 else 0
-        u = 0 if u < 0 else 1 if u > 1 else u
-        dx, dy, dz = px - u * sx, py - u * sy, pz - u * sz
-        return dx * dx + dy * dy + dz * dz
-
-    n_dabs = max(1, math.ceil(seg / max(r * 0.5, 1e-6)) + 1)
-    dabs = []
-    for i in range(n_dabs):
-        u = 0 if n_dabs == 1 else i / (n_dabs - 1)
-        dabs.append((tx + sx * u, ty + sy * u, tz + sz * u))
-
-    def stroke_dist2(f):
-        return min(_tri_dist2_projected(s, f, x, y, z, vx, vy, vz) for x, y, z in dabs)
-
-    r_test = r + edge if soft else r
-    reach = r_test + seg * 0.5
-    touched = faces_in_disk(s, int(seed), tx + sx * 0.5, ty + sy * 0.5, tz + sz * 0.5, reach * reach, vx, vy, vz)
-    if whole:
-        paint_faces(state, [f for f in touched if stroke_dist2(f) <= r2], erase)
-        return
-    rt2 = r_test * r_test
-    core2 = (r * hardness) ** 2
-    V = s._Vl
-    for f in touched:
-        vs = s._tl[f]
-        d = [dist2(*V[v]) for v in vs]
-        inside = sum(1 for x in d if x <= rt2)
-        if inside == 3 and (not soft or all(x <= core2 for x in d)):
-            # _paintSubtree: fully inside (the hard core when soft)
-            if soft:
-                state.cov[vs] = 0 if erase else 1
-                if erase:
-                    state.hard[f] = 0
-            else:
-                state.hard[f] = 0 if erase else 1
-                if erase and state.cov is not None:
-                    state.cov[vs] = 0
-            continue
-        if inside == 0 and stroke_dist2(f) > rt2:
-            continue
-        # _paintLeaf
-        cov = state.cov
-        if soft:
-            if erase and state.hard[f]:
-                state.hard[f] = 0
-                cov[vs] = 1
-            for k in range(3):
-                if d[k] > r2:
-                    continue
-                c = brush_coverage(math.sqrt(d[k]), r, hardness)
-                v = vs[k]
-                if erase:
-                    if 1 - c < cov[v]:
-                        cov[v] = 1 - c
-                elif c > cov[v]:
-                    cov[v] = c
-        else:
-            p = np.mean([V[v] for v in vs], axis=0)
-            if dist2(*p) <= r2:
-                state.hard[f] = 0 if erase else 1
-                if erase and cov is not None:
-                    cov[vs] = 0
+def paint_stroke(state, seed, frm, to, radius, view, hardness, erase=False, whole=False, edge=None):
+    """paintStroke: one dab, or the capsule swept from frm to to. whole: the
+    Standard brush (every touched triangle in full); otherwise the Precision
+    brush, which splits the triangles under the rim down to the edge limit
+    and, under Hardness 1, paints soft coverage per vertex."""
+    state.tree.paint_stroke(0, int(seed), frm, to, radius, view, hardness, erase, edge=edge, whole=whole)
 
 
 class Brush:
-    """The sidebar's Brush rows: circle (Type), size (diameter, mm), hardness (%)."""
+    """The sidebar's Brush rows: circle (Type), size (diameter, mm), hardness
+    (%) and mode: BumpMesh's Standard (whole triangles, Hardness ignored) or
+    Precision (refines under the stroke, with Hardness)."""
 
-    def __init__(self, circle=True, size=10.0, hardness=50.0, mode="standard"):
-        if mode != "standard":
-            raise ValueError("Mode: only Standard for now (Precision comes later).")
+    MODES = ("standard", "precision")
+
+    def __init__(self, circle=True, size=10.0, hardness=50.0, mode="precision"):
+        if mode not in self.MODES:
+            raise ValueError("Mode: standard or precision.")
         self.circle = bool(circle)
         self.size = max(MIN_SIZE, min(MAX_SIZE, float(size)))
         self.hardness = max(0.0, min(100.0, float(hardness)))
@@ -306,7 +173,12 @@ class Brush:
 
     @classmethod
     def from_draft(cls, d):
-        return cls(d.get("brushIsRadius"), d.get("brushSize"), d.get("brushHardness"))
+        return cls(d.get("brushIsRadius"), d.get("brushSize"), d.get("brushHardness"),
+                   "precision" if d.get("brushPrecision") else "standard")
+
+    @property
+    def precision(self):
+        return self.mode == "precision"
 
     @property
     def radius(self):
@@ -314,7 +186,8 @@ class Brush:
 
     @property
     def h(self):
-        return self.hardness / 100.0
+        """The hardness a stroke paints with (0..1): 1 for Standard, as BumpMesh."""
+        return self.hardness / 100.0 if self.precision else 1.0
 
 
 def hit_view(hit, s):
@@ -377,7 +250,8 @@ def paint_hit(state, hit, brush, erase, prev=None):
     s = state.s
     t = int(hit["triangle"])
     if brush.circle:
-        paint_stroke(state, t, prev, hit["point"], brush.radius, hit_view(hit, s), brush.h, erase)
+        paint_stroke(state, t, prev, hit["point"], brush.radius, hit_view(hit, s), brush.hardness / 100.0, erase,
+                     whole=not brush.precision, edge=edge_limit(brush.radius, brush.h))
     else:
         paint_faces(state, [t], erase)
 
@@ -403,37 +277,115 @@ def fill(state, seed, max_angle=20.0, erase=False):
 
 # -- the draft's mask ----------------------------------------------------------------------
 def soft_of(state):
-    """The soft paint as {corners, values} (corners with coverage > 0), or None."""
-    if state.cov is None:
+    """The soft paint on the base vertices as {corners, values} (corners with coverage > 0), or None."""
+    c = state.cov
+    if c is None:
         return None
-    c = state.cov[state.s.vert_id]
+    c = c[state.s.vert_id]
     idx = np.nonzero(c > 0)[0]
     if not len(idx):
         return None
     return {"corners": idx.tolist(), "values": [float(x) for x in c[idx]]}
 
 
+def split_of(state):
+    """The Precision brush's split base triangles as the draft keeps them:
+    [[triangle, codes, states, cov], ...], codes and states the triangle's
+    depth-first node stream (paintTree.js serialize's order) and cov
+    [position, c0, c1, c2, ...] per leaf with soft coverage (its leafCov)."""
+    t = state.tree
+    L = t.layers[0]
+    out = []
+    for f in t.split_roots():
+        codes, states, cov = [], [], []
+        stack = [f]
+        while stack:
+            n = stack.pop()
+            pos = len(codes)
+            codes.append(t.code[n])
+            first = t.child[n]
+            # A split node's own state is never read (its leaves carry the paint): 0, so equal paint compares equal.
+            states.append(L.state[n] if first == painttree.NO_CHILD else 0)
+            if first == painttree.NO_CHILD:
+                if L.cov is not None:
+                    c = [L.cov[t.nv[n * 3 + k]] for k in range(3)]
+                    if any(x > 0 for x in c):
+                        cov += [pos] + c
+                continue
+            for k in range(t.child_count(n) - 1, -1, -1):
+                stack.append(first + k)
+        out.append([f, codes, states, cov])
+    return out
+
+
+def _replay_split(state, rec):
+    t = state.tree
+    L = t.layers[0]
+    f, codes, states, cov = rec
+    f = int(f)
+    if not 0 <= f < t.base_tri_count or t.child[f] != painttree.NO_CHILD:
+        return
+    nodes, pos, stack = [], 0, [f]
+    while stack and pos < len(codes):
+        n = stack.pop()
+        nodes.append(n)
+        code = int(codes[pos])
+        L.state[n] = int(states[pos]) if pos < len(states) else 0
+        pos += 1
+        if code & 7:
+            first = t.split(n, code & 7, (code >> 3) & 1)
+            for k in range(t.child_count(n) - 1, -1, -1):
+                stack.append(first + k)
+    # Every vertex under the triangle takes its recorded value: a leaf not
+    # listed has none (a split above may have interpolated some).
+    c = t._ensure_cov(L) if cov else L.cov
+    if c is None:
+        return
+    got = {}
+    for i in range(0, len(cov) - 3, 4):
+        p = int(cov[i])
+        if 0 <= p < len(nodes):
+            got[nodes[p]] = cov[i + 1:i + 4]
+    for n in nodes:
+        if t.child[n] != painttree.NO_CHILD:
+            continue
+        vals = got.get(n, (0.0, 0.0, 0.0))
+        for k in range(3):
+            c[t.nv[n * 3 + k]] = painttree.f32(float(vals[k]))
+
+
 def state_from_mask(s, mask, face_triangles=None):
-    """A State from a draft mask (its B-rep faces count as hard triangles)."""
-    st = State(s)
+    """A State from a draft mask (its B-rep faces count as hard triangles,
+    split triangles replay their Precision paint)."""
+    # A fresh tree has no splits: the roots' states and the base vertices'
+    # coverage are set in one go (what paintFaces and setBaseCoverage leave).
+    hard = np.zeros(s.n, np.uint8)
     tris = [int(t) for t in mask.get("triangles") or []]
     for f in mask.get("faces") or []:
         tris.extend(int(t) for t in (face_triangles or {}).get(f, []))
-    paint_faces(st, [t for t in tris if 0 <= t < s.n])
+    t = np.asarray(tris, np.int64)
+    hard[t[(t >= 0) & (t < s.n)]] = 1
+    cov = None
     soft = mask.get("soft")
     if soft and soft.get("corners"):
-        cov = st._ensure_cov()
+        cov = np.zeros(s.vert_count, F32)
         c = np.asarray(soft["corners"], np.int64)
         v = np.asarray(soft["values"], F32)
         ok = (c >= 0) & (c < s.n * 3)
         np.maximum.at(cov, s.vert_id[c[ok]], v[ok])
+    st = State(s, hard, cov)
+    for rec in mask.get("split") or []:
+        _replay_split(st, rec)
     return st
 
 
 def mask_from_state(state, mask, face_triangles=None):
     """The draft mask for a State: a B-rep face stays a face while all its
-    triangles are painted; one the brush cut into becomes its triangles."""
-    hard = set(np.nonzero(state.hard)[0].tolist())
+    triangles are painted whole; one the brush cut into becomes its
+    triangles; split triangles go in split."""
+    split = split_of(state)
+    cut = {r[0] for r in split}
+    hard = set(np.nonzero(state.hard)[0].tolist()) - cut
     faces = []
     for f in mask.get("faces") or []:
         ts = [int(t) for t in (face_triangles or {}).get(f, [])]
@@ -444,7 +396,95 @@ def mask_from_state(state, mask, face_triangles=None):
     soft = soft_of(state)
     if soft:
         out["soft"] = soft
+    if split:
+        out["split"] = split
     return out
+
+
+def overlay(state):
+    """The painted triangles to draw over the body: (corner positions (k*3, 3),
+    paint per corner (k*3,)), the flattened tree's leaves where the Precision
+    brush split, the source triangles elsewhere."""
+    if state.split:
+        flat = state.tree.flatten()
+        p = state.tree.flat_paint(0, flat)[0].reshape(-1, 3)
+        P = flat["positions"].reshape(-1, 3, 3)
+    else:
+        p = state.corners().reshape(-1, 3)
+        P = state.s.positions.reshape(-1, 3, 3)
+    on = np.nonzero((p > 0).any(axis=1))[0]
+    return P[on].reshape(-1, 3).astype(float), p[on].reshape(-1).astype(float)
+
+
+# -- the engine's view of split masks ------------------------------------------------------
+def has_split(specs):
+    return any((L.get("mask") or {}).get("split") for L in specs if L.get("visible") is not False)
+
+
+def _mode_of(L):
+    m = L.get("mask") or {}
+    return m.get("mode") or ("include" if (L.get("includeOnly") or m.get("includeOnly")) else "exclude")
+
+
+def flatten_masks(positions, specs):
+    """BumpMesh's export input when the Precision brush split triangles
+    (main.js _pipelineInputs): the layers' trees joined (painttree.combine),
+    flattened, and each layer's mask as per-corner paint on that mesh.
+    (positions, specs, faceParentId to the source triangles), or None when
+    nothing is split."""
+    if not has_split(specs):
+        return None
+    srf = surface_for(positions)
+    trees = [state_from_mask(srf, L.get("mask") or {}).tree for L in specs]
+    t = painttree.combine(srf, trees)
+    flat = t.flatten()
+    out = []
+    for i, L in enumerate(specs):
+        paint, _hard = t.flat_paint(i, flat)
+        out.append(dict(L, mask={"mode": _mode_of(L), "paint": paint}))
+    return flat["positions"], out, np.asarray(flat["faceParentId"], np.int64)
+
+
+def split_marker(mask, n_tri):
+    """Per-corner paint for a layer's mask at the source-triangle level with
+    its split triangles neither hard-painted nor untouched (0.5), so neither
+    mode hard-masks them; sample_split fills them in on the refined mesh."""
+    p = np.zeros((n_tri, 3), F32)
+    for r in mask.get("split") or []:
+        f = int(r[0])
+        if 0 <= f < n_tri:
+            p[f] = 0.5
+    return p
+
+
+def sample_split(positions, mask, include, child_pos, parents):
+    """BumpMesh's _sampledPaint for one layer on a refinement of the source
+    mesh (the 3D preview): for the refined triangles whose source triangle
+    the Precision brush split, (rows, exclude per corner, hard flag) by the
+    layer's tree sampled at each corner; None when nothing is split."""
+    split = {int(r[0]) for r in mask.get("split") or []}
+    if not split:
+        return None
+    parents = np.asarray(parents, np.int64)
+    rows = np.nonzero(np.isin(parents, np.fromiter(split, np.int64)))[0]
+    if not len(rows):
+        return None
+    st = state_from_mask(surface_for(positions), mask)
+    t = st.tree
+    cp = np.asarray(child_pos, F32).astype(np.float64).reshape(-1, 3, 3)[rows].tolist()
+    pr = parents[rows].tolist()
+    paint = np.zeros((len(rows), 3))
+    for i, (f, tri) in enumerate(zip(pr, cp)):
+        for k in range(3):
+            paint[i, k] = t.sample_paint(0, f, *tri[k])
+    hard = (paint >= 1).all(axis=1)
+    if include:
+        cover = paint
+        hm = ~hard & (paint == 0).all(axis=1)
+    else:
+        cover = 1 - paint
+        hm = hard
+    return rows, (1 - cover).astype(F32), hm.astype(np.uint8)
 
 
 def commit(d, s, layer, fn, face_triangles=None, coalesce=None, base=None):
@@ -516,16 +556,48 @@ class PaintTool:
 
     surface() -> (Surface, face_triangles) or None; pick(x, y) -> hit (with
     its view) or None. on_cursor(hit or None, brush, erase) draws the brush
-    circle. Each method returns True when it took the event (so FreeCAD does
-    not navigate)."""
+    circle; on_hover(source triangles or None, erase) BumpMesh's hover
+    preview of what a click would mark (Standard and Single brush, Fill; the
+    Precision brush shows its footprint as the ring alone). Each method
+    returns True when it took the event (so FreeCAD does not navigate)."""
 
-    def __init__(self, draft, surface, pick, on_cursor=None):
+    def __init__(self, draft, surface, pick, on_cursor=None, on_hover=None):
         self.d = draft
         self.surface = surface
         self.pick = pick
         self.on_cursor = on_cursor or (lambda *a: None)
+        self.on_hover = on_hover or (lambda *a: None)
         self.stroke = None   # {"state", "prev", "erase", "tag", "layer", "ft"}
         self._n = 0
+        self._hover_key = None
+
+    def _hover(self, faces, erase):
+        key = None if faces is None else (bool(erase), tuple(faces))
+        if key != self._hover_key:
+            self._hover_key = key
+            self.on_hover(None if faces is None else list(faces), bool(erase))
+
+    def hover_faces(self, hit, s, erase=False):
+        """The source triangles a click at hit would mark (updateBrushHover,
+        updateBucketHover), or None."""
+        tool = self.tool()
+        if hit is None or tool not in ("brush", "bucket"):
+            return None
+        t = int(hit["triangle"])
+        if tool == "bucket":   # unchanged seed: no new flood (BumpMesh skips the BFS too)
+            key = (id(s), t, float(self.d.get("bucketThreshold")))
+            if getattr(self, "_fill", (None,))[0] != key:
+                m = exclusion.flood(s.positions, t, key[2], adjacency=s.adj)
+                self._fill = (key, sorted(m.triangles.tolist()))
+            return self._fill[1]
+        b = Brush.from_draft(self.d)
+        if not b.circle:
+            return [t]
+        if b.precision:
+            return None
+        tree = painttree.PaintTree(s) if getattr(self, "_hover_tree", (None,))[0] is not s else self._hover_tree[1]
+        self._hover_tree = (s, tree)
+        return sorted(tree.faces_under_brush(t, hit["point"], b.radius, hit_view(hit, s)))
 
     def tool(self):
         try:
@@ -548,6 +620,7 @@ class PaintTool:
         if hit is None:
             return False   # off the model: the drag navigates
         s, ft = got
+        self._hover(None, shift)
         layer = self.d.active
         if tool == "bucket":
             ang = self.d.get("bucketThreshold")
@@ -571,11 +644,16 @@ class PaintTool:
 
     def move(self, x, y, shift=False):
         tool = self.tool()
-        if tool != "brush":
+        if tool not in ("brush", "bucket"):
             return False
         if self.stroke is None:
-            hit = self.pick(x, y) if self.surface() else None
-            self.on_cursor(hit, Brush.from_draft(self.d), bool(shift))
+            got = self.surface()
+            hit = self.pick(x, y) if got else None
+            if tool == "brush":
+                self.on_cursor(hit, Brush.from_draft(self.d), bool(shift))
+            self._hover(self.hover_faces(hit, got[0], shift) if got else None, shift)
+            return False
+        if tool != "brush":
             return False
         hit = self.pick(x, y)
         if hit is None:
@@ -590,3 +668,4 @@ class PaintTool:
             self.stroke = None
             self.d.end_coalesce()
         self.on_cursor(None, None, False)
+        self._hover(None, False)

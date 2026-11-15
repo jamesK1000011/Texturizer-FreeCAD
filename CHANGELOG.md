@@ -14,11 +14,14 @@ being prepared.
 
 ### Added
 
+- Precision brush, ported from BumpMesh's paint tree: Mode Precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle on any tessellation, with Hardness for a soft edge; Standard paints whole triangles and hides Hardness. The 3D view shows BumpMesh's hover preview of what a click marks (Standard, Single, Fill). Split paint reaches the preview (sampled per refined corner), the export (the flattened tree, as BumpMesh's) and `.bumpmesh` projects both ways; `texture_mask { paint { mode } }`.
+- Turntable in the Texture Gallery as BumpMesh's: the view spins about Z through the model's centre, one turn every 24 s, from the moment the gallery opens unless switched off (the choice sticks); a press, the wheel or a SpaceMouse in the view hands it back.
+
 - README: how to uninstall, and a privacy statement.
 
 - `texture_check { object }` checks a Textured object against its body with the mask it stores (draft or arguments), with no `texture_prepare` mask; `path` of its `texture_export` STL alone works too. Faces BumpMesh's angle limits cover whole are listed as `angleMasked`, not `bare`. The `-mask.json` route is unchanged.
 
-- Paint brush, ported from BumpMesh: Single / Circle, Size, Hardness (soft coverage per vertex), Shift to erase, one undo step per stroke; Fill on meshes; `texture_mask { paint, fill }`. Painted masks round-trip `.bumpmesh` projects exactly. Precision mode comes later.
+- Paint brush, ported from BumpMesh: Single / Circle, Size, Hardness (soft coverage per vertex), Shift to erase, one undo step per stroke; Fill on meshes; `texture_mask { paint, fill }`. Painted masks round-trip `.bumpmesh` projects exactly.
 
 - Bake Textures: Mask just-baked faces, as BumpMesh does it. After a bake,
   the fresh layer on the baked part starts with the faces just textured
@@ -33,6 +36,7 @@ being prepared.
 
 ### Changed
 
+- The CPU preview rebuilds the masks from the map stage, so a mask change shows in it at once (it reused the previous masks).
 - Settings sidebar: rows of buttons (the header row, the layer rows, option rows, Rotate, the mask footer) wrap instead of running under the vertical scrollbar, the combos shrink with the dock, and the dock's minimum width (content plus scrollbar) is measured again once the theme has styled it.
 - About Texturizer shows an About box (name, version, licence, the BumpMesh credit with its link); on macOS it and Settings Sidebar keep their place in the Texturizer menu.
 - Section View toggles FreeCAD's Clipping dock and opens it tabbed in its area, without growing the main window.

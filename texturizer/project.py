@@ -36,7 +36,7 @@ frame) ride in settings.json under "texturizer", which BumpMesh ignores.
 Masks map to the draft as triangle lists: a draft mask's triangles index the
 model's triangles (the order of model.stl), and the B-rep faces it names are
 expanded through face_triangles when saving. BumpMesh's sub-triangle paint
-(the circle brush) loads as the base triangles at least half painted.
+(the Precision brush) replays exactly onto the model (decode_split).
 
 zipfile only; no Qt or FreeCAD import.
 """
@@ -192,6 +192,41 @@ def paint_json(tri_count, layer_ids, painted, vert_count=None, soft=None):
             "nodeCount": tri_count, "vertCount": vert_count if vert_count is not None else tri_count * 3,
             "codes": _b64(np.zeros(tri_count, dtype=np.uint8)), "layerIds": list(layer_ids),
             "states": states, "cov": [None] * len(layer_ids), "leafCov": leaf}
+
+
+def split_paint_json(tris, layers, face_triangles=None):
+    """paint.json for layers the Precision brush split: their trees joined
+    into BumpMesh's one shared tree (painttree.combine), serialize({leafCov:
+    true}) as PaintTree.toJSON writes it."""
+    from . import paint, painttree
+
+    srf = paint.Surface(np.asarray(tris, np.float32).reshape(-1))
+    trees = []
+    for L in layers:
+        ft = {f: list(face_triangles(f)) for f in L["mask"].get("faces") or []} if face_triangles else None
+        trees.append(paint.state_from_mask(srf, L["mask"], ft).tree)
+    t = painttree.combine(srf, trees, [L["id"] for L in layers])
+    return painttree.to_json(t.serialize(leaf_cov=True))
+
+
+def decode_split(j, model):
+    """{layer id: mask} of a paint.json with split triangles, replayed on the
+    model's triangles as BumpMesh's deserialize does, each layer's paint
+    exact (triangles, soft, split); None when nothing is split or it does not fit."""
+    from . import paint, painttree
+
+    data = painttree.from_json(j)
+    if data is None or not any(c & 7 for c in data["codes"]):
+        return None
+    srf = paint.Surface(np.asarray(model, np.float32).reshape(-1))
+    t = painttree.PaintTree(srf)
+    if not t.deserialize(data):
+        return None
+    out = {}
+    for slot, L in enumerate(t.layers):
+        st = paint.State(srf, tree=painttree.single(t, slot))
+        out[L.id] = paint.mask_from_state(st, {"faces": []})
+    return out
 
 
 def decode_paint(j):
@@ -365,9 +400,12 @@ def build(draft, model=None, include_model=True, include_texture=True, texture_p
         # BumpMesh writes the paint whenever the model goes in; mask.json is the
         # active layer's paint as a face list, for older readers.
         n = len(tris)
-        soft = {L["id"]: L["mask"]["soft"] for L in draft.layers if L["mask"].get("soft")}
-        files["paint.json"] = json.dumps(paint_json(n, [L["id"] for L in draft.layers], painted,
-                                                    _vert_count(tris), soft)).encode("utf-8")
+        if any(L["mask"].get("split") for L in draft.layers):
+            pj = split_paint_json(tris, draft.layers, face_triangles)
+        else:
+            soft = {L["id"]: L["mask"]["soft"] for L in draft.layers if L["mask"].get("soft")}
+            pj = paint_json(n, [L["id"] for L in draft.layers], painted, _vert_count(tris), soft)
+        files["paint.json"] = json.dumps(pj).encode("utf-8")
         payload["paint"] = "paint.json"
         A = draft.layer()
         exc = [t for t in painted[A["id"]] if t < n]
@@ -555,8 +593,15 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
                             warnings.append("The saved paint does not match the loaded model")
                         else:
                             ids = [d.get("id") for d in files]
+                            exact = decode_split(pj, model)
                             soft = decode_soft(pj)
                             for i, L in enumerate(layers):
+                                if exact is not None:   # the Precision brush's splits, exactly
+                                    m = exact.get(ids[i]) or {}
+                                    for k in ("triangles", "soft", "split"):
+                                        if m.get(k):
+                                            L["mask"][k] = m[k]
+                                    continue
                                 L["mask"]["triangles"] = sorted(by_id.get(ids[i], []))
                                 if ids[i] in soft:
                                     L["mask"]["soft"] = soft[ids[i]]

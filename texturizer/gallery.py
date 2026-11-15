@@ -15,7 +15,7 @@ badge, Favourites) need no Qt.
 import json
 import os
 
-from . import controls, title_case
+from . import controls, title_case, turntable
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -118,20 +118,19 @@ def rows_for(count, columns):
     return -(-int(count) // max(1, int(columns))) if count else 0
 
 
-def _spin(on, speed=0.4):
-    """Turntable: spin FreeCAD's active view slowly about its up axis (True),
-    or stop (False). False when there is no 3D view to spin."""
-    try:
-        import FreeCADGui
+def _spin(on, on_stop=None):
+    """Turntable (turntable.py): spin FreeCAD's active view slowly about Z
+    (True), or stop (False). False when there is no 3D view to spin."""
+    global _TURNTABLE
+    if _TURNTABLE is None:
+        _TURNTABLE = turntable.freecad()
+    if on:
+        return _TURNTABLE.start(on_stop)
+    _TURNTABLE.stop()
+    return True
 
-        view = FreeCADGui.ActiveDocument.ActiveView
-        if on:
-            view.startAnimating(0, 0, 1, speed)
-        else:
-            view.stopAnimating()
-        return True
-    except Exception:
-        return False
+
+_TURNTABLE = None
 
 
 def empty_note(flt, query):
@@ -362,7 +361,7 @@ if QtWidgets is not None:
         favorites, Your textures, the hint, Done, and a credit per tile."""
 
         def __init__(self, list_textures, favourites=None, on_pick=None, draft=None, runner=None,
-                     on_favourites=None, spin=None, on_done=None, parent=None):
+                     on_favourites=None, spin=None, on_done=None, prefs=None, parent=None):
             super().__init__(S("gallery.title"), parent)
             self.setObjectName("TexturizerGallery")
             self.list_textures = list_textures
@@ -375,7 +374,10 @@ if QtWidgets is not None:
             self.tiles = {}
             self._unsub = draft.subscribe(self._draft_changed) if draft is not None else None
 
-            self.spin = spin or _spin
+            # spin(on) -> False when there is no view; the default one pops the
+            # button out when the person takes the view back (BumpMesh's onStop).
+            self.spin = spin or (lambda on: _spin(on, self._spin_taken))
+            self.prefs = prefs or turntable.Prefs()
             body = QtWidgets.QWidget()
             v = QtWidgets.QVBoxLayout(body)
             # No title in the body: the dock's title bar already says Texture Gallery.
@@ -385,6 +387,8 @@ if QtWidgets is not None:
             self.turntable.setToolTip(S("gallery.turntableTitle"))
             self.turntable.setCheckable(True)
             self.turntable.toggled.connect(self.set_turntable)
+            # Only the person's own click is remembered (turntableWanted).
+            self.turntable.clicked.connect(lambda *_: self.prefs.set(self.turntable.isChecked()))
             head.addWidget(self.turntable)
             self.done = QtWidgets.QPushButton(S("gallery.done"))
             # Done: back to the settings when the gallery slides out inside
@@ -482,6 +486,17 @@ if QtWidgets is not None:
         def stop_spin(self):
             if self.turntable.isChecked():
                 self.turntable.setChecked(False)
+
+        def opened(self):
+            """The gallery came up: the Turntable spins unless the person switched it off."""
+            if self.prefs.wanted() and not self.turntable.isChecked():
+                self.turntable.setChecked(True)
+
+        def _spin_taken(self):
+            """The person grabbed, panned or zoomed the view: the spin ended, the button pops out."""
+            self.turntable.blockSignals(True)
+            self.turntable.setChecked(False)
+            self.turntable.blockSignals(False)
 
         def closeEvent(self, ev):  # noqa: N802
             self.stop_spin()
