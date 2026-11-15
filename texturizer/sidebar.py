@@ -54,6 +54,14 @@ ACTIONS = {
 }
 ADD_BY = [("direction", "Facing Direction"), ("box", "In Box"), ("surface", "Same Surface")]
 FLOW_SPACING = 6
+# Dense, so a whole section fits without scrolling beside the tree: the
+# space between rows and between sections, and a section's inner margins.
+SPACING, SECTION_GAP, INDENT = 4, 2, 6
+# Which titled sections are open, kept between sessions ("" none; absent:
+# never chosen, so only the first is open, as the panel first opens).
+OPEN_PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
+OPEN_KEY = "OpenSections"
+NEVER = "?"
 LONG_CHECK = 28  # a check box's label longer than this wraps in a label of its own
 
 
@@ -139,6 +147,41 @@ def mask_count_text(n, include_only):
     if include_only:
         return S("excl.faceSelected" if n == 1 else "excl.facesSelected", n=n)
     return S("excl.faceExcluded" if n == 1 else "excl.facesExcluded", n=n)
+
+
+def open_ids(saved, sections):
+    """The titled sections open: those saved (comma list) or, never saved
+    yet, only the first titled one. Untitled sections are always open."""
+    titled = [s["id"] for s in sections if s.get("title")]
+    if saved is None or saved == NEVER:
+        return set(titled[:1])
+    return {x for x in str(saved).split(",") if x in titled}
+
+
+class OpenStore:
+    """Where the open sections are kept: FreeCAD's parameters, or in
+    memory without FreeCAD (tests)."""
+
+    def __init__(self):
+        self.mem = None
+
+    def load(self):
+        try:
+            import FreeCAD
+
+            return FreeCAD.ParamGet(OPEN_PARAMS).GetString(OPEN_KEY, NEVER)
+        except Exception:  # noqa: BLE001
+            return self.mem
+
+    def save(self, ids):
+        text = ",".join(sorted(ids))
+        self.mem = text
+        try:
+            import FreeCAD
+
+            FreeCAD.ParamGet(OPEN_PARAMS).SetString(OPEN_KEY, text)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def min_dock_width(content, scrollbar, frame=0):
@@ -257,29 +300,34 @@ if QtWidgets is not None:
         """A sidebar section: BumpMesh's heading as a collapse toggle (none
         for the untitled ones) over its rows."""
 
-        def __init__(self, s, parent=None):
+        def __init__(self, s, parent=None, open_=None, on_toggle=None):
             super().__init__(parent)
             self.sid, self.title = s["id"], s["title"]
             self.setObjectName("section_" + s["id"])
             v = QtWidgets.QVBoxLayout(self)
-            v.setContentsMargins(0, 4, 0, 4)
+            v.setContentsMargins(0, SECTION_GAP, 0, SECTION_GAP)
+            v.setSpacing(SECTION_GAP)
+            first = (not s["collapsed"]) if open_ is None else bool(open_)
             self.head = None
             if s["title"]:
                 self.head = QtWidgets.QToolButton()
                 self.head.setText(title_case(s["title"]))  # a group title: Title Case
                 self.head.setCheckable(True)
-                self.head.setChecked(not s["collapsed"])
+                self.head.setChecked(first)
                 self.head.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
                 self.head.setAutoRaise(True)
                 if s.get("tooltip"):
                     self.head.setToolTip(s["tooltip"])
                 self.head.toggled.connect(self.expand)
+                if on_toggle is not None:
+                    self.head.toggled.connect(lambda *_: on_toggle())
                 v.addWidget(self.head)
             self.body = QtWidgets.QWidget()
             self.rows = QtWidgets.QVBoxLayout(self.body)
-            self.rows.setContentsMargins(8 if s["title"] else 0, 0, 0, 0)
+            self.rows.setContentsMargins(INDENT if s["title"] else 0, 0, 0, 0)
+            self.rows.setSpacing(SPACING)
             v.addWidget(self.body)
-            self.expand(not s["collapsed"])
+            self.expand(first)
 
         def expand(self, on):
             self.body.setVisible(bool(on))
@@ -393,7 +441,7 @@ if QtWidgets is not None:
 
     class Sidebar(QtWidgets.QDockWidget):
         def __init__(self, draft, runner=None, list_textures=None, favourites=None, open_gallery=None,
-                     selection=None, confirm=None, parent=None):
+                     selection=None, confirm=None, open_store=None, parent=None):
             super().__init__(TITLE, parent)
             self.setObjectName(NAME)
             self.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
@@ -414,8 +462,14 @@ if QtWidgets is not None:
             body = QtWidgets.QWidget()
             self.body = body
             v = QtWidgets.QVBoxLayout(body)
+            v.setContentsMargins(SPACING, SPACING, SPACING, SPACING)
+            v.setSpacing(SPACING)
+            # The sections open as the person left them; the first time,
+            # only the first.
+            self.open_store = open_store or OpenStore()
+            opened = open_ids(self.open_store.load(), controls.SECTIONS)
             for s in controls.SECTIONS:
-                sec = Section(s)
+                sec = Section(s, open_=(s["id"] in opened) if s["title"] else None, on_toggle=self._remember_open)
                 self.sections.append(sec)
                 v.addWidget(sec)
                 self._fill(sec)
@@ -438,6 +492,9 @@ if QtWidgets is not None:
             self._unsub = draft.subscribe(self._on_draft)
             self.refresh()
             self.fit_width()
+
+        def _remember_open(self):
+            self.open_store.save(s.sid for s in self.sections if s.head is not None and not s.collapsed())
 
         def fit_width(self):
             """The dock's minimum width: the content's minimum plus the
