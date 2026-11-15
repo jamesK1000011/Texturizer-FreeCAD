@@ -13,7 +13,7 @@ import functools
 import math
 import os
 
-from . import mesh
+from . import live, mesh
 
 
 class Refusal(Exception):
@@ -201,20 +201,12 @@ def _mask_from(shape, per_face, n, q, mode):
     return engine.from_triangles(n, tris, mode), sorted(names)
 
 
-def texture_apply(s, a):
-    """BumpMesh's engine on a body: a new Mesh feature (and an STL / 3MF when asked)."""
+def _layers_from_args(s, a, o, per_face, n, settings):
+    """texture_apply's own layers (texture, or layers with face masks)."""
     from . import engine
 
-    o = s.body(a.get("body"))
-    tol = num(a.get("tolerance", 0.02), "tolerance")
-    tris, per_face = mesh.face_triangles(o.Shape, tol)
-    pos = _positions(tris)
-    n = len(pos) // 9
-    settings = _numbers(a.get("settings"), "settings")
     specs = a.get("layers")
     if specs is None:
-        if not a.get("texture"):
-            raise ToolError("invalid_input", "texture: a library id (texture_list), or layers.")
         specs = [{"texture": a["texture"], "settings": {}, "faces": a.get("faces"), "mode": a.get("mode", "exclude")}]
     if not isinstance(specs, list) or not specs:
         raise ToolError("invalid_input", "layers: a list of 1 to 4 layers, bottom first.")
@@ -235,10 +227,12 @@ def texture_apply(s, a):
             ls = {**{k: v for k, v in settings.items() if k in engine.LAYER_KEYS}, **ls}
         layers.append({"texture": _texture_id(L["texture"]), "settings": ls, "mask": mask,
                        "blendAdd": bool(L.get("blendAdd")) and i > 0, "visible": L.get("visible", True) is not False})
-    glob = {k: v for k, v in settings.items() if k in engine.GLOBAL_KEYS}
-    run = {**glob, "layers": layers}
-    if a.get("rotation") is not None:
-        run["frame"] = {"rotation": [num(x, "rotation") for x in a["rotation"]]}
+    return layers, masked
+
+
+def _run_engine(s, a, pos, run):
+    from . import engine
+
     est = engine.estimate(pos, run)
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
         raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
@@ -246,33 +240,168 @@ def texture_apply(s, a):
     res = engine.texture(pos, run)
     if res is None:
         raise ToolError("failed", "Stopped before it finished.")
-    name = a.get("name") or f"{o.Label}_textured"
-    obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run)
+    return res
+
+
+def _export_with(s, a, pos, run, res, out):
+    from . import engine
+
+    exp = a.get("export")
+    if not exp:
+        return
+    path = exp if isinstance(exp, str) else exp.get("path")
+    if not path:
+        raise ToolError("invalid_input", "export: a path ending .stl or .3mf.")
+    if not os.path.isabs(path):
+        path = os.path.join(s.out_dir, path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    try:
+        e = engine.export(pos, run, None, path, None if isinstance(exp, str) else exp.get("format"), result=res)
+    except ValueError as err:
+        raise ToolError("invalid_input", f"export: {err}") from None
+    out["export"] = {k: e[k] for k in ("path", "format", "triangles")}
+
+
+def _apply_args(s, a, target=None):
+    """texture_apply with its own texture / layers (no draft): kept as it was,
+    and the arguments stored so Update can run them again."""
+    from . import engine
+
+    o = s.body(a.get("body"))
+    tol = num(a.get("tolerance", 0.02), "tolerance")
+    tris, per_face = mesh.face_triangles(o.Shape, tol)
+    pos = _positions(tris)
+    n = len(pos) // 9
+    settings = _numbers(a.get("settings"), "settings")
+    if a.get("layers") is None and not a.get("texture"):
+        raise ToolError("invalid_input", "texture: a library id (texture_list), or layers.")
+    layers, masked = _layers_from_args(s, a, o, per_face, n, settings)
+    glob = {k: v for k, v in settings.items() if k in engine.GLOBAL_KEYS}
+    run = {**glob, "layers": layers}
+    if a.get("rotation") is not None:
+        run["frame"] = {"rotation": [num(x, "rotation") for x in a["rotation"]]}
+    res = _run_engine(s, a, pos, run)
+    name = a.get("name") or (target.Label if target is not None else f"{o.Label}_textured")
+    keep = {k: v for k, v in a.items() if k not in ("export", "update", "bake", "new")}
+    obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target, args=keep)
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "triangles": res["triangles"], "inputTriangles": res["inputTriangles"], "repair": res["repair"],
            "warnings": res["warnings"], "layers": masked, "credit": engine.credit_of(run)}
-    exp = a.get("export")
-    if exp:
-        path = exp if isinstance(exp, str) else exp.get("path")
-        if not path:
-            raise ToolError("invalid_input", "export: a path ending .stl or .3mf.")
-        if not os.path.isabs(path):
-            path = os.path.join(s.out_dir, path)
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    _export_with(s, a, pos, run, res, out)
+    return out
+
+
+def run_settings(d, face_triangles):
+    """The engine's settings for a draft: every layer with its face masks as
+    triangles (solo is the preview's only), the frame's rotation."""
+    from . import engine
+
+    dd = d.to_dict() if hasattr(d, "to_dict") else dict(d)
+    for L in dd.get("layers") or []:
+        L["solo"] = False
+    s = engine._draft_settings(dd)
+    s["layers"] = engine._resolve_masks(engine.layer_specs(s), face_triangles)
+    return s
+
+
+def _apply_draft(s, a, d, target=None, name=None):
+    """BumpMesh's engine on the draft's part: a new Textured object, or the
+    target updated in place."""
+    import json
+
+    from . import engine
+
+    o = _part(s, None, d)
+    pos, ft = live.mesh_for(o)
+    run = run_settings(d, ft)
+    if not any(L.get("visible", True) is not False for L in run["layers"]):
+        raise ToolError("invalid_state", "Every layer is hidden: show one (texture_layer).")
+    res = _run_engine(s, a, pos, run)
+    name = name or (target.Label if target is not None else f"{o.Label}_textured")
+    obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target, draft_json=json.dumps(d.to_dict()))
+    out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
+           "updated": target is not None, "triangles": res["triangles"], "inputTriangles": res["inputTriangles"],
+           "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run),
+           "layers": [{"layer": i + 1, "texture": L["texture"], "mode": "include" if L.get("includeOnly") else "exclude",
+                       "faces": list(L["mask"]["faces"])} for i, L in enumerate(d.layers)]}
+    _export_with(s, a, pos, run, res, out)
+    return obj, out
+
+
+def texture_apply(s, a):
+    """Add to document / Update / Bake Textures: BumpMesh's engine on a body
+    (the draft's, or the texture / layers given here). A Textured object keeps
+    the settings it was made with, goes out of date when its body changes, and
+    runs again only on Update."""
+    d = live.draft()
+    doc = _doc(s)
+    if a.get("update"):
+        target = live.find(doc, a["update"])
+        if target is None or "SourceBody" not in getattr(target, "PropertiesList", []):
+            raise ToolError("not_found", f"update {a['update']!r}: not a Textured object in this document.")
+        stored = getattr(target, "TextureDraft", "") or ""
+        if stored:
+            from .draft import Draft
+
+            dd = Draft.from_json(stored)
+            dd.part = target.SourceBody
+            _obj, out = _apply_draft(s, a, dd, target=target)
+        else:
+            import json
+
+            args = json.loads(getattr(target, "TextureArgs", "") or "{}")
+            if not args:
+                raise ToolError("invalid_state", f"{target.Label}: made without stored settings; texture its body again.")
+            args["body"] = target.SourceBody
+            out = _apply_args(s, args, target=target)
+            out["updated"] = True
+        out["outOfDate"] = False
+        out["next"] = "texture_check against the body, or texture_export for an STL / 3MF."
+        return remember("texture_apply", out)
+    if a.get("texture") or a.get("layers") is not None:
+        out = _apply_args(s, a)
+        out["next"] = (f"texture_check {{ body: \"{out['body']}\", path: <an STL export> }} measures the depth face by face; "
+                       "slice the export or the mesh object.")
+        return remember("texture_apply", out)
+    if a.get("draft") is not None:
         try:
-            out["export"] = engine.export(pos, run, None, path, None if isinstance(exp, str) else exp.get("format"), result=res)
-        except ValueError as e:
-            raise ToolError("invalid_input", f"export: {e}") from None
-        out["export"] = {k: out["export"][k] for k in ("path", "format", "triangles")}
-    out["next"] = (f"texture_check {{ body: \"{o.Label}\", path: <an STL export> }} measures the depth face by face; "
-                   "slice the export or the mesh object.")
+            d.load(a["draft"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise ToolError("invalid_input", f"draft: {e}") from None
+    if a.get("body") is not None:
+        d.set_part(_part(s, a["body"], d).Name)
+    if d.part is None:
+        d.set_part(_part(s, None, d).Name)
+    target = None
+    if not a.get("new") and not a.get("bake"):
+        t = live.find(doc, live.TARGET["object"])
+        if t is not None and getattr(t, "SourceBody", None) == d.part:
+            target = t
+    obj, out = _apply_draft(s, a, d, target=target, name=a.get("name"))
+    if obj is not None:
+        live.TARGET["object"] = obj.Name
+    if a.get("bake") and obj is not None:
+        # Bake Textures: the textured mesh becomes the part, with a fresh layer
+        # on the same global settings (BumpMesh's bake). The Textured object
+        # keeps its own settings and can still be updated.
+        bake_mask = bool(d.settings.get("bakeMask"))
+        keep = dict(d.settings)
+        with d.batch():
+            d.reset()
+            d.update({k: v for k, v in keep.items() if k in d.settings})
+            d.set_part(obj.Name)
+        live.TARGET["object"] = None
+        out["baked"] = obj.Name
+        if bake_mask:
+            out["warnings"] = list(out.get("warnings") or []) + [
+                "Mask just-baked faces: not available yet on a baked mesh; the new layer textures the whole part."]
+    out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check against the body; "
+                   "texture_export for an STL / 3MF." % (out["object"] or ""))
     return remember("texture_apply", out)
 
 
-def _add_mesh(s, body, name, positions, credit, run):
-    """The textured mesh as a Mesh::Feature beside the body, carrying its credit
-    and the settings it was made with."""
-    import json
+def _make_mesh(positions):
+    """A Mesh.Mesh from float32 positions, or None without FreeCAD's Mesh."""
     import tempfile
 
     from .engine import writers
@@ -281,38 +410,741 @@ def _add_mesh(s, body, name, positions, credit, run):
         import Mesh
     except ImportError:
         return None
-    doc = getattr(s, "doc", None) or body.Document
     fd, tmp = tempfile.mkstemp(suffix=".stl")
     os.close(fd)
     try:
         with open(tmp, "wb") as fh:
             fh.write(writers.stl_bytes(positions))
-        m = Mesh.Mesh(tmp)
+        return Mesh.Mesh(tmp)
     finally:
         os.unlink(tmp)
-    obj = doc.addObject("Mesh::Feature", "Textured")
+
+
+PROPS = (("Credit", "App::PropertyString", "The credit this texture carries"),
+         ("TextureSettings", "App::PropertyString", "BumpMesh's settings the mesh was made with (JSON)"),
+         ("TextureDraft", "App::PropertyString", "The Texturizer draft it was made from (JSON): Update runs it again"),
+         ("TextureArgs", "App::PropertyString", "The texture_apply arguments it was made with (JSON)"),
+         ("SourceBody", "App::PropertyString", "The body it textures"),
+         ("SourceSignature", "App::PropertyString", "The body's geometry when it was textured"),
+         ("OutOfDate", "App::PropertyBool", "The body changed since: Update to texture it again"))
+
+
+def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="", args=None):
+    """The textured mesh as a Mesh::Feature beside the body (or the target
+    updated), carrying its credit, the settings it was made with, its body
+    and the body's fingerprint."""
+    import json
+
+    m = _make_mesh(positions)
+    if m is None:
+        return None
+    doc = getattr(s, "doc", None) or body.Document
+    obj = target if target is not None else doc.addObject("Mesh::Feature", "Textured")
     obj.Label = name
     obj.Mesh = m
-    for prop, val in (("Credit", credit), ("TextureSettings", json.dumps(_jsonable(run))), ("SourceBody", body.Name)):
+    vals = {"Credit": credit, "TextureSettings": json.dumps(_jsonable(run)), "TextureDraft": draft_json or "",
+            "TextureArgs": json.dumps(args) if args else "", "SourceBody": body.Name,
+            "SourceSignature": live.signature(body), "OutOfDate": False}
+    for prop, kind, doc_text in PROPS:
         if prop not in obj.PropertiesList:
-            obj.addProperty("App::PropertyString", prop, "Texturizer", "")
-        setattr(obj, prop, val)
+            obj.addProperty(kind, prop, "Texturizer", doc_text)
+        setattr(obj, prop, vals[prop])
     doc.recompute()
     return obj
 
 
 def _jsonable(run):
+    def mask(m):
+        if m is None:
+            return None, None
+        if isinstance(m, dict):
+            return len(m.get("triangles") or []), m.get("mode")
+        return int(len(m.triangles)), m.mode
+
     out = {k: v for k, v in run.items() if k != "layers"}
-    out["layers"] = [{"texture": L["texture"], "settings": L["settings"], "blendAdd": L["blendAdd"],
-                      "maskTriangles": None if L["mask"] is None else int(len(L["mask"].triangles)),
-                      "maskMode": None if L["mask"] is None else L["mask"].mode} for L in run["layers"]]
+    out["layers"] = []
+    for L in run["layers"]:
+        n, mode = mask(L.get("mask"))
+        out["layers"].append({"texture": L["texture"], "settings": L.get("settings") or {}, "blendAdd": bool(L.get("blendAdd")),
+                              "visible": L.get("visible", True) is not False, "maskTriangles": n, "maskMode": mode})
     return out
 
+
+def textured_objects(doc):
+    return [o for o in (doc.Objects if doc is not None else []) if "SourceBody" in getattr(o, "PropertiesList", [])]
+
+
+def mark_out_of_date(doc, changed=None):
+    """Sets OutOfDate on the Textured objects whose SourceBody's geometry no
+    longer matches (all, or those of the changed object). Never reruns.
+    Returns the names now out of date."""
+    out = []
+    for t in textured_objects(doc):
+        if changed is not None and t.SourceBody != getattr(changed, "Name", changed):
+            continue
+        src = live.find(doc, t.SourceBody)
+        stale = src is None or live.signature(src) != t.SourceSignature
+        if "OutOfDate" in t.PropertiesList and bool(t.OutOfDate) != stale:
+            t.OutOfDate = stale
+        if stale:
+            out.append(t.Name)
+    return out
+
+
+class Observer:
+    """A FreeCAD document observer: a body recomputed marks its Textured
+    objects out of date (FreeCAD.addDocumentObserver)."""
+
+    def slotRecomputedObject(self, obj):  # noqa: N802 (FreeCAD)
+        try:
+            doc = obj.Document
+            if any(t.SourceBody == obj.Name for t in textured_objects(doc)):
+                mark_out_of_date(doc, obj)
+        except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
+
+
+# ── the draft (design 5.1): one Draft, shared with the sidebar ─────────────
+
+def _doc(s):
+    return getattr(s, "doc", None) or live._doc()
+
+
+def _part(s, ref, d=None):
+    """The object a draft textures: ref (a body, or a Mesh object), else the
+    draft's part, else the one body shown."""
+    doc = _doc(s)
+    if ref is None and d is not None and d.part:
+        o = live.find(doc, d.part)
+        if o is not None:
+            return o
+    if ref is not None:
+        o = live.find(doc, ref)
+        if o is not None and (getattr(getattr(o, "Shape", None), "Faces", None) or getattr(o, "Mesh", None) is not None):
+            return o
+    return s.body(ref)
+
+
+def _watch():
+    """The sidebar open in the window, so the draft moves where it can be watched."""
+    if live.GUI is not None:
+        try:
+            live.GUI.open()
+        except Exception:  # noqa: BLE001 — a closed window never stops a tool
+            pass
+
+
+def _layer(d, a):
+    i = a.get("layer")
+    if i is None:
+        return d.active
+    if isinstance(i, bool) or not isinstance(i, int) or not 0 <= i < len(d.layers):
+        raise ToolError("invalid_input", f"layer: 0 to {len(d.layers) - 1} (the draft has {len(d.layers)}).")
+    return i
+
+
+def _gui(what):
+    """The window side, or a refusal saying what was needed."""
+    if live.GUI is None:
+        raise ToolError("invalid_input", f"{what}: needs FreeCAD's window; name it in the arguments instead.")
+    return live.GUI
+
+
+def summary(d, s=None):
+    """What the draft holds, short: the part, the frame, each layer."""
+    from . import controls
+
+    out = {"part": d.part, "frame": dict(d.frame), "active": d.active, "layers": []}
+    if s is not None and d.part:
+        o = live.find(_doc(s), d.part)
+        if o is not None:
+            out["label"] = o.Label
+    for i, L in enumerate(d.layers):
+        changed = {k: v for k, v in L["settings"].items() if controls.BY_KEY.get(k, {}).get("default", v) != v}
+        out["layers"].append({"layer": i, "name": L["name"], "texture": L["texture"], "visible": L["visible"],
+                              "solo": L["solo"], "blend": "add" if L["blendAdd"] else "cover",
+                              "mode": "include" if L["includeOnly"] else "exclude",
+                              "faces": list(L["mask"]["faces"]), "triangles": len(L["mask"]["triangles"]),
+                              "settings": changed})
+    g = {k: v for k, v in d.settings.items() if controls.BY_KEY.get(k, {}).get("default", v) != v}
+    out["settings"] = g
+    out["canUndo"], out["canRedo"] = d.can_undo(), d.can_redo()
+    return out
+
+
+def _bounds_of_part(s, d):
+    import numpy as np
+
+    pos, _ft = live.mesh_for(_part(s, None, d))
+    p = np.asarray(pos, float).reshape(-1, 3)
+    mn, mx = p.min(0), p.max(0)
+    return {"min": mn.tolist(), "max": mx.tolist(), "size": (mx - mn).tolist(), "center": ((mn + mx) / 2).tolist()}
+
+
+def _load_project(s, d, path, mode):
+    from . import project
+
+    try:
+        res = project.load(path, d, mode=mode)
+    except (OSError, ValueError, KeyError) as e:
+        raise ToolError("invalid_input", f"project: {e}") from None
+    note = []
+    if res.get("model") is not None and res["mode"] == "all":
+        obj = _add_plain_mesh(s, os.path.splitext(os.path.basename(path))[0], res["model"])
+        if obj is not None:
+            d.part = obj.Name  # the project's model, in the draft's undo step
+            note.append(f"Model loaded as {obj.Label}.")
+    return {"mode": res["mode"], "warnings": res.get("warnings") or [], "note": " ".join(note)}
+
+
+def _add_plain_mesh(s, name, tris):
+    import numpy as np
+
+    m = _make_mesh(np.asarray(tris, np.float32).reshape(-1))
+    doc = _doc(s)
+    if m is None or doc is None:
+        return None
+    obj = doc.addObject("Mesh::Feature", "Model")
+    obj.Label = name
+    obj.Mesh = m
+    doc.recompute()
+    return obj
+
+
+def texture_draft(s, a):
+    """Start or read the draft: the part (a body, a Mesh, or a Textured object
+    to texture again), a whole draft, Reset to defaults or Load Project. Opens
+    the sidebar in the window."""
+    import json
+
+    d = live.draft()
+    if a.get("reset"):
+        d.reset()
+    if a.get("draft") is not None:
+        try:
+            d.load(a["draft"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise ToolError("invalid_input", f"draft: {e}") from None
+    ref = a.get("part", a.get("body"))
+    if a.get("load") == "selection":
+        ref = _gui("load: selection").selected_object() or ref
+    if ref is not None or (d.part is None and not a.get("project")):
+        o = _part(s, ref, None)
+        stored = getattr(o, "TextureDraft", "") if "SourceBody" in getattr(o, "PropertiesList", []) else ""
+        if stored:
+            # A Textured object: its settings back in the draft, its body the part.
+            data = json.loads(stored)
+            data["part"] = o.SourceBody
+            d.load(data)
+            live.TARGET["object"] = o.Name
+        else:
+            if o.Name != d.part:
+                live.TARGET["object"] = None
+            d.set_part(o.Name)
+    out = {}
+    pj = a.get("project")
+    if pj:
+        if pj == "ask":
+            g = _gui("project: ask")
+            pj = g.ask_path("bumpmesh", save=False)
+            mode = None
+            if pj:
+                from . import project
+
+                try:
+                    mode = a.get("mode") or g.ask_load_mode(project.read(pj).has_model)
+                except (OSError, ValueError) as e:
+                    raise ToolError("invalid_input", f"project: {e}") from None
+            if not pj or not mode:
+                return {"cancelled": True, "draft": summary(d, s)}
+            a = dict(a, mode=mode)
+        out["project"] = _load_project(s, d, pj, a.get("mode", "all"))
+    _watch()
+    if d.part:
+        pos, ft = live.mesh_for(_part(s, None, d))
+        out["mesh"] = {"triangles": len(pos) // 9, "faces": len(ft)}
+    out["draft"] = summary(d, s)
+    out["note"] = ("The sidebar shows this draft. texture_set (texture, settings), texture_mask (faces), texture_layer, "
+                   "then texture_preview to look and texture_apply to add it to the document.")
+    return out
+
+
+def _pick_face(s, a, what):
+    """(object, face name, face) from a.face, else the window's selection."""
+    d = live.draft()
+    name = a.get("face")
+    if name is None:
+        sel = _gui(what).selected_faces()
+        if not sel or not sel[1]:
+            raise ToolError("invalid_input", f"{what}: pick a face in the 3D view first, or give face.")
+        ref, faces = sel
+        o = _part(s, ref, d)
+        name = faces[0]
+    else:
+        o = _part(s, None, d)
+    shape = getattr(o, "Shape", None)
+    names = face_names(shape, name) if shape is not None else set()
+    n = sorted(names)[0] if names else None
+    if n is None:
+        raise ToolError("not_found", f"{what}: no face {name!r}.")
+    return o, n, shape.Faces[int(n[4:]) - 1]
+
+
+def _face_normal(f, at=None):
+    u0, u1, v0, v1 = f.ParameterRange
+    if at is not None:
+        try:
+            u, v = f.Surface.parameter(at)
+            n = f.normalAt(u, v)
+            return (n.x, n.y, n.z)
+        except Exception:  # noqa: BLE001
+            pass
+    n = f.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
+    return (n.x, n.y, n.z)
+
+
+def _custom_texture(path):
+    """Upload custom map: the file copied into your textures folder (kept as
+    it is), listed as category custom."""
+    import shutil
+
+    from .engine import library
+
+    if not os.path.isfile(path):
+        raise ToolError("not_found", f"texture file {path!r}: not found.")
+    d = live.custom_dir()
+    if d:
+        os.makedirs(d, exist_ok=True)
+        dst = os.path.join(d, os.path.basename(path))
+        if os.path.abspath(dst) != os.path.abspath(path):
+            shutil.copyfile(path, dst)
+        library.add_custom_dir(d)
+        return "custom:" + os.path.basename(path)
+    return library.get(path)["id"]
+
+
+def texture_set(s, a):
+    """Layer and global settings by BumpMesh's names, the texture, the frame
+    (Rotate, Place on Face), the cylinder (Auto-fit, Reset, From face) and the
+    stamp: a partial update, one undo step, shown live in the sidebar."""
+    from . import controls, projection_extras
+    from .engine import frame_matrix, library
+
+    _watch()
+    d = live.draft()
+    i = _layer(d, a)
+    done = {}
+    with d.batch():
+        if a.get("active") is not None:
+            d.set_active(_layer(d, {"layer": a["active"]}))
+            i = d.active
+        tex = a.get("texture")
+        if isinstance(tex, dict):
+            path = tex.get("file") or (tex.get("upload") and _gui("texture: upload").ask_path("image", save=False))
+            if not path:
+                return {"cancelled": True, "draft": summary(d, s)}
+            tex = _custom_texture(path)
+        if tex:
+            e = library.get(_texture_id(tex))
+            defs = dict(e.get("defaults") or {})
+            if d.part:
+                b = _bounds_of_part(s, d)
+                defs["scaleU"] = defs["scaleV"] = library.default_scale_mm(defs.get("tileFraction"), b)
+            d.set_texture(e["id"], layer=i, defaults={k: v for k, v in defs.items() if k in ("scaleU", "scaleV", "textureSmoothing")})
+            done["texture"] = e["id"]
+        sets = a.get("settings") or {}
+        if not isinstance(sets, dict):
+            raise ToolError("invalid_input", "settings: {name: value} by BumpMesh's names (texture_settings lists them).")
+        for k, v in sets.items():
+            c = controls.BY_KEY.get(k)
+            if c is None or c["scope"] not in ("layer", "global", "frame") or c["type"] in ("button", "heading", "note"):
+                raise ToolError("invalid_input", f"settings.{k}: not a BumpMesh setting (texture_settings lists them).")
+            if k == "mappingMode" and isinstance(v, str):
+                from . import engine
+
+                if v not in engine.MAPPING_MODES:
+                    raise ToolError("invalid_input", f"settings.mappingMode: 0-8 or one of {', '.join(engine.MAPPING_MODES)}.")
+                v = engine.MAPPING_MODES[v]
+            try:
+                done[k] = d.set(k, v, layer=i)
+            except (TypeError, ValueError) as e:
+                raise ToolError("invalid_input", f"settings.{k}: {e}") from None
+        fr = a.get("frame")
+        if fr is not None:
+            if not isinstance(fr, dict):
+                raise ToolError("invalid_input", "frame: {rotation: [x, y, z]} degrees, or {face: \"selected\" | FaceN}.")
+            if fr.get("rotation") is not None:
+                rot = [num(x, "frame.rotation") for x in fr["rotation"]]
+                if len(rot) != 3:
+                    raise ToolError("invalid_input", "frame.rotation: [x, y, z] degrees.")
+                d.set_frame(rotation=rot)
+            if fr.get("face") is not None:
+                # Place on Face: the picked face down on the bed (its normal to -Z),
+                # by turning the texturing frame; the body does not move.
+                o, n, f = _pick_face(s, {"face": None if fr["face"] == "selected" else fr["face"]}, "frame.face")
+                nx, ny, nz = _face_normal(f)
+                r = projection_extras.align_rotation((-nx, -ny, -nz))
+                d.set_frame(rotation=[r["rotateX"], r["rotateY"], r["rotateZ"]], face=n)
+            done["frame"] = dict(d.frame)
+        cyl = a.get("cylinder")
+        if cyl is not None:
+            if cyl == "reset":
+                up = projection_extras.reset()
+            elif cyl == "autofit":
+                pos, _ft = live.mesh_for(_part(s, None, d))
+                R = frame_matrix(d.frame.get("rotation"))
+                import numpy as np
+
+                p = (np.asarray(pos, float).reshape(-1, 3) @ R.T).reshape(-1, 9)
+                up = projection_extras.auto_fit(p)
+                if up is None:
+                    raise ToolError("failed", "Auto-fit: no cylinder found in the side faces.")
+            elif cyl == "from_face":
+                o, n, f = _pick_face(s, a, "cylinder: from_face")
+                R = frame_matrix(d.frame.get("rotation"))
+
+                def to_frame(v, _direction):
+                    import numpy as np
+
+                    return tuple((R @ np.asarray(v, float)).tolist())
+
+                try:
+                    up = projection_extras.from_face(f.Surface, to_frame=to_frame)
+                except (AttributeError, ValueError) as e:
+                    raise ToolError("invalid_input", f"cylinder: from_face: {e}") from None
+            else:
+                raise ToolError("invalid_input", "cylinder: autofit, reset or from_face.")
+            done["cylinder"] = projection_extras.apply(d, up, layer=i)
+        st = a.get("stamp")
+        if st is not None:
+            L = d.layer(i)["settings"]
+            if st in ("on", "off", True, False):
+                up = projection_extras.stamp_mode(L, st in ("on", True))
+            elif st == "place" or isinstance(st, dict):
+                pt = st.get("point") if isinstance(st, dict) else None
+                nr = st.get("normal") if isinstance(st, dict) else None
+                if pt is None:
+                    pick = _gui("stamp: place").picked_point()
+                    if not pick:
+                        raise ToolError("invalid_input", "stamp: click the spot on the part first, or give point and normal.")
+                    pt, nr = pick
+                if nr is None:
+                    raise ToolError("invalid_input", "stamp.normal: [x, y, z].")
+                if not L.get("stampOnce"):
+                    projection_extras.apply(d, projection_extras.stamp_mode(L, True), layer=i)
+                pos, _ft = live.mesh_for(_part(s, None, d))
+                up = projection_extras.stamp_place(pt, nr, d.layer(i)["settings"], positions=pos)
+            else:
+                raise ToolError("invalid_input", "stamp: on, off, place, or {point, normal}.")
+            done["stamp"] = projection_extras.apply(d, up, layer=i)
+    return {"layer": i, "set": done, "draft": summary(d, s)}
+
+
+def _faces_by(shape, how, ref_faces, a):
+    """Add by…: faces facing the same direction as the picked ones (within
+    angle), inside their box, or on the same surface."""
+    out = set()
+    refs = [shape.Faces[int(n[4:]) - 1] for n in ref_faces]
+    if not refs:
+        raise ToolError("invalid_input", f"add_by {how}: pick a face first, or give faces.")
+    if how == "direction":
+        lim = math.cos(math.radians(num(a.get("angle", 10), "angle")))
+        dirs = [_face_normal(f) for f in refs]
+        for k, f in enumerate(shape.Faces):
+            n = _face_normal(f)
+            if any(n[0] * r[0] + n[1] * r[1] + n[2] * r[2] >= lim for r in dirs):
+                out.add(f"Face{k + 1}")
+    elif how == "box":
+        bb = refs[0].BoundBox
+        for f in refs[1:]:
+            bb.add(f.BoundBox)
+        tol = 1e-6
+        for k, f in enumerate(shape.Faces):
+            fb = f.BoundBox
+            if (fb.XMin >= bb.XMin - tol and fb.YMin >= bb.YMin - tol and fb.ZMin >= bb.ZMin - tol
+                    and fb.XMax <= bb.XMax + tol and fb.YMax <= bb.YMax + tol and fb.ZMax <= bb.ZMax + tol):
+                out.add(f"Face{k + 1}")
+    elif how == "surface":
+        keys = {_surface_key(f) for f in refs}
+        for k, f in enumerate(shape.Faces):
+            if _surface_key(f) in keys:
+                out.add(f"Face{k + 1}")
+    else:
+        raise ToolError("invalid_input", "add_by: direction, box or surface.")
+    return out
+
+
+def _surface_key(f):
+    s = f.Surface
+    kind = type(s).__name__
+
+    def r(v):
+        return tuple(round(float(x), 5) for x in (v.x, v.y, v.z))
+
+    if kind == "Plane":
+        n = s.Axis
+        return (kind, r(n), round(float(s.Position.dot(n)), 5))
+    if kind in ("Cylinder", "Cone"):
+        return (kind, r(s.Axis), round(float(s.Radius), 5), r(s.Center.cross(s.Axis)))
+    if kind == "Sphere":
+        return (kind, r(s.Center), round(float(s.Radius), 5))
+    return (kind, id(f))
+
+
+def _flood(shape, seeds, max_angle):
+    """Fill: from the seed faces across edges whose faces meet at under
+    max_angle degrees (at the edge's middle), as BumpMesh's bucket fill."""
+    lim = math.cos(math.radians(max_angle))
+    edges = {}
+    for k, f in enumerate(shape.Faces):
+        for e in f.Edges:
+            edges.setdefault(e.hashCode(), []).append(k)
+    todo = [int(n[4:]) - 1 for n in seeds]
+    seen = set(todo)
+    while todo:
+        k = todo.pop()
+        f = shape.Faces[k]
+        for e in f.Edges:
+            others = [j for j in edges.get(e.hashCode(), []) if j not in seen]
+            if not others:
+                continue
+            p0, p1 = e.ParameterRange
+            mid = e.valueAt((p0 + p1) / 2)
+            n = _face_normal(f, mid)
+            for j in others:
+                m = _face_normal(shape.Faces[j], mid)
+                if n[0] * m[0] + n[1] * m[1] + n[2] * m[2] >= lim:
+                    seen.add(j)
+                    todo.append(j)
+    return {f"Face{k + 1}" for k in seen}
+
+
+def texture_mask(s, a):
+    """By Surface for one layer: Exclude / Include Only, faces added or
+    removed (names, queries with Agent Link, or the picked ones), Add by…,
+    Fill, Clear All. Lights the faces in the sidebar's list live."""
+    _watch()
+    d = live.draft()
+    i = _layer(d, a)
+    o = _part(s, None, d)
+    shape = getattr(o, "Shape", None)
+    mode = a.get("mode")
+    with d.batch():
+        if mode is not None:
+            if mode not in ("include", "exclude"):
+                raise ToolError("invalid_input", "mode: include (texture only these faces) or exclude (all but them).")
+            d.set("includeOnly", mode == "include", layer=i)
+        if a.get("clear"):
+            d.mask_clear(layer=i)
+        add = a.get("add")
+        if add is not None:
+            if add == "selected":
+                sel = _gui("add: selected").selected_faces()
+                faces = set((sel or (None, []))[1])
+                if not faces:
+                    raise ToolError("invalid_input", "add: selected: pick faces in the 3D view first, or name them.")
+            else:
+                if shape is None:
+                    raise ToolError("invalid_input", "add: a Mesh part has no faces to name; use triangles.")
+                faces = pick_faces(shape, add)
+            d.mask_add(faces=sorted(faces), layer=i)
+        if a.get("triangles") is not None:
+            d.mask_add(triangles=[int(t) for t in a["triangles"]], layer=i)
+        if a.get("remove") is not None:
+            faces = pick_faces(shape, a["remove"]) if shape is not None else set()
+            d.mask_remove(faces=sorted(faces), layer=i)
+        if a.get("add_by") is not None:
+            ref = a.get("faces")
+            ref = sorted(face_names(shape, ref)) if ref is not None else list(((live.GUI and live.GUI.selected_faces()) or (None, []))[1])
+            d.mask_add(faces=sorted(_faces_by(shape, a["add_by"], ref, a)), layer=i)
+        if a.get("fill") is not None:
+            f = a["fill"] if isinstance(a["fill"], dict) else {"faces": a["fill"]}
+            seeds = f.get("faces")
+            seeds = sorted(face_names(shape, seeds)) if seeds is not None else list(((live.GUI and live.GUI.selected_faces()) or (None, []))[1])
+            if not seeds:
+                raise ToolError("invalid_input", "fill: a seed face (faces), or pick one.")
+            ang = num(f.get("maxAngle", d.get("bucketThreshold") if "bucketThreshold" in d.ui else 20), "fill.maxAngle")
+            d.mask_add(faces=sorted(_flood(shape, seeds, ang)), layer=i)
+    m = d.mask(i)
+    L = d.layer(i)
+    return {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", "faces": list(m["faces"]),
+            "triangles": len(m["triangles"]),
+            "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or m["triangles"] else
+                    ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
+
+
+def texture_layer(s, a):
+    """The layer strip: add (BumpMesh's Add layer: a copy, Include Only),
+    remove, move up / down, solo, visible, Cover / Add, rename, make active."""
+    _watch()
+    d = live.draft()
+    act = a.get("action")
+    if act == "add":
+        j = d.add_layer()
+        if j is None:
+            raise ToolError("invalid_state", "At most 4 layers (BumpMesh's limit).")
+    else:
+        i = _layer(d, a)
+        v = a.get("value")
+        if act == "remove":
+            if not d.remove_layer(i):
+                raise ToolError("invalid_state", "The last layer stays.")
+        elif act == "move":
+            if not d.move_layer(i, int(num(a.get("delta", v if v is not None else -1), "delta"))):
+                raise ToolError("invalid_input", "move: no layer there.")
+        elif act in ("solo", "visible"):
+            d.set_layer(i, **{act: bool(True if v is None else v)})
+        elif act == "blend":
+            if v not in ("cover", "add"):
+                raise ToolError("invalid_input", "blend: cover or add.")
+            if i == 0 and v == "add":
+                raise ToolError("invalid_input", "blend: the bottom layer covers (BumpMesh).")
+            d.set_layer(i, blendAdd=v == "add")
+        elif act == "name":
+            d.set_layer(i, name=str(v or ""))
+        elif act == "active":
+            d.set_active(i)
+        else:
+            raise ToolError("invalid_input", "action: add, remove, move, solo, visible, blend, name or active.")
+    return {"draft": summary(d, s)}
+
+
+def texture_preview(s, a):
+    """Build or refresh the CPU preview (the same engine as the export), wait
+    for it, and say what it made; Suggest values; Cancel."""
+    import time
+
+    from . import engine, preview
+
+    _watch()
+    d = live.draft()
+    if a.get("cancel"):
+        if live.GUI is not None:
+            live.GUI.cancel_preview()
+        return {"cancelled": True}
+    o = _part(s, None, d)
+    pos, ft = live.mesh_for(o)
+    if a.get("suggest"):
+        run = run_settings(d, ft)
+        L = run["layers"][d.active] if d.active < len(run["layers"]) else run["layers"][0]
+        sug = engine.smart_resolution(pos, {**run, "layers": [L]})
+        d.update({"refineLength": sug["edge"], "maxTriangles": sug["maxTriangles"]})
+        return {"suggest": {"refineLength": sug["edge"], "maxTriangles": sug["maxTriangles"],
+                            "pixelsPerEdge": sug["diagnostics"].get("pixelsPerEdge")}, "draft": summary(d, s)}
+    q = a.get("quality") or d.settings.get("previewQuality") or "draft"
+    if q not in preview.TRI_BUDGET:
+        raise ToolError("invalid_input", "quality: draft (500 k) or fine (1.5 M).")
+    t0 = time.time()
+    res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT},
+                         mesh=pos, face_triangles=ft)
+    if res is None:
+        raise ToolError("failed", "Stopped before it finished.")
+    ms = int((time.time() - t0) * 1000)
+    m = res["mesh"]
+    if live.GUI is not None:
+        live.GUI.show_result(res)
+    est = engine.estimate(pos, run_settings(d, ft))
+    out = {"part": o.Label, "quality": q, "previewEdge": round(float(m["edge"]), 4), "triangles": int(len(m["faces"])),
+           "vertices": int(len(m["vertices"])), "inputTriangles": len(pos) // 9, "ms": ms,
+           "export": {"edge": est["edge"], "triangles": est["outputTriangles"], "memoryMB": round(est["memoryBytes"] / 2 ** 20)},
+           "warnings": [w for w in [res.get("note")] if w]}
+    out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
+                   else "texture_apply adds it to the document.")
+    return out
+
+
+def _ask_or_default(s, a, kind, default_name):
+    path = a.get("path")
+    if path:
+        return path if os.path.isabs(path) else os.path.join(s.out_dir, path)
+    if live.GUI is not None and a.get("ask", True):
+        return live.GUI.ask_path(kind, save=True, default=os.path.join(s.out_dir, default_name))
+    return os.path.join(s.out_dir, default_name)
+
+
+def texture_export(s, a):
+    """Export STL / 3MF (the Textured object, or the draft run by the
+    engine) and Save Project (.bumpmesh, BumpMesh's own format)."""
+    from . import engine, project
+
+    fmt = str(a.get("format") or "").lower()
+    if fmt not in ("stl", "3mf", "bumpmesh"):
+        raise ToolError("invalid_input", "format: stl, 3mf or bumpmesh.")
+    d = live.draft()
+    doc = _doc(s)
+    if fmt == "bumpmesh":
+        if not a.get("path") and live.GUI is not None and a.get("ask", True):
+            opts = live.GUI.ask_save_options()
+            if opts is None:
+                return {"cancelled": True}
+            a = {**a, **opts}
+        o = _part(s, None, d) if (d.part and a.get("model", True) is not False) else None
+        label = o.Label if o is not None else None
+        path = _ask_or_default(s, a, "bumpmesh", project.default_name(label))
+        if not path:
+            return {"cancelled": True}
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        model, ft = None, {}
+        if o is not None and a.get("model", True):
+            pos, ft = live.mesh_for(o)
+            model = pos.reshape(-1, 3, 3)
+
+        def png(tex):
+            try:
+                e = engine.library.get(tex)
+            except KeyError:
+                return None
+            if e.get("category") == "custom" and str(e.get("image", "")).lower().endswith(".png"):
+                with open(e["image"], "rb") as fh:
+                    return fh.read()
+            return None
+
+        names = project.save(path, d, model=model, include_model=model is not None, include_texture=a.get("texture", True) is not False,
+                             texture_png=png, face_triangles=lambda f: ft.get(f, []))
+        return {"path": path, "format": "bumpmesh", "files": names,
+                "note": "BumpMesh's Save Project format: Load Project opens it here or in BumpMesh."}
+    obj = live.find(doc, a["object"]) if a.get("object") else None
+    if a.get("object") and obj is None:
+        raise ToolError("not_found", f"object {a['object']!r}: not in this document.")
+    base = (obj.Label if obj is not None else (_part(s, None, d).Label + "_textured"))
+    path = _ask_or_default(s, a, fmt, f"{base}.{fmt}")
+    if not path:
+        return {"cancelled": True}
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    if obj is not None:
+        from .engine import writers
+
+        pos = live.mesh_positions(obj.Mesh)
+        credit = getattr(obj, "Credit", "") or engine.CREDIT
+        data = (writers.stl_bytes(pos, header="Texturizer for FreeCAD; BumpMesh (CNC Kitchen) AGPL-3.0") if fmt == "stl"
+                else writers.threemf_bytes(pos, {"Application": "Texturizer for FreeCAD", "Copyright": credit}))
+        with open(path, "wb") as fh:
+            fh.write(data)
+        out = {"path": path, "format": fmt, "triangles": len(pos) // 9, "object": obj.Name, "credit": credit}
+        if getattr(obj, "OutOfDate", False):
+            out["warnings"] = [f"{obj.Label} is out of date: its body changed (Update first)."]
+        return out
+    o = _part(s, None, d)
+    pos, ft = live.mesh_for(o)
+    run = run_settings(d, ft)
+    est = engine.estimate(pos, run)
+    if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
+        raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles: raise it (texture_preview suggest).")
+    e = engine.export(pos, run, None, path, fmt)
+    if e is None:
+        raise ToolError("failed", "Stopped before it finished.")
+    return {"path": e["path"], "format": fmt, "triangles": e["triangles"], "warnings": e["warnings"], "credit": e["credit"]}
 
 HANDLERS = {
     "texture_list": texture_list,
     "texture_settings": texture_settings,
+    "texture_draft": texture_draft,
+    "texture_set": texture_set,
+    "texture_mask": texture_mask,
+    "texture_layer": texture_layer,
+    "texture_preview": texture_preview,
     "texture_apply": texture_apply,
+    "texture_export": texture_export,
     "texture_prepare": texture_prepare,
     "texture_check": texture_check,
 }

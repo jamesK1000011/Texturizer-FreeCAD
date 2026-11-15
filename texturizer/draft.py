@@ -182,14 +182,28 @@ class Draft:
             self.d = d
 
         def __enter__(self):
-            if not self.d._batch:
-                self.d._push()
-                self.d._coalesce = None
-            self.d._batch += 1
-            return self.d
+            d = self.d
+            if not d._batch:
+                self.before, self.redo = d._state(), list(d._redo)
+                d._push()
+                d._coalesce = None
+            d._batch += 1
+            return d
 
-        def __exit__(self, *exc):
-            self.d._batch -= 1
+        def __exit__(self, kind, *exc):
+            d = self.d
+            d._batch -= 1
+            if d._batch:
+                return
+            # The outer batch: a batch that changed nothing leaves no undo step,
+            # and one that failed is undone whole (a refused tool changes nothing).
+            if kind is not None and d._state() != self.before:
+                d._restore(self.before)
+                d._emit("load")
+            if d._state() == self.before:
+                if d._undo and d._undo[-1] == self.before:
+                    d._undo.pop()
+                d._redo[:] = self.redo
 
     def batch(self):
         """with draft.batch(): ... several changes, one undo step."""

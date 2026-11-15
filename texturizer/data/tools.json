@@ -48,9 +48,253 @@
    "source": "Texturizer for FreeCAD; settings and estimates ported from BumpMesh (Stefan Hermann, CNC Kitchen)",
    "date": "2026-11-14"
   },
+  "texture_draft": {
+   "group": "texture",
+   "description": "Start or read the texture draft, the one the Texturizer sidebar shows: part (a body or Mesh object; a Textured object brings back the settings it was made with, to texture it again), draft (a whole draft), reset (BumpMesh's Reset to defaults), project (a .bumpmesh file: BumpMesh's Load Project, mode all or settings). Opens the sidebar in the window. Answers the part, its triangles and faces, and each layer: texture, Cover/Add, include/exclude and its faces, the settings changed from BumpMesh's defaults. The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "part": {
+      "type": "string"
+     },
+     "body": {
+      "type": "string"
+     },
+     "draft": {
+      "type": "object"
+     },
+     "reset": {
+      "type": "boolean"
+     },
+     "project": {
+      "type": "string",
+      "description": "A .bumpmesh path (\"ask\" opens a file dialog in the window)."
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "all",
+       "settings"
+      ]
+     },
+     "load": {
+      "type": "string",
+      "enum": [
+       "selection"
+      ]
+     },
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14"
+  },
+  "texture_set": {
+   "group": "texture",
+   "description": "Change the draft (a partial update, one undo step; the sidebar's sliders move as it runs): texture (a library id, or {file} for your own heightmap), settings by BumpMesh's names for the layer and the run (texture_settings lists them, e.g. scaleU mm per tile, textureHeight mm, mappingMode), frame (rotation [x, y, z] degrees as BumpMesh's Rotate, or face: Place on Face), cylinder (autofit, reset, from_face with face), stamp (on, off, or {point, normal} for Position on model), active (the layer the sidebar edits). Nothing changes in the document.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     },
+     "active": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+     },
+     "texture": {
+      "description": "A library id (texture_list), or {\"file\": a PNG path} for your own map."
+     },
+     "settings": {
+      "type": "object",
+      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+     },
+     "frame": {
+      "type": "object",
+      "properties": {
+       "rotation": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3
+       },
+       "face": {
+        "type": "string",
+        "description": "Place on Face: a face name, or \"selected\"."
+       }
+      },
+      "additionalProperties": false
+     },
+     "cylinder": {
+      "type": "string",
+      "enum": [
+       "autofit",
+       "reset",
+       "from_face"
+      ]
+     },
+     "face": {
+      "type": "string"
+     },
+     "stamp": {
+      "description": "on, off, place (the clicked spot), or {point: [x, y, z], normal: [x, y, z]}."
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14"
+  },
+  "texture_mask": {
+   "group": "texture",
+   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces across edges under maxAngle degrees), triangles (a Mesh part), clear (Clear All). The sidebar's face list lights as it runs. Nothing changes in the document.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "include",
+       "exclude"
+      ]
+     },
+     "add": {
+      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}. Or \"selected\"."
+     },
+     "remove": {
+      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
+     },
+     "add_by": {
+      "type": "string",
+      "enum": [
+       "direction",
+       "box",
+       "surface"
+      ]
+     },
+     "faces": {
+      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
+     },
+     "angle": {
+      "type": "number",
+      "description": "add_by direction: degrees (10)."
+     },
+     "fill": {
+      "description": "Seed faces, or {faces, maxAngle}."
+     },
+     "triangles": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "clear": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14"
+  },
+  "texture_layer": {
+   "group": "texture",
+   "description": "BumpMesh's layer strip (up to 4 layers, bottom first): add (a copy of the active layer, Include Only, made active), remove, move (delta -1 up / +1 down), solo (shows only it in the preview), visible, blend (cover or add on the layers below), name, active. Nothing changes in the document.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "add",
+       "remove",
+       "move",
+       "solo",
+       "visible",
+       "blend",
+       "name",
+       "active"
+      ]
+     },
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     },
+     "value": {
+      "description": "solo / visible: true or false; blend: cover or add; name: text."
+     },
+     "delta": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "action"
+    ]
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14"
+  },
+  "texture_preview": {
+   "group": "texture",
+   "description": "Build the CPU preview of the draft with BumpMesh's engine (the same code as the export, so what shows is what prints) and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and the export's edge, triangles and memory. quality draft (500 k triangles) or fine (1.5 M). suggest: BumpMesh's Suggest values (resolution and triangle limit, set in the draft). cancel stops a running preview. Look at it with view_snapshot.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     },
+     "quality": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "fine"
+      ]
+     },
+     "suggest": {
+      "type": "boolean"
+     },
+     "cancel": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14",
+   "heavy": true
+  },
   "texture_apply": {
    "group": "texture",
-   "description": "Texture a body with BumpMesh's engine, inside FreeCAD: a new Mesh object beside the body (the body is not changed), optionally written as STL or 3MF. One texture (texture, faces, mode) or up to 4 layers, bottom first, each {texture, settings, faces, mode include|exclude, blendAdd}; faces with mode include texture only them, exclude keeps them plain. settings: the run's and layer defaults (BumpMesh names). rotation [x, y, z] degrees: BumpMesh's Rotate, undone on the result. Answers triangles, repair (open and non-manifold edges), warnings and the credit. Refuses a run that would need more than memoryLimitGB (4).",
+   "description": "Add to document / Update / Bake Textures with BumpMesh's engine (Stefan Hermann, CNC Kitchen), ported to Python and run inside FreeCAD; the body is never changed. With no texture or layers it textures the draft the sidebar shows (draft: a whole draft first) and makes a Textured Mesh object, or updates the one this draft made (new: true for another). update: a Textured object's name, run again with the settings it stores (an object goes out of date when its body changes and reruns only here). bake: BumpMesh's Bake Textures, the result becomes the part with a fresh layer. Or one texture (texture, faces, mode) or up to 4 layers, bottom first, each {texture, settings, faces, mode include|exclude, blendAdd}. settings: BumpMesh names. rotation [x, y, z] degrees: BumpMesh's Rotate. Optional export STL / 3MF. Answers triangles, repair, warnings and the credit. Refuses a run that would need more than memoryLimitGB (4).",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -129,6 +373,24 @@
      },
      "memoryLimitGB": {
       "type": "number"
+     },
+     "draft": {
+      "type": "object"
+     },
+     "update": {
+      "type": "string"
+     },
+     "bake": {
+      "type": "boolean"
+     },
+     "new": {
+      "type": "boolean"
+     },
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
      }
     },
     "additionalProperties": false
@@ -137,6 +399,56 @@
    "source": "Texturizer for FreeCAD; the engine is a port of BumpMesh by Stefan Hermann (CNC Kitchen), AGPL-3.0",
    "date": "2026-11-14",
    "heavy": true
+  },
+  "texture_export": {
+   "group": "texture",
+   "description": "Write a file: format stl or 3mf (object: a Textured object as it is; else the draft run by BumpMesh's engine), or bumpmesh (BumpMesh's Save Project: the settings, the part's model unless model is false, your own textures unless texture is false). path: where (relative: the output folder; the window asks when left out). 3MF and STL carry the credit.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "format": {
+      "type": "string",
+      "enum": [
+       "stl",
+       "3mf",
+       "bumpmesh"
+      ]
+     },
+     "path": {
+      "type": "string"
+     },
+     "object": {
+      "type": "string"
+     },
+     "model": {
+      "type": "boolean"
+     },
+     "texture": {
+      "type": "boolean"
+     },
+     "ask": {
+      "type": "boolean"
+     },
+     "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+     },
+     "memoryLimitGB": {
+      "type": "number"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "format"
+    ]
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the engine and the settings are BumpMesh's by Stefan Hermann (CNC Kitchen), ported to Python and credited (AGPL-3.0)",
+   "date": "2026-11-14",
+   "heavy": true,
+   "writes": true
   },
   "texture_prepare": {
    "group": "texture",

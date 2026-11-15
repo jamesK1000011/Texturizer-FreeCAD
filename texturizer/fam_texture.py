@@ -13,15 +13,25 @@ from agentlink.protocol import ToolError
 from . import handlers
 
 GROUP = "texture"
-INFO = "Surface textures (BumpMesh by CNC Kitchen): a body written face by face with a mask of the faces to texture, and the textured mesh checked against the body."
+INFO = ("Surface textures with BumpMesh's engine (Stefan Hermann, CNC Kitchen), ported and run inside FreeCAD: "
+        "a draft the Texturizer sidebar shows live (texture, settings, face masks, layers), a preview, "
+        "the Textured object in the document, STL / 3MF / .bumpmesh files, and the textured mesh checked against the body.")
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
-# Watching live (agentlink/echo.py): the bench and the button for each tool,
-# and its name in Activity. texture_check changes nothing but shows a result.
+# Watching live (agentlink/echo.py, design 5.2): the bench and the button for
+# each tool, its name in Activity, the tools that show a result, and the one
+# with no button. The draft tools press Texturizer_Texture, which opens the
+# sidebar before the first draft call (the tools open it too, for an echo
+# that does not read COMMANDS).
 WORKBENCHES = {"texture_": "TexturizerWorkbench"}
-COMMANDS = {"texture_prepare": "Texturizer_Prepare", "texture_check": "Texturizer_Check"}
+COMMANDS = {"texture_draft": "Texturizer_Texture", "texture_set": "Texturizer_Texture",
+            "texture_mask": "Texturizer_Texture", "texture_layer": "Texturizer_Texture",
+            "texture_preview": "Texturizer_Texture", "texture_apply": "Texturizer_AddToDocument",
+            "texture_export": "Texturizer_ExportSTL", "texture_prepare": "Texturizer_Prepare",
+            "texture_check": "Texturizer_Check"}
 AREAS = {"texture_": "Texture"}
-SHOWN = ("texture_check",)
+SHOWN = ("texture_preview", "texture_check")
+NO_BUTTON = ("texture_list",)
 
 
 def pick_faces(shape, q):

@@ -38,7 +38,8 @@ class Api(unittest.TestCase):
     def test_tool_data(self):
         with open(os.path.join(ROOT, "texturizer", "data", "tools.json"), encoding="utf-8") as f:
             d = json.load(f)
-        self.assertEqual(sorted(d["entries"]), ["texture_apply", "texture_check", "texture_list", "texture_prepare", "texture_settings"])
+        self.assertEqual(sorted(d["entries"]), ["texture_apply", "texture_check", "texture_draft", "texture_export", "texture_layer", "texture_list",
+                                             "texture_mask", "texture_prepare", "texture_preview", "texture_set", "texture_settings"])
         try:
             from agentlink import tooldata
         except ImportError:
