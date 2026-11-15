@@ -22,6 +22,37 @@ HEADER = [("Texturizer_Undo", "undo"), ("Texturizer_Redo", "redo"), ("Texturizer
 VIEW = [("Texturizer_Wireframe", "Wireframe", "Std_DrawStyle: Wireframe, again for As is."),
         ("Texturizer_Perspective", "Perspective View", "Perspective or orthographic camera (FreeCAD's own)."),
         ("Texturizer_Section", "Section View", "FreeCAD's clipping plane (Std_ToggleClipPlane).")]
+# A toolbar button's tooltip says what it does, then the sidebar's own
+# BumpMesh tooltip (kept word for word), then the credit. Where BumpMesh's
+# tooltip only repeats the name, the first part carries the meaning.
+TIPS = {"undo": "Undo the last change to the texture settings.",
+        "redo": "Redo the last undone change to the texture settings.",
+        "resetSettings": "Put every texture setting back to its default.",
+        "saveProject": "Save the model, texture, settings and masks as a project.",
+        "loadProject": "Open a project: its model, texture, settings and masks.",
+        "textureGallery": "Browse the textures and pick one.",
+        "exportStl": "Export the textured mesh as STL.",
+        "export3mf": "Export the textured mesh as 3MF."}
+
+
+def _sentence(text):
+    text = (text or "").strip()
+    return text if not text or text[-1] in ".!?" else text + "."
+
+
+def tooltip(key):
+    """The command's tooltip for a sidebar button key (see TIPS)."""
+    c = controls.BY_KEY[key]
+    own = _sentence(c.get("tooltip") or c["label"])
+    lead = TIPS.get(key)
+    parts = [lead] if lead else []
+    if own.rstrip(".").lower() not in (c["label"].replace(" ⓘ", "").lower(), (lead or "").rstrip(".").lower()):
+        parts.append(own)
+    elif not lead:
+        parts.append(own)
+    return " ".join(parts + [CREDIT])
+
+
 TOOLBAR = [n for n, _ in HEADER]
 VIEW_TOOLBAR = [n for n, _l, _t in VIEW]
 CHECK_TOOLBAR = [PREPARE, CHECK]
@@ -287,7 +318,7 @@ class _Press:
     def GetResources(self):
         c = controls.BY_KEY[self.key]
         return {"Pixmap": self.name, "MenuText": c["label"].replace(" ⓘ", ""),
-                "ToolTip": (c.get("tooltip") or c["label"]) + " " + CREDIT}
+                "ToolTip": tooltip(self.key)}
 
     def IsActive(self):
         import FreeCAD
