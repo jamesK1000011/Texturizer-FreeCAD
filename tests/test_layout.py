@@ -42,5 +42,34 @@ class Setting(unittest.TestCase):
         self.assertIs(layout.placer(), layout.own())
 
 
+class TexturePanel(unittest.TestCase):
+    """With Agent Link's placer (service panel_layout) the Texture panel is
+    Texturizer's own dock, not a tab of Agent Link's panel."""
+
+    def test_own_dock_when_agent_link_places_panels(self):
+        import importlib
+
+        try:
+            import FreeCAD  # noqa: F401  (the texture tools need it)
+            from agentlink import hooks
+        except ImportError:
+            self.skipTest("FreeCAD and Agent Link are not both here")
+        import texturizer
+
+        state, was = hooks.saved(), getattr(texturizer, "_hosted", False)
+        try:
+            hooks.reset()
+            hooks.provide(layout.SERVICE, object())
+            fam = importlib.import_module("texturizer.agentlink_families")
+            importlib.reload(fam)
+            self.assertNotIn("Texture", [t["title"] for t in hooks.TABS])
+            hooks.reset()
+            importlib.reload(fam)  # an Agent Link that cannot place a dock: the tab
+            self.assertIn("Texture", [t["title"] for t in hooks.TABS])
+        finally:
+            hooks.restore(state)
+            texturizer._hosted = was
+
+
 if __name__ == "__main__":
     unittest.main()

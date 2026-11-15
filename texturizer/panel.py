@@ -42,6 +42,14 @@ def runner():
     global _LOCAL
     if HOST_CALL is not None:
         return HOST_CALL
+    if hosted():
+        # Under Agent Link with no tab in its panel: its caller service, so
+        # the click is shown and logged as the agent's are.
+        from . import layout
+
+        c = layout.caller()
+        if c is not None:
+            return c._call
     if _LOCAL is None:
         _LOCAL = handlers.local_runner()
     return _LOCAL
@@ -199,7 +207,7 @@ def show_dock():
     from . import layout
 
     mw = FreeCADGui.getMainWindow()
-    if hosted():
+    if hosted() and layout.in_agentlink_panel(TITLE):
         try:
             importlib.import_module("agentlink.panel").show(tab=TITLE)
             return

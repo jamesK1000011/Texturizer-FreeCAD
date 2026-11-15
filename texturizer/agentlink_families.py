@@ -23,7 +23,13 @@ def _texture_tab(panel):
 
 
 texturizer._hosted = True
-try:  # the tab only while Texturizer is the workbench in front
-    hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench")
-except TypeError:  # an Agent Link before tabs per workbench
-    hooks.register_tab("Texture", _texture_tab, order=60)
+# The Texture panel is Texturizer's own dock beside Model and Tasks (its
+# clicks run through Agent Link, panel.runner); only an Agent Link that
+# cannot place it hosts it as a tab of its panel.
+from . import layout as _layout  # noqa: E402
+
+if _layout.hosted_tabs(hooks):
+    try:  # the tab only while Texturizer is the workbench in front
+        hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench")
+    except TypeError:  # an Agent Link before tabs per workbench
+        hooks.register_tab("Texture", _texture_tab, order=60)
