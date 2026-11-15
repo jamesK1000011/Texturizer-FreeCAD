@@ -89,7 +89,7 @@ CNC Kitchen, Yours).
   and Load Project read and write BumpMesh's own `.bumpmesh` files.
 - **View** has FreeCAD's own Wireframe, Perspective View and Section View,
   under BumpMesh's labels.
-- **Check** has Prepare for texture and Check textured mesh.
+- **Check** has Prepare for Texture and Check Textured Mesh.
 
 **Quick look and the preview.** While you change settings, **Quick look**
 shows the texture on the part right away (a shader, no mesh is built). Turn on

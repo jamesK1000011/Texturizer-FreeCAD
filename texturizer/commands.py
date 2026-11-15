@@ -132,7 +132,7 @@ class PrepareTask:
         QtWidgets = _qt()
         self.body, self.faces = body, faces
         self.form = QtWidgets.QWidget()
-        self.form.setWindowTitle("Prepare for texture")
+        self.form.setWindowTitle("Prepare for Texture")
         lay = QtWidgets.QFormLayout(self.form)
         lay.addRow("Body", QtWidgets.QLabel(body))
         lay.addRow("Faces", QtWidgets.QLabel(", ".join(faces)))
@@ -162,7 +162,7 @@ class PrepareTask:
             args["path"] = self.path.text().strip()
             os.makedirs(os.path.dirname(args["path"]) or ".", exist_ok=True)
         ok, out = panel.run("texture_prepare", args)
-        if _say("Prepare for texture", ok, out):
+        if _say("Prepare for Texture", ok, out):
             FreeCADGui.Control.closeDialog()
             panel.show_dock()
         return ok
@@ -182,7 +182,7 @@ class CheckTask:
         QtWidgets = _qt()
         self.body = body
         self.form = QtWidgets.QWidget()
-        self.form.setWindowTitle("Check textured mesh")
+        self.form.setWindowTitle("Check Textured Mesh")
         lay = QtWidgets.QFormLayout(self.form)
         lay.addRow("Body", QtWidgets.QLabel(body or "the one body shown"))
         self.path = QtWidgets.QLineEdit(default_check_path())
@@ -216,7 +216,7 @@ class CheckTask:
             args["mask"] = last["mask"]
             args.setdefault("body", last.get("body"))
         ok, out = panel.run("texture_check", args)
-        if _say("Check textured mesh", ok, out):
+        if _say("Check Textured Mesh", ok, out):
             FreeCADGui.Control.closeDialog()
             panel.show_dock()
         return ok
@@ -233,7 +233,7 @@ def show_prepare():
 
     body, faces = faces_from_selection(FreeCADGui.Selection.getSelectionEx())
     if not faces:
-        _qt().QMessageBox.information(None, "Prepare for texture", "Select the faces to texture (or to keep plain) on one body first, then Prepare for texture.")
+        _qt().QMessageBox.information(None, "Prepare for Texture", "Select the faces to texture (or to keep plain) on one body first, then Prepare for Texture.")
         return
     FreeCADGui.Control.showDialog(PrepareTask(body, faces))
 
@@ -250,7 +250,7 @@ def show_check():
 
 class _Prepare:
     def GetResources(self):
-        return {"Pixmap": "Texturizer_Prepare", "MenuText": "Prepare for texture",
+        return {"Pixmap": "Texturizer_Prepare", "MenuText": "Prepare for Texture",
                 "ToolTip": "Write the body as an STL for BumpMesh with a mask of the selected faces (texture only them, or all but them). " + CREDIT}
 
     def IsActive(self):
@@ -264,7 +264,7 @@ class _Prepare:
 
 class _Check:
     def GetResources(self):
-        return {"Pixmap": "Texturizer_Check", "MenuText": "Check textured mesh",
+        return {"Pixmap": "Texturizer_Check", "MenuText": "Check Textured Mesh",
                 "ToolTip": "Measure a textured STL against its body face by face: depth on the textured faces, any face it leaked onto, a closed mesh. " + CREDIT}
 
     def IsActive(self):
@@ -278,7 +278,7 @@ class _Check:
 
 class _Panel:
     def GetResources(self):
-        return {"Pixmap": "Texturizer_Workbench", "MenuText": "Texture panel",
+        return {"Pixmap": "Texturizer_Workbench", "MenuText": "Texture Panel",
                 "ToolTip": "The Texture panel: last results, the last check, and the sidebar. " + CREDIT}
 
     def IsActive(self):
@@ -297,7 +297,7 @@ def open_sidebar(load=False):
 
 class _Texture:
     def GetResources(self):
-        return {"Pixmap": "Texturizer_Workbench", "MenuText": "Settings sidebar",
+        return {"Pixmap": "Texturizer_Workbench", "MenuText": "Settings Sidebar",
                 "ToolTip": "Open Texturizer's settings sidebar and the Texture Gallery, with the selected body loaded. " + CREDIT}
 
     def IsActive(self):
@@ -317,7 +317,10 @@ class _Press:
 
     def GetResources(self):
         c = controls.BY_KEY[self.key]
-        return {"Pixmap": self.name, "MenuText": c["label"].replace(" ⓘ", ""),
+        # BumpMesh's own labels as they are (the familiarity is part of the
+        # credit); Texturizer's own command in Title Case, as FreeCAD asks.
+        menu = "Add to Document" if self.key == "addToDocument" else c["label"].replace(" ⓘ", "")
+        return {"Pixmap": self.name, "MenuText": menu,
                 "ToolTip": tooltip(self.key)}
 
     def IsActive(self):
