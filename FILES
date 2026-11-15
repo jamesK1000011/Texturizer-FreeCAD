@@ -1,4 +1,5 @@
 Init.py
+InitGui.py
 LICENSE
 LICENSE-DATA
 LICENSES/Apache-2.0.txt
@@ -8,16 +9,21 @@ REUSE.toml
 package.xml
 tests/_fc.py
 tests/test_api.py
+tests/test_gui.py
 tests/test_texture.py
 texturizer/__init__.py
 texturizer/agentlink_families.py
+texturizer/commands.py
 texturizer/data/tools.json
 texturizer/fam_texture.py
 texturizer/guides/texture.md
+texturizer/handlers.py
 texturizer/icons/CREDITS.md
 texturizer/icons/Texturizer_Check.svg
 texturizer/icons/Texturizer_Prepare.svg
 texturizer/icons/Texturizer_Workbench.svg
 texturizer/mesh.py
 texturizer/meshdist.py
+texturizer/panel.py
 texturizer/refusal.py
+texturizer/theme.py

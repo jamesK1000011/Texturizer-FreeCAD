@@ -19,6 +19,24 @@ Association, or CNC Kitchen.
 The texturing itself runs in BumpMesh for now; bringing its engine into
 FreeCAD is this add-on's next step.
 
+## In FreeCAD
+
+The **Texturizer** workbench has, on its toolbar and menu:
+
+- **Prepare for texture** — select the faces on a body, then set include or
+  exclude, the tolerance and where the STL goes (a task panel); the mask is
+  written beside it.
+- **Check textured mesh** — the textured STL, reach and flatness (a task
+  panel); the result goes to the Texture panel.
+- **Open BumpMesh** — bumpmesh.com in the browser, to texture the STL there.
+  Nothing is uploaded from FreeCAD.
+- **Texture panel** — the last prepared files and the last check.
+
+With Agent Link installed, the Texture panel is a tab in Agent Link's panel
+and its buttons run through Agent Link (shown and logged); alone, it is a
+dock of its own beside the model tree. Its accent colours follow FreeCAD's
+theme; it never sets a stylesheet on FreeCAD itself.
+
 ## Installs alone
 
 Texturizer needs FreeCAD (1.0 or newer) and numpy, and no other add-on. Its
