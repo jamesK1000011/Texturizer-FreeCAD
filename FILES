@@ -295,4 +295,5 @@ texturizer/textures/woodgrain_03.png
 texturizer/theme.py
 texturizer/uvmath.py
 texturizer/window.py
+texturizer/workbench.py
 tools/gen_readme_tools.py

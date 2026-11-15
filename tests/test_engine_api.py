@@ -9,8 +9,11 @@ import os
 import subprocess
 import sys
 import tempfile
+import traceback
+import types
 import unittest
 import zipfile
+from unittest import mock
 
 import numpy as np
 
@@ -235,15 +238,24 @@ class Handlers(unittest.TestCase):
         self.assertGreater(st["body"]["estimate"]["subdividedTriangles"], 0)
         self.assertIn("refineLength", st["body"]["suggest"])
 
+    APPLY = {"texture": "Knurling", "faces": ["Face2"], "mode": "exclude",
+             "settings": {"refineLength": 2, "scaleU": 5, "harvestFlatFaces": False}, "export": "block.stl"}
+
+    def apply(self, ctx, a):
+        # The traceback in the failure message: the bake-off's log keeps only
+        # the summary lines.
+        try:
+            return handlers.texture_apply(ctx, a)
+        except Exception:  # noqa: BLE001
+            self.fail(traceback.format_exc())
+
     def test_apply(self):
         ctx = Ctx()
-        out = handlers.texture_apply(ctx, {"texture": "Knurling", "faces": ["Face2"], "mode": "exclude",
-                                           "settings": {"refineLength": 2, "scaleU": 5, "harvestFlatFaces": False},
-                                           "export": "block.stl"})
+        out = self.apply(ctx, self.APPLY)
         self.assertEqual(out["layers"][0], {"layer": 1, "mode": "exclude", "faces": ["Face2"]})
         self.assertGreater(out["triangles"], 12)
         self.assertTrue(os.path.isfile(out["export"]["path"]))
-        self.assertIsNone(out["object"])  # no FreeCAD here: the mesh object is made in FreeCAD only
+        self.assertIsNone(out["object"])  # the body is in no document: no mesh object, FreeCAD or not
         self.assertIs(handlers.LAST["applied"], out)
         for bad in ({"texture": "nope"}, {"texture": "Dots", "settings": {"bogus": 1}},
                     {"texture": "Dots", "settings": {"mappingMode": 12}}, {"layers": [{}] * 5}):
@@ -251,6 +263,19 @@ class Handlers(unittest.TestCase):
                 handlers.texture_apply(ctx, bad)
         with self.assertRaises(handlers.ToolError):
             handlers.texture_apply(ctx, {"texture": "Dots", "settings": {"refineLength": 0.001}})
+
+
+    def test_apply_with_freecads_mesh_module(self):
+        # As in the bake-off, where FreeCAD's Mesh imports (another test
+        # module imported FreeCAD): a body in no document still gives no
+        # object, and never asks it for a Document it does not have.
+        made = []
+        fake = types.ModuleType("Mesh")
+        fake.Mesh = lambda path: made.append(path) or object()
+        with mock.patch.dict(sys.modules, {"Mesh": fake}):
+            out = self.apply(Ctx(), self.APPLY)
+        self.assertIsNone(out["object"])
+        self.assertTrue(os.path.isfile(out["export"]["path"]))
 
 
 class Plain(unittest.TestCase):
