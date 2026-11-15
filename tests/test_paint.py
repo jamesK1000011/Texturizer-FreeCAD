@@ -505,6 +505,27 @@ class Agent(unittest.TestCase):
         ok, out = self.run("texture_mask", {"fill": {"faces": ["Face1"]}})
         self.assertFalse(ok)
 
+    def test_the_draft_reports_brush_paint(self):
+        """Precision then Standard over the same spot: the triangles stay split
+        (BumpMesh merges a subtree only where its coverage agrees), and are
+        still reported as masked."""
+        ok, out = self.run("texture_draft", {"part": "Scan"})
+        self.assertEqual((out["draft"]["layers"][0]["triangles"], out["draft"]["layers"][0].get("brush")), (0, None))
+        a, b = hit_at(5, 5), hit_at(9, 7)
+        for mode in ("precision", "standard"):
+            ok, out = self.run("texture_mask", {"paint": {"strokes": [[a, b]], "mode": mode, "size": 6, "hardness": 50}})
+            self.assertTrue(ok, out)
+        m = live.draft().mask()
+        split = {r[0] for r in m["split"]}
+        soft = {c // 3 for c in (m.get("soft") or {}).get("corners", [])}
+        n = len(set(m["triangles"]) | split | soft)
+        self.assertGreater(len(split), 0)
+        self.assertEqual((out["triangles"], out["brush"]), (n, {"split": len(split), "soft": len(soft)}))
+        ok, out = self.run("texture_draft", {})
+        L = out["draft"]["layers"][0]
+        self.assertEqual((L["faces"], L["triangles"], L["brush"]["split"]), ([], n, len(split)))
+        self.assertNotIn("Every face", self.run("texture_mask", {})[1]["note"])
+
 
 if __name__ == "__main__":
     unittest.main()

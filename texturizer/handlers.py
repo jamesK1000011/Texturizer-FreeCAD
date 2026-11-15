@@ -748,6 +748,20 @@ def _gui(what):
     return live.GUI
 
 
+def mask_counts(m):
+    """A layer mask as the agent reads it: its B-rep faces, and triangles, the
+    source triangles masked by any means (whole, split by the Precision brush,
+    or under soft coverage); brush: how many of them the brush split or
+    painted soft, when it did (paint.mask_from_state keeps those out of the
+    whole triangles)."""
+    split = {int(r[0]) for r in m.get("split") or []}
+    soft = {int(c) // 3 for c in (m.get("soft") or {}).get("corners") or []}
+    out = {"faces": list(m["faces"]), "triangles": len(set(int(t) for t in m["triangles"]) | split | soft)}
+    if split or soft:
+        out["brush"] = {"split": len(split), "soft": len(soft)}
+    return out
+
+
 def summary(d, s=None):
     """What the draft holds, short: the part, the frame, each layer."""
     from . import controls
@@ -762,8 +776,7 @@ def summary(d, s=None):
         out["layers"].append({"layer": i, "name": L["name"], "texture": L["texture"], "visible": L["visible"],
                               "solo": L["solo"], "blend": "add" if L["blendAdd"] else "cover",
                               "mode": "include" if L["includeOnly"] else "exclude",
-                              "faces": list(L["mask"]["faces"]), "triangles": len(L["mask"]["triangles"]),
-                              "settings": changed})
+                              **mask_counts(L["mask"]), "settings": changed})
     g = {k: v for k, v in d.settings.items() if controls.BY_KEY.get(k, {}).get("default", v) != v}
     out["settings"] = g
     out["canUndo"], out["canRedo"] = d.can_undo(), d.can_redo()
@@ -1176,10 +1189,10 @@ def texture_mask(s, a):
     strokes = _paint_strokes(d, i, o, a["paint"]) if a.get("paint") is not None else 0
     m = d.mask(i)
     L = d.layer(i)
-    return {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", "faces": list(m["faces"]),
-            "triangles": len(m["triangles"]), **({"strokes": strokes} if strokes else {}),
-            **({"soft": len(m["soft"]["corners"])} if m.get("soft") else {}),
-            "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or m["triangles"] else
+    counts = mask_counts(m)
+    return {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts,
+            **({"strokes": strokes} if strokes else {}),
+            "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or counts["triangles"] else
                     ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
 
 

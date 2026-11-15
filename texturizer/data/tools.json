@@ -50,7 +50,7 @@
   },
   "texture_draft": {
    "group": "texture",
-   "description": "Start or read the texture draft, the one the Texturizer sidebar shows: part (a body or Mesh object; a Textured object brings back the settings it was made with, to texture it again), draft (a whole draft), reset (BumpMesh's Reset to defaults), project (a .bumpmesh file: BumpMesh's Load Project, mode all or settings). Opens the sidebar in the window. Answers the part, its triangles and faces, and each layer: texture, Cover/Add, include/exclude and its faces, the settings changed from BumpMesh's defaults. The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported.",
+   "description": "Start or read the texture draft, the one the Texturizer sidebar shows: part (a body or Mesh object; a Textured object brings back the settings it was made with, to texture it again), draft (a whole draft), reset (BumpMesh's Reset to defaults), project (a .bumpmesh file: BumpMesh's Load Project, mode all or settings). Opens the sidebar in the window. Answers the part, its triangles and faces, and each layer: texture, Cover/Add, include/exclude, its faces and the triangles masked (brush: those it split or painted soft), the settings changed from BumpMesh's defaults. The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported.",
    "inputSchema": {
     "type": "object",
     "properties": {
