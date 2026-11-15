@@ -54,6 +54,7 @@ ACTIONS = {
 }
 ADD_BY = [("direction", "Facing Direction"), ("box", "In Box"), ("surface", "Same Surface")]
 FLOW_SPACING = 6
+LONG_CHECK = 28  # a check box's label longer than this wraps in a label of its own
 
 
 # -- plain helpers (no Qt) ------------------------------------------------------
@@ -458,8 +459,9 @@ if QtWidgets is not None:
             except (AttributeError, TypeError):
                 pass
             w = min_dock_width(self.body.minimumSizeHint().width(), bar, scroll.frameWidth())
-            # Never past the panel's cap (layout.py): the rows wrap instead.
-            w = min(w, layout.width_cap(layout.read()))
+            # Never more than layout.CONTENT_MIN: the panel stands beside the
+            # tree or slides out (300 px or less); rows wrap below that.
+            w = min(w, layout.CONTENT_MIN)
             scroll.setMinimumWidth(w)
             return w
 
@@ -666,7 +668,11 @@ if QtWidgets is not None:
             b = self._register(_Bind(c, row))
             h = QtWidgets.QHBoxLayout(row)
             h.setContentsMargins(0, 0, 0, 0)
-            cb = QtWidgets.QCheckBox(c["label"])
+            long_ = len(c["label"] or "") > LONG_CHECK
+            # A long label ("Reverse direction (push in instead of out)")
+            # wraps beside its box, which a check box's own text cannot; a
+            # click on it ticks the box.
+            cb = QtWidgets.QCheckBox("" if long_ else c["label"])
             cb.setObjectName("check_" + c["key"])
             if c.get("tooltip"):
                 cb.setToolTip(c["tooltip"])
@@ -675,6 +681,13 @@ if QtWidgets is not None:
             b.widgets = [cb]
             b.set = lambda val: cb.setChecked(bool(val))
             b.label = lambda: cb.text()
+            if long_:
+                lab = QtWidgets.QLabel(c["label"])
+                lab.setWordWrap(True)
+                lab.mousePressEvent = lambda _e, cb=cb: cb.isEnabled() and cb.click()
+                h.addWidget(lab, 1)
+                b.wrapped = lab
+                b.label = lambda: lab.text()
             self._later(c, row)
             return b
 
