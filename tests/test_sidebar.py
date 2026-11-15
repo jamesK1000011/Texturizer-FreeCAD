@@ -642,6 +642,70 @@ class GalleryDock(unittest.TestCase):
         g.turntable.click()
         self.assertFalse(g.turntable.isChecked())
 
+    @staticmethod
+    def _geometric_library():
+        lib = fake_library()
+        lib += [dict(lib[0], id=f"geo{i}", name=f"Geo {i}") for i in range(8)]  # 9 geometric tiles: several rows
+        return lambda: lib
+
+    def _grids(self, g):
+        body = g.scroll.widget()
+        if REAL_QT:
+            return body.findChildren(self.gallery.ReflowGrid)
+        return [w for w in body.children_widgets() if isinstance(w, self.gallery.ReflowGrid)]
+
+    @unittest.skipIf(REAL_QT, "models Qt's QWidgetItem on the stand-in")
+    def test_grids_get_their_height_in_a_narrow_sidebar(self):
+        # Found live in a 350 px Combo View tab: the gallery showed its group
+        # headers stacked with no tiles, and a category chip an empty list.
+        # Qt's QWidgetItem asks a widget that has a layout for that layout's
+        # height-for-width (a grid of fixed tiles has none: 0) and not the
+        # widget's own heightForWidth, so a ReflowGrid holding a QGridLayout
+        # got zero height in the gallery's column.
+        def item_hfw(w, width):  # QWidgetItem::heightForWidth
+            return 0 if w._layout is not None else w.heightForWidth(width)
+
+        fav = self.gallery.Favourites(path=os.path.join(tempfile.mkdtemp(), "f.json"), entries=fake_library())
+        g = self.gallery.GalleryDock(self._geometric_library(), fav, draft=draft.Draft())
+        for flt in ("all", "geometric"):
+            g.set_filter(flt)
+            grids = self._grids(g)
+            self.assertTrue(grids)
+            for grid in grids:
+                cw, ch = grid.cell.width(), grid.cell.height()
+                cols = self.gallery.columns_for(330, cw)
+                rows = self.gallery.rows_for(len(grid.items), cols)
+                self.assertEqual(item_hfw(grid, 330), rows * ch + (rows - 1) * self.gallery.SPACING)
+                grid._place(330)  # what its resizeEvent does
+                self.assertEqual(grid.cols, cols)
+                for k, cell in enumerate(grid.items):
+                    self.assertEqual((cell.geom.x(), cell.geom.y()),
+                                     ((k % cols) * (cw + self.gallery.SPACING), (k // cols) * (ch + self.gallery.SPACING)))
+                    self.assertLessEqual(cell.geom.right(), 329)
+        self.assertEqual(len(g.tiles), 9)
+
+    @unittest.skipUnless(REAL_QT, "lays out real widgets")
+    def test_tiles_show_in_a_narrow_sidebar(self):
+        QtWidgets = self.gallery.QtWidgets
+        fav = self.gallery.Favourites(path=os.path.join(tempfile.mkdtemp(), "f.json"), entries=fake_library())
+        g = self.gallery.GalleryDock(self._geometric_library(), fav, draft=draft.Draft())
+        tab = QtWidgets.QWidget()
+        QtWidgets.QVBoxLayout(tab).addWidget(g.widget())
+        tab.resize(350, 700)
+        tab.show()
+        for flt in ("all", "geometric"):
+            g.set_filter(flt)
+            for _ in range(5):
+                QtWidgets.QApplication.processEvents()
+            for grid in self._grids(g):
+                self.assertGreaterEqual(grid.height(), grid.heightForWidth(grid.width()))
+                self.assertGreater(grid.height(), 0)
+                self.assertLessEqual(grid.width(), 350)
+            for t in g.tiles.values():
+                self.assertTrue(t.isVisible())
+        self.assertGreater(self._grids(g)[0].cols, 1)  # as many columns as fit, not one
+        tab.close()
+
 
 if __name__ == "__main__":
     unittest.main()
