@@ -117,6 +117,19 @@ def make_class(Gui):
 
                 FreeCAD.Console.PrintWarning(f"Texturizer: sidebar not shown ({e})\n")
 
+        def Deactivated(self):
+            # Another workbench: the body as it was, not the preview in its place.
+            try:
+                from . import layout, window
+
+                if window._WINDOW is not None:
+                    with layout.keep_marks():
+                        window._WINDOW.leave()
+            except Exception as e:  # noqa: BLE001 — never stop the switch
+                import FreeCAD
+
+                FreeCAD.Console.PrintLog(f"Texturizer: preview not closed on leaving ({e})\n")
+
         def GetClassName(self):
             return "Gui::PythonWorkbench"
 
