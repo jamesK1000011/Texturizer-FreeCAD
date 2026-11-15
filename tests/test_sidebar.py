@@ -311,6 +311,25 @@ class SidebarWidget(unittest.TestCase):
             self.assertGreater(len(sb.binds[k].label()), self.sidebar.LONG_CHECK)
             self.assertEqual(sb.binds[k].widgets[0].text(), "")
 
+    def test_sections_open_as_left_only_the_first_at_first(self):
+        """Only Displacement Map open the first time; after that the
+        sections open as the person left them. Dense spacing."""
+        self.assertEqual(self.sidebar.open_ids(None, controls.SECTIONS), {"displacementMap"})
+        self.assertEqual(self.sidebar.open_ids("projection,export,nonsense", controls.SECTIONS), {"projection", "export"})
+        self.assertEqual(self.sidebar.open_ids("", controls.SECTIONS), set())
+        self.assertLessEqual(self.sidebar.SPACING, 6)
+        self.assertLessEqual(self.sidebar.SECTION_GAP, 6)
+        store = self.sidebar.OpenStore()
+        store.load = lambda: None
+        d = draft.Draft()
+        fav = self.gallery.Favourites(path=os.path.join(self.home, "fav2.json"), entries=fake_library())
+        sb = self.sidebar.Sidebar(d, list_textures=fake_library, favourites=fav, open_store=store)
+        shut = [x.sid for x in sb.sections if x.head is not None and x.collapsed()]
+        self.assertNotIn("displacementMap", shut)
+        self.assertIn("projection", shut)
+        sb.sections[3].head.click()  # Projection opened
+        self.assertEqual(store.mem, "displacementMap,projection")
+
     def test_sections_in_bumpmesh_order(self):
         d, sb = self.make()
         self.assertEqual(sb.windowTitle(), "Texturizer")
