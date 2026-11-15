@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>Texturizer_Check</title>
+<defs><linearGradient id="Texturizer_Check_g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9b96e"/><stop offset="1" stop-color="#c17d11"/></linearGradient></defs>
+<path d="M4,30 q5,-10 10,0 t10,0 t10,0 t10,0 t10,0 t6,-4 V58 H4 Z" fill="url(#Texturizer_Check_g1)" stroke="#8f5902" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M6,36 q4,-8 8,0 t10,0 t10,0 t10,0 t10,0" fill="none" stroke="#e9b96e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.8"/>
+<path d="M6,58 V42" fill="none" stroke="#8f5902" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M40,3 H62 M40,25 H62" fill="none" stroke="#2e3436" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M51,8 V20" fill="none" stroke="#2e3436" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M44,11 L51,4 L58,11 Z" fill="#e9b96e" stroke="#2e3436" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M44,17 L51,24 L58,17 Z" fill="#e9b96e" stroke="#2e3436" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

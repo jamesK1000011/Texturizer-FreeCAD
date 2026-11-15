@@ -40,3 +40,7 @@ is installed beside it, agents get two tools (defined in
 Code: AGPL-3.0-only (`LICENSE`); `texturizer/meshdist.py` is a copy of Agent
 Link's, kept under its LGPL-2.1-or-later. Data files: CC BY 4.0
 (`LICENSE-DATA`).
+
+## Icons
+
+Icons adapted from Tabler Icons (MIT, tabler.io) and Pictogrammers Material Design Icons (Apache-2.0, pictogrammers.com). FreeCAD's own icons are used by name from FreeCAD. The textures and the texturing come from BumpMesh by Stefan Hermann (CNC Kitchen); the icons are new drawings. See `texturizer/icons/CREDITS.md`.
