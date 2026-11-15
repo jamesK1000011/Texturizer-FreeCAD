@@ -394,6 +394,18 @@ class Window:
             if not ok:
                 self.sidebar.say("Select a body, then Load Model…")
 
+    def leave(self):
+        """The workbench left: the preview closed and the body shown again,
+        the brush and rings let go of the view. In a Combo View tab the
+        sidebar's own hiding is not seen (_visibility), so the workbench
+        says it."""
+        c = self.controller
+        if c is not None:
+            c.close()
+        for t in (self.paint, self.gizmo):
+            if t is not None:
+                t._detach()
+
     def _visibility(self, visible):
         c = self.controller
         if c is None or self.sidebar is None:
