@@ -8,6 +8,7 @@
   <license file="LICENSE">AGPL-3.0-only</license>
   <url type="repository" branch="main">https://github.com/jamesK1000011/Texturizer-FreeCAD</url>
   <freecadmin>1.0.0</freecadmin>
+  <icon>texturizer/icons/Texturizer_Workbench.svg</icon>
   <tag>3D printing</tag>
   <tag>texture</tag>
   <tag>mesh</tag>
