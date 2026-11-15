@@ -189,10 +189,37 @@ class TestStamp(unittest.TestCase):
         px.apply(d, dict(px.stamp_mode({"mappingMode": 5}, True), **u))
         self.assertTrue(d.get("stampOnce"))
         self.assertEqual(d.get("mappingMode"), 0)
-        self.assertEqual(d.layer()["bumpmesh"]["stampCenterZ"], 3)
-        self.assertEqual(d.layer()["bumpmesh"]["stampSide"], 1)
+        self.assertEqual(d.get("stampCenterZ"), 3)
+        self.assertEqual(d.get("stampSide"), 1)
+        self.assertNotIn("bumpmesh", d.layer())
         d.undo()
         self.assertFalse(d.get("stampOnce"))
+        self.assertIsNone(d.get("stampCenterZ"))
+
+    def test_undo_covers_position_on_model(self):
+        d = draft.Draft()
+        px.apply(d, dict(px.stamp_mode({"mappingMode": 5}, True), **px.stamp_place((1, 2, 3), (0, 0, 1), {"mappingMode": 2})))
+        first = {k: d.get(k) for k in px.STAMP_KEYS}
+        px.apply(d, px.stamp_place((4, 5, -6), (0, 0, -1), {"mappingMode": d.get("mappingMode")}))
+        self.assertEqual((d.get("stampCenterZ"), d.get("stampSide")), (-6, -1))
+        d.undo()   # one step back: the first placement
+        self.assertEqual({k: d.get(k) for k in px.STAMP_KEYS}, first)
+        d.redo()
+        self.assertEqual((d.get("stampCenterX"), d.get("stampCenterZ"), d.get("stampSide")), (4, -6, -1))
+
+    def test_load_and_json_keep_stamp_fields(self):
+        d = draft.Draft()
+        px.apply(d, {"stampOnce": True, "mappingMode": 7, "stampCenterX": 1.5, "stampCenterY": -2, "stampCenterZ": 3,
+                     "stampSide": -1, "stampNormalX": 0.0, "stampNormalY": 0.6, "stampNormalZ": 0.8})
+        want = {k: d.get(k) for k in px.STAMP_KEYS}
+        e = draft.Draft.from_json(d.to_json())
+        self.assertEqual({k: e.get(k) for k in px.STAMP_KEYS}, want)
+        f = draft.Draft()
+        f.load(d.to_dict())
+        self.assertEqual({k: f.get(k) for k in px.STAMP_KEYS}, want)
+        self.assertEqual(f.layer()["settings"], d.layer()["settings"])
+        f.undo()   # load is one undo step: back to the defaults
+        self.assertIsNone(f.get("stampCenterX"))
 
     @unittest.skipUnless(HAVE_JS, "node or the BumpMesh checkout ($BUMPMESH_SRC) is missing")
     def test_against_bumpmesh(self):

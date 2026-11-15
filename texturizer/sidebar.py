@@ -352,6 +352,9 @@ if QtWidgets is not None:
                     sec.add(self._mask_footer(c))
                     i += 1
                     continue
+                if t == "hidden":  # stored on the layer, no widget (the stamp's place)
+                    i += 1
+                    continue
                 if k == "shiftHint":  # goes in the mask footer, as BumpMesh
                     i += 1
                     continue

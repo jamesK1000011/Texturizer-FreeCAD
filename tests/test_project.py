@@ -75,8 +75,7 @@ def two_layer_draft():
     d.update({"mappingMode": 3, "scaleU": 12.5, "lockScale": False, "scaleV": 40, "amplitude": 0.8,
               "invertDisplacement": True, "rotation": 30, "cylinderCenterX": 1.5, "cylinderCenterY": -2,
               "cylinderRadius": 9, "boundaryFalloff": 1.5, "boundaryFalloffCurve": "scurve", "stampOnce": True})
-    d.layer()["bumpmesh"] = {"stampCenterX": 1.0, "stampCenterY": 2.0, "stampCenterZ": 3.0, "stampSide": -1,
-                             "stampNormalX": None, "stampNormalY": None, "stampNormalZ": None}
+    d.update({"stampCenterX": 1.0, "stampCenterY": 2.0, "stampCenterZ": 3.0, "stampSide": -1})
     d.update({"refineLength": 0.4, "maxTriangles": 1200000, "bottomAngleLimit": 12, "topAngleLimit": 3,
               "smoothBottom": False, "harvestTol": 0.01})
     d.set_texture("Knurling")
@@ -123,8 +122,9 @@ class TestRoundTrip(unittest.TestCase):
                 self.assertEqual(a[k], b[k], k)
         self.assertEqual(e.layers[0]["texture"], "Knurling")
         self.assertEqual(e.layers[1]["texture"], "lib:my-scan")
-        self.assertEqual(e.layers[0]["bumpmesh"]["stampCenterZ"], 3.0)
-        self.assertEqual(e.layers[0]["bumpmesh"]["stampSide"], -1)
+        self.assertEqual(e.get("stampCenterZ", 0), 3.0)
+        self.assertEqual(e.get("stampSide", 0), -1)
+        self.assertIsNone(e.get("stampNormalX", 0))
         # B-rep faces come back as faces, their triangles as painted triangles.
         self.assertEqual(e.layers[0]["mask"], {"faces": ["Face6"], "triangles": [0, 1, 5, 10, 11]})
         self.assertEqual(e.layers[1]["mask"], {"faces": [], "triangles": [2, 3]})
@@ -263,7 +263,7 @@ class TestBumpMeshInterop(unittest.TestCase):
                     want = s["textureHeight"] if k == "amplitude" else s[k]
                     self.assertEqual(v, want, k)
                 for k in project.STAMP_KEYS:
-                    self.assertEqual(L["bumpmesh"][k], s[k], k)
+                    self.assertEqual(L["settings"][k], s[k], k)
                 self.assertEqual(L["mask"]["triangles"], src["paint"])
                 for k in ("includeOnly", "visible", "blendAdd"):
                     self.assertEqual(L[k], src[k], k)
