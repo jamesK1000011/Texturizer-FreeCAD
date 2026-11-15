@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from . import handlers, live, panel, preview, quicklook, sidebar
+from . import handlers, live, paintview, panel, preview, quicklook, sidebar
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
@@ -107,10 +107,15 @@ def layer_weights(n_tri, tri, n_pts, layers, face_triangles):
             idx.extend(int(t) for t in (face_triangles or {}).get(f, []))
         if idx:
             hit[np.asarray(idx, np.int64)] = True
-        on = hit if L.get("includeOnly") else ~hit
+        p = np.repeat(hit, 3).astype(np.float32)
+        soft = m.get("soft")
+        if soft:  # the soft brush's coverage per corner
+            sc = np.asarray(soft["corners"], np.int64)
+            ok = sc < n_tri * 3
+            np.maximum.at(p, sc[ok], np.asarray(soft["values"], np.float32)[ok])
+        on = p if L.get("includeOnly") else 1 - p
         col = np.zeros(n_pts, np.float32)
-        for c in range(3):
-            np.maximum.at(col, tri[:, c], on.astype(np.float32))
+        np.maximum.at(col, tri.reshape(-1), on)
         W[:, k] = col
     return W
 
@@ -122,6 +127,7 @@ class CoinView:
     def __init__(self, window):
         self.w = window
         self.cpu = None
+        self.face_parent = None  # the CPU preview's source triangle per drawn face (the brush's pick)
         self.ql = None
         self._ql_part = None
         self._view = None
@@ -180,6 +186,7 @@ class CoinView:
         idx = np.hstack([F, -np.ones((len(F), 1), np.int64)]).ravel()
         self.faces.coordIndex.setValues(0, len(idx), idx.tolist())
         self.faces.coordIndex.setNum(len(idx))
+        self.face_parent = mesh.get("face_parent")
         self.w.mesh_shown(len(F))
 
     def set_cpu_visible(self, on):
@@ -300,6 +307,7 @@ class Window:
         self._snap = None
         self._poster = None
         self._unsub = None
+        self.paint = None
 
     # -- the part's mesh, read on the GUI thread only ------------------------------------------
     def snapshot(self):
@@ -349,6 +357,7 @@ class Window:
             self.view = CoinView(self)
             self.controller = preview.PreviewController(live.engine_with(self._mesh_for), d, self.view,
                                                         quicklook_ok=self._detect(), post=post, schedule=_schedule)
+            self.paint = paintview.PaintView(self)
         self.sidebar.show()
         self.sidebar.raise_()
         self.sidebar.show_gallery()
@@ -383,11 +392,15 @@ class Window:
             return
         if not visible and self.sidebar.isHidden():
             c.close()
+            if self.paint is not None:
+                self.paint._detach()
         elif visible and c.showing is None and live.draft().part:
             self._part_changed()
 
     # -- following the draft -------------------------------------------------------------------
     def _on_draft(self, ev):
+        if self.paint is not None:
+            self.paint.on_draft(ev)
         if ev.get("kind") in ("part", "load", "reset"):
             self._part_changed()
         elif ev.get("key") in ("refineLength", "maxTriangles"):

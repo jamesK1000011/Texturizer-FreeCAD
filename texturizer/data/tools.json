@@ -161,7 +161,7 @@
   },
   "texture_mask": {
    "group": "texture",
-   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces across edges under maxAngle degrees), triangles (a Mesh part), clear (Clear All). The sidebar's face list lights as it runs. Nothing changes in the document.",
+   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces, or seed triangles on a Mesh part, across edges under maxAngle degrees), triangles (a Mesh part), paint (BumpMesh's Brush: strokes of hits on the part, Circle or Single, Size, Hardness, erase; each stroke one undo step), clear (Clear All). The sidebar's face list lights as it runs. Nothing changes in the document.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -200,13 +200,59 @@
       "description": "add_by direction: degrees (10)."
      },
      "fill": {
-      "description": "Seed faces, or {faces, maxAngle}."
+      "description": "Seed faces, or {faces, maxAngle}; on a Mesh part (or with triangles) {triangles: [seed indices], maxAngle, erase}."
      },
      "triangles": {
       "type": "array",
       "items": {
        "type": "integer"
       }
+     },
+     "paint": {
+      "type": "object",
+      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface); Hardness under 100 fades the paint per vertex to the rim. Each stroke is one undo step.",
+      "properties": {
+       "strokes": {
+        "type": "array",
+        "items": {
+         "type": "array"
+        }
+       },
+       "type": {
+        "type": "string",
+        "enum": [
+         "circle",
+         "single"
+        ],
+        "description": "The sidebar's Type when left out."
+       },
+       "size": {
+        "type": "number",
+        "minimum": 0.2,
+        "maximum": 100,
+        "description": "Brush diameter, mm (the sidebar's Size, 10)."
+       },
+       "hardness": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "%, 100 = whole triangles (the sidebar's, 50)."
+       },
+       "mode": {
+        "type": "string",
+        "enum": [
+         "standard"
+        ]
+       },
+       "erase": {
+        "type": "boolean",
+        "description": "Erase, as Shift in the window."
+       }
+      },
+      "required": [
+       "strokes"
+      ],
+      "additionalProperties": false
      },
      "clear": {
       "type": "boolean"
