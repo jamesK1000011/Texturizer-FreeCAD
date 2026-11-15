@@ -10,7 +10,10 @@ README.md
 REUSE.toml
 package.xml
 tests/_fc.py
+tests/reference/make_refs.mjs
+tests/reference/refs.json
 tests/test_api.py
+tests/test_engine_parity.py
 tests/test_gui.py
 tests/test_texture.py
 texturizer/__init__.py
