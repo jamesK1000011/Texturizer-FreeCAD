@@ -284,11 +284,23 @@ class Draft:
         self._emit("set", key, i, value)
         return value
 
-    def update(self, values, layer=None):
-        """Several settings at once (texture_set's partial update): one undo step."""
-        with self.batch():
+    def update(self, values, layer=None, coalesce=None):
+        """Several settings at once (texture_set's partial update): one undo
+        step; calls with the same coalesce tag in a row (one gizmo drag) make one."""
+        if coalesce is None:
+            with self.batch():
+                for k, v in values.items():
+                    self.set(k, v, layer=layer)
+            return
+        if all(self.get(k, layer) == _clamp(controls.BY_KEY[k], v) for k, v in values.items()):
+            return
+        self._push(coalesce=coalesce)
+        self._batch += 1
+        try:
             for k, v in values.items():
                 self.set(k, v, layer=layer)
+        finally:
+            self._batch -= 1
 
     def set_part(self, name):
         if name != self.part:
@@ -296,8 +308,8 @@ class Draft:
             self.part = name
             self._emit("part", value=name)
 
-    def set_frame(self, rotation=None, face=None):
-        self._push()
+    def set_frame(self, rotation=None, face=None, coalesce=None):
+        self._push(coalesce=coalesce)
         if rotation is not None:
             self.frame["rotation"] = [float(a) for a in rotation]
         if face is not None:

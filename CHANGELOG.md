@@ -15,6 +15,7 @@ being prepared.
 ### Added
 
 - Precision brush, ported from BumpMesh's paint tree: Mode Precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle on any tessellation, with Hardness for a soft edge; Standard paints whole triangles and hides Hardness. The 3D view shows BumpMesh's hover preview of what a click marks (Standard, Single, Fill). Split paint reaches the preview (sampled per refined corner), the export (the flattened tree, as BumpMesh's) and `.bumpmesh` projects both ways; `texture_mask { paint { mode } }`.
+- Projection gizmos in the 3D view, as BumpMesh's: with Rotate on, X / Y / Z rings on the part turn the projection as they are dragged (one undo step a drag; the part stays put, so the projection turns with the cursor); a stamp's patch is dragged over the surface from where it was grabbed (Surface normal follows the surface and stops at an edge), Position on model arms a click that places it and drags on, and after a press on the stamp the wheel resizes it until the next press elsewhere.
 - Turntable in the Texture Gallery as BumpMesh's: the view spins about Z through the model's centre, one turn every 24 s, from the moment the gallery opens unless switched off (the choice sticks); a press, the wheel or a SpaceMouse in the view hands it back.
 
 - README: how to uninstall, and a privacy statement.
@@ -36,6 +37,7 @@ being prepared.
 
 ### Changed
 
+- `texture_set { stamp }` places in the texturing frame when Rotate is set (it used the document's). Moving a stamp reruns the preview from the map stage, not from subdivide.
 - The CPU preview rebuilds the masks from the map stage, so a mask change shows in it at once (it reused the previous masks).
 - Settings sidebar: rows of buttons (the header row, the layer rows, option rows, Rotate, the mask footer) wrap instead of running under the vertical scrollbar, the combos shrink with the dock, and the dock's minimum width (content plus scrollbar) is measured again once the theme has styled it.
 - About Texturizer shows an About box (name, version, licence, the BumpMesh credit with its link); on macOS it and Settings Sidebar keep their place in the Texturizer menu.

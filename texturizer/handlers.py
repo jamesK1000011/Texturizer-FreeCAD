@@ -1031,6 +1031,12 @@ def texture_set(s, a):
                 if not L.get("stampOnce"):
                     projection_extras.apply(d, projection_extras.stamp_mode(L, True), layer=i)
                 pos, _ft = live.mesh_for(_part(s, None, d))
+                # The stamp's fields live in the texturing frame (the engine turns the part by Rotate).
+                import numpy as np
+
+                R = frame_matrix(d.frame.get("rotation"))
+                pos = (np.asarray(pos, float).reshape(-1, 3) @ R.T).reshape(-1)
+                pt, nr = (R @ np.asarray(pt, float)).tolist(), (R @ np.asarray(nr, float)).tolist()
                 up = projection_extras.stamp_place(pt, nr, d.layer(i)["settings"], positions=pos)
             else:
                 raise ToolError("invalid_input", "stamp: on, off, place, or {point, normal}.")

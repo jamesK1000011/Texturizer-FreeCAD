@@ -60,6 +60,8 @@ STAGE_OF = {
     "frame": "map", "rotateX": "map", "rotateY": "map", "rotateZ": "map", "scaleU": "map", "scaleV": "map",
     "offsetU": "map", "offsetV": "map", "rotation": "map", "rotateAroundZ": "map", "mappingBlend": "map",
     "seamBandWidth": "map", "capAngle": "map", "snapSeamlessWrap": "map", "stampOnce": "map", "layers": "map",
+    "stampCenterX": "map", "stampCenterY": "map", "stampCenterZ": "map", "stampSide": "map",
+    "stampNormalX": "map", "stampNormalY": "map", "stampNormalZ": "map",
     # displace
     "amplitude": "displace", "invertDisplacement": "displace", "symmetricDisplacement": "displace",
     "textureSmoothing": "displace", "invertTexture": "displace", "texture": "displace",

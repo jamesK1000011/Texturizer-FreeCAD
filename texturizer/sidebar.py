@@ -450,6 +450,9 @@ if QtWidgets is not None:
             self.list_textures = list_textures or (lambda: [])
             self.favourites = favourites or gallery.Favourites(entries=self.textures())
             self.open_gallery = open_gallery
+            # Position on model in the 3D view (gizmo.py): arms a click that places
+            # the stamp and drags on, as BumpMesh; None: the runner's pick.
+            self.stamp_place = None
             self.selection = selection or _freecad_faces
             self.confirm = confirm or self._ask_reset
             self.anchor = 50.0  # BumpMesh's scale anchor: the part's largest box edge (50 mm with none)
@@ -1112,6 +1115,8 @@ if QtWidgets is not None:
                     self.binds[k].set(0)
             elif key == "textureGallery":
                 self.show_gallery()
+            elif key == "stampPlace" and self.stamp_place is not None and self.stamp_place():
+                self.say(S("ui.stampHint"))
             else:
                 return self.run(key, **extra)
             self._header()
