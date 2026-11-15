@@ -13,13 +13,13 @@ agent. Tools for agents come
 through Agent Link for FreeCAD when it is installed (agentlink_families).
 """
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 CREDIT = "Based on BumpMesh by Stefan Hermann (CNC Kitchen), github.com/CNCKitchen/stlTexturizer (AGPL-3.0)"
 LICENSE = "AGPL-3.0-only"
 
 
 def about():
     """The About text: version, licence, credit."""
-    return (f"Texturizer for FreeCAD {VERSION}\n\nSurface textures for printed parts: BumpMesh's engine running in FreeCAD, "
-            f"faces prepared for a texture, and the textured mesh checked against the body.\n\n{CREDIT}.\n\nLicence: {LICENSE}. Icons adapted from "
+    return (f"Texturizer for FreeCAD {VERSION}\n\nSurface textures for printed parts: BumpMesh's engine, settings sidebar and Texture Gallery "
+            f"running in FreeCAD, faces prepared for a texture, and the textured mesh checked against the body.\n\n{CREDIT}.\n\nLicence: {LICENSE}. Icons adapted from "
             "Tabler Icons (MIT) and Pictogrammers Material Design Icons (Apache-2.0); FreeCAD's own icons are used by name.")
