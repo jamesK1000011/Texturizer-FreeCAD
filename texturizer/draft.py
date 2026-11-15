@@ -32,7 +32,7 @@ No Qt, FreeCAD or Agent Link import here.
 import copy
 import json
 
-from . import controls
+from . import controls, timing
 
 FORMAT = "texturizer-draft"
 VERSION = 1
@@ -99,6 +99,32 @@ def _split_copy(split):
     return [[int(r[0]), [int(c) for c in r[1]], [int(x) for x in r[2]], [float(v) for v in r[3]]] for r in split]
 
 
+def changes(a, b):
+    """What an undo or redo changed, from the state before (a) to after (b):
+    {"part", "frame", "layers" (added, removed or moved), "masks", "layer"
+    (a layer's eye, solo, blend or name), "active": bool, "keys": the
+    settings that differ}. The preview reruns from the earliest stage these
+    touch (preview.stage_for), not from subdivide every time."""
+    out = {"part": a["part"] != b["part"], "frame": a["frame"] != b["frame"], "layers": False,
+           "masks": False, "layer": False, "active": a["active"] != b["active"], "keys": set()}
+    out["keys"].update(k for k in set(a["settings"]) | set(b["settings"])
+                       if a["settings"].get(k) != b["settings"].get(k))
+    la, lb = a["layers"], b["layers"]
+    if [L["id"] for L in la] != [L["id"] for L in lb]:
+        out["layers"] = True
+    for x, y in zip(la, lb):
+        sa, sb = x.get("settings") or {}, y.get("settings") or {}
+        out["keys"].update(k for k in set(sa) | set(sb) if sa.get(k) != sb.get(k))
+        if x.get("texture") != y.get("texture"):
+            out["keys"].add("texture")
+        if x.get("mask") != y.get("mask") or x.get("includeOnly") != y.get("includeOnly"):
+            out["masks"] = True
+        if any(x.get(k) != y.get(k) for k in ("visible", "solo", "blendAdd", "name")):
+            out["layer"] = True
+    out["keys"] = sorted(out["keys"])
+    return out
+
+
 class Draft:
     def __init__(self, part=None):
         self._subs = []
@@ -157,8 +183,15 @@ class Draft:
 
     def _emit(self, kind, key=None, layer=None, value=None):
         ev = {"kind": kind, "key": key, "layer": layer, "value": value}
-        for fn in list(self._subs):
-            fn(ev)
+        if not timing.enabled():
+            for fn in list(self._subs):
+                fn(ev)
+            return
+        what = kind + (f" {key}" if key else "")
+        with timing.stage(f"draft {what}"):
+            for fn in list(self._subs):
+                with timing.stage(f"draft {what} -> {getattr(fn, '__qualname__', type(fn).__name__)}"):
+                    fn(ev)
 
     # -- undo ------------------------------------------------------------------
     def _state(self):
@@ -228,19 +261,21 @@ class Draft:
     def undo(self):
         if not self._undo:
             return False
-        self._redo.append(self._state())
+        before = self._state()
+        self._redo.append(before)
         self._restore(self._undo.pop())
         self._coalesce = None
-        self._emit("undo")
+        self._emit("undo", value=changes(before, self._state()))
         return True
 
     def redo(self):
         if not self._redo:
             return False
-        self._undo.append(self._state())
+        before = self._state()
+        self._undo.append(before)
         self._restore(self._redo.pop())
         self._coalesce = None
-        self._emit("redo")
+        self._emit("redo", value=changes(before, self._state()))
         return True
 
     # -- writing ---------------------------------------------------------------

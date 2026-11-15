@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from . import gizmoview, handlers, live, paint, paintview, panel, preview, quicklook, sidebar
+from . import gizmoview, handlers, live, paint, paintview, panel, preview, quicklook, sidebar, timing
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
@@ -183,8 +183,10 @@ class CoinView:
             self.tint.addChild(tc)
             self.tint.whichChild = -1
             self.faces = coin.SoIndexedFaceSet()
-            for n in (self.coords, self.normals, nb, mb, self.material, self.tint, self.faces):
-                sep.addChild(n)
+            pre, post = _render_probe(coin, "render CPU preview")
+            for n in (pre, self.coords, self.normals, nb, mb, self.material, self.tint, self.faces, post):
+                if n is not None:
+                    sep.addChild(n)
             root.whichChild = -1
             self._graph().addChild(root)
             self.cpu = root
@@ -196,19 +198,24 @@ class CoinView:
         self._cpu()
         V = np.asarray(mesh["vertices"], float).reshape(-1, 3)
         F = np.asarray(mesh["faces"], np.int64).reshape(-1, 3)
-        self.coords.point.setValues(0, len(V), V.tolist())
-        self.coords.point.setNum(len(V))
-        N = np.asarray(mesh["normals"], float).reshape(-1, 3)
-        self.normals.vector.setValues(0, len(N), N.tolist())
-        self.normals.vector.setNum(len(N))
-        C = np.asarray(mesh["colours"], float).reshape(-1, 3)
-        self.material.diffuseColor.setValues(0, len(C), C.tolist())
-        self.material.diffuseColor.setNum(len(C))
-        idx = np.hstack([F, -np.ones((len(F), 1), np.int64)]).ravel()
-        self.faces.coordIndex.setValues(0, len(idx), idx.tolist())
-        self.faces.coordIndex.setNum(len(idx))
+        with timing.stage(f"show_cpu coords ({len(V)} points)"):
+            self.coords.point.setValues(0, len(V), V.tolist())
+            self.coords.point.setNum(len(V))
+        with timing.stage("show_cpu normals"):
+            N = np.asarray(mesh["normals"], float).reshape(-1, 3)
+            self.normals.vector.setValues(0, len(N), N.tolist())
+            self.normals.vector.setNum(len(N))
+        with timing.stage("show_cpu colours"):
+            C = np.asarray(mesh["colours"], float).reshape(-1, 3)
+            self.material.diffuseColor.setValues(0, len(C), C.tolist())
+            self.material.diffuseColor.setNum(len(C))
+        with timing.stage(f"show_cpu faces ({len(F)} triangles)"):
+            idx = np.hstack([F, -np.ones((len(F), 1), np.int64)]).ravel()
+            self.faces.coordIndex.setValues(0, len(idx), idx.tolist())
+            self.faces.coordIndex.setNum(len(idx))
         self.face_parent = mesh.get("face_parent")
-        self.w.mesh_shown(len(F))
+        with timing.stage("show_cpu sidebar + overlay (mesh_shown)"):
+            self.w.mesh_shown(len(F))
 
     def set_cpu_visible(self, on):
         if on or self.cpu is not None:
@@ -221,7 +228,8 @@ class CoinView:
     # -- the Quick look ---------------------------------------------------------------------
     def update_quicklook(self, stage):
         try:
-            self._quicklook(stage)
+            with timing.stage(f"quicklook {stage}"):
+                self._quicklook(stage)
         except Exception as e:  # noqa: BLE001 — the shader falls back, never raises
             c = self.w.controller
             if c is not None:
@@ -293,7 +301,8 @@ class CoinView:
     def set_body_visible(self, on):
         vo = self._body()
         if vo is not None and bool(vo.Visibility) != bool(on):
-            vo.Visibility = bool(on)
+            with timing.stage("body visibility"):
+                vo.Visibility = bool(on)
 
     def progress(self, stage, fraction):
         sb = self.w.sidebar
@@ -323,6 +332,44 @@ class CoinView:
             pass
 
 
+def _render_probe(coin, name):
+    """Two SoCallback nodes around a group, timing its GL render with the
+    probe on (timing.py), or (None, None) when pivy can't wrap a callback.
+    The time is the CPU side of the draw call (the GPU may finish later).
+    Added only when the probe is on as the preview node is made (a callback
+    node stops Coin caching the group), so turn the probe on before opening
+    the sidebar to see render times."""
+    import time
+
+    if not timing.enabled():
+        return None, None
+
+    t = [None]
+
+    def _render(a):
+        try:   # pivy calls (userdata, action); the action is the last either way
+            return a[-1].isOfType(coin.SoGLRenderAction.getClassTypeId())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def start(*a):
+        if timing.enabled() and _render(a):
+            t[0] = time.perf_counter()
+
+    def end(*a):
+        if t[0] is not None and _render(a):
+            timing.report(name, (time.perf_counter() - t[0]) * 1000.0)
+            t[0] = None
+
+    try:
+        a, b = coin.SoCallback(), coin.SoCallback()
+        a.setCallback(start)
+        b.setCallback(end)
+        return a, b
+    except Exception:  # noqa: BLE001 - an old pivy: no render times
+        return None, None
+
+
 class Window:
     """live.GUI: the sidebar, the gallery and the preview of this window."""
 
@@ -335,21 +382,56 @@ class Window:
         self._unsub = None
         self.paint = None
         self.gizmo = None
+        self._frozen = 0
+        self._drags = set()
 
     # -- the part's mesh, read on the GUI thread only ------------------------------------------
     def snapshot(self):
         """(part, positions, face_triangles) of the draft's part, refreshed
-        here on the GUI thread; the worker reads only this tuple."""
+        here on the GUI thread; the worker reads only this tuple. Inside
+        frozen() (one view event) the first answer stands: the part's
+        geometry check (its volume, area and box) runs once an event, not
+        once for each of the tool's questions."""
         d = live.draft()
         if not d.part:
             return None
+        if self._frozen and self._snap is not None and self._snap[0] == d.part and self._snap_ok:
+            return self._snap
         try:
-            pos, ft = live.mesh_for(d.part)
+            with timing.stage("snapshot (geometry check)"):
+                pos, ft = live.mesh_for(d.part)
         except LookupError:
+            self._snap_ok = False
             return None
+        self._snap_ok = True
         if self._snap is None or self._snap[0] != d.part or self._snap[1] is not pos:
             self._snap = (d.part, pos, ft)
         return self._snap
+
+    _snap_ok = False
+
+    def frozen(self):
+        """with window.frozen(): one view event's snapshot() calls share one geometry check."""
+        w = self
+
+        class _F:
+            def __enter__(self):
+                if not w._frozen:
+                    w._snap_ok = False   # the event's first question checks the geometry
+                w._frozen += 1
+
+            def __exit__(self, *exc):
+                w._frozen -= 1
+                return False
+
+        return _F()
+
+    def drag(self, who, on):
+        """A drag in the 3D view began or ended (who: "gizmo" or "paint"):
+        the preview holds its CPU rebuild while any drag is on (PreviewController.hold)."""
+        (self._drags.add if on else self._drags.discard)(who)
+        if self.controller is not None:
+            self.controller.hold(bool(self._drags))
 
     def _mesh_for(self, part):
         snap = self._snap

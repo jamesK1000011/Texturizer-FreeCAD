@@ -23,6 +23,7 @@ tests/test_gizmo.py
 tests/test_gui.py
 tests/test_layout.py
 tests/test_layout_placer.py
+tests/test_live_speed.py
 tests/test_paint.py
 tests/test_paint_line.py
 tests/test_preview.py
@@ -304,6 +305,7 @@ texturizer/textures/wood.png
 texturizer/textures/woodgrain_02.png
 texturizer/textures/woodgrain_03.png
 texturizer/theme.py
+texturizer/timing.py
 texturizer/turntable.py
 texturizer/uvmath.py
 texturizer/window.py

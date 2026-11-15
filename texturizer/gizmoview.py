@@ -10,8 +10,8 @@ that takes the wheel only while the stamp is armed (FreeCAD's navigation
 sees the wheel before the scene graph does). The left button is taken only
 on a ring, the stamp's patch or an armed placement; everything else,
 middle and right always, navigates as usual. GUI thread only."""
-from . import gizmo, live
-from .paintview import _told, hold_events
+from . import gizmo, live, timing
+from .paintview import _drag, _frozen, _told, hold_events
 from .qt import QtCore
 
 RING_WIDTH = 3
@@ -42,8 +42,9 @@ class GizmoView:
         from pivy import coin
 
         self.view = v
-        for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
-            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn))))
+        for kind, fn, name in ((coin.SoMouseButtonEvent, self._button, "gizmo button event"),
+                               (coin.SoLocation2Event, self._move, "gizmo move event")):
+            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn, name))))
         hold_events(v, True)
         try:
             vp = v.graphicsView().viewport()
@@ -55,6 +56,7 @@ class GizmoView:
 
     def _detach(self):
         self.tool.cancel()
+        _drag(self.w, "gizmo", False)
         v, self.view = self.view, None
         if v is not None:
             hold_events(v, False)
@@ -104,12 +106,18 @@ class GizmoView:
         if b is None:
             return
         x, y = ev.getPosition().getValue()
-        if self.tool.button(b, ev.getState() == coin.SoButtonEvent.DOWN, x, y):
+        with _frozen(self.w):
+            took = self.tool.button(b, ev.getState() == coin.SoButtonEvent.DOWN, x, y)
+        # A ring or stamp drag holds the CPU preview's rebuild until release.
+        _drag(self.w, "gizmo", self.tool.drag is not None)
+        if took:
             node.setHandled()
 
     def _move(self, node):
         x, y = node.getEvent().getPosition().getValue()
-        if self.tool.move(x, y):
+        with _frozen(self.w):
+            took = self.tool.move(x, y)
+        if took:
             node.setHandled()
 
     # -- the part and the camera --------------------------------------------------------------
@@ -126,6 +134,7 @@ class GizmoView:
         return PaintView._ray(coin, rm.getCamera(), rm.getViewportRegion(), x, y)
 
     # -- drawing ------------------------------------------------------------------------------
+    @timing.timed("gizmo rings draw")
     def _draw(self, g):
         if self.view is None:
             return

@@ -19,7 +19,7 @@ import math
 
 import numpy as np
 
-from . import live, paint
+from . import live, paint, timing
 
 PAINT = (0.85, 0.40, 0.15)   # BumpMesh's user-mask orange
 ERASE = (0.60, 0.60, 0.60)   # BumpMesh's erase hover grey (0x999999)
@@ -79,24 +79,31 @@ def _line(coin, vv, pt):
     return near, tuple(c / n for c in d)
 
 
-def _told(fn):
+def _told(fn, name=None):
     """An event callback whose errors reach the Report view whole: pivy
-    prints only the exception's class ("<class 'TypeError'>")."""
+    prints only the exception's class ("<class 'TypeError'>"); with the
+    timing probe on (timing.py), its time under name too."""
+    return timing.told(fn, name)
 
-    def call(node):
-        try:
-            fn(node)
-        except Exception:  # noqa: BLE001 - one bad event never stops the view
-            import traceback
 
-            try:
-                import FreeCAD
+class _NoFreeze:
+    def __enter__(self):
+        return self
 
-                FreeCAD.Console.PrintError("Texturizer: " + traceback.format_exc())
-            except Exception:  # noqa: BLE001
-                pass
+    def __exit__(self, *exc):
+        return False
 
-    return call
+
+def _frozen(window):
+    """window.frozen() (one geometry check an event), or nothing for a stand-in window."""
+    f = getattr(window, "frozen", None)
+    return f() if f is not None else _NoFreeze()
+
+
+def _drag(window, who, on):
+    f = getattr(window, "drag", None)
+    if f is not None:
+        f(who, on)
 
 
 class PaintView:
@@ -108,6 +115,7 @@ class PaintView:
         self.overlay = None
         self.hover = None
         self.stale = False   # the paint changed and the CPU preview has not caught up (Window.mesh_shown)
+        self._ov = None      # what the overlay's Coin fields hold: (key, packed colours) (_draw_overlay)
         self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor, self._hover,
                                     self._draw_overlay)
 
@@ -128,12 +136,14 @@ class PaintView:
         from pivy import coin
 
         self.view = v
-        for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
-            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn))))
+        for kind, fn, name in ((coin.SoMouseButtonEvent, self._button, "brush button event"),
+                               (coin.SoLocation2Event, self._move, "brush move event")):
+            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn, name))))
         hold_events(v, True)
 
     def _detach(self):
         self.tool.cancel()
+        _drag(self.w, "paint", False)
         v, self.view = self.view, None
         if v is not None:
             hold_events(v, False)
@@ -151,6 +161,7 @@ class PaintView:
                 except Exception:  # noqa: BLE001
                     pass
                 setattr(self, name, None)
+        self._ov = None
 
     def on_draft(self, ev):
         k = ev.get("kind")
@@ -171,13 +182,18 @@ class PaintView:
         if b is None:
             return
         x, y = ev.getPosition().getValue()
-        if self.tool.button(b, ev.getState() == coin.SoButtonEvent.DOWN, x, y, bool(ev.wasShiftDown())):
+        with _frozen(self.w):
+            took = self.tool.button(b, ev.getState() == coin.SoButtonEvent.DOWN, x, y, bool(ev.wasShiftDown()))
+        _drag(self.w, "paint", self.tool.stroke is not None)
+        if took:
             node.setHandled()
 
     def _move(self, node):
         ev = node.getEvent()
         x, y = ev.getPosition().getValue()
-        if self.tool.move(x, y, bool(ev.wasShiftDown())):
+        with _frozen(self.w):
+            took = self.tool.move(x, y, bool(ev.wasShiftDown()))
+        if took:
             node.setHandled()
 
     # -- picking --------------------------------------------------------------------------------
@@ -193,6 +209,7 @@ class PaintView:
         rm = self.view.getViewer().getSoRenderManager()
         return coin, rm, rm.getCamera(), rm.getViewportRegion()
 
+    @timing.timed("brush pick")
     def _pick(self, x, y):
         coin, _rm, cam, vp = self._camera()
         snap = self.w.snapshot()
@@ -220,6 +237,7 @@ class PaintView:
     def _graph(self):
         return self.view.getSceneGraph() if self.view is not None else None
 
+    @timing.timed("brush cursor draw")
     def _cursor(self, hit, brush, erase):
         g = self._graph()
         if g is None:
@@ -261,6 +279,7 @@ class PaintView:
         self._xf.rotation.setValue(coin.SbRotation(coin.SbVec3f(0, 0, 1), coin.SbVec3f(*[-c for c in hit["view"]])))
         self._rc.rgb.setValue(*(ERASE if erase else PAINT))
 
+    @timing.timed("brush hover draw")
     def _hover(self, faces, erase):
         """BumpMesh's hover preview: the triangles a click would mark, yellow (grey erasing)."""
         g = self._graph()
@@ -291,8 +310,13 @@ class PaintView:
         self._hm.diffuseColor.setValue(*(ERASE if erase else HOVER))
         self.hover.whichChild = 0
 
+    @timing.timed("brush overlay recolour")
     def _draw_overlay(self):
-        """The active layer's paint on the body's tessellation (overlay_shown)."""
+        """The active layer's paint on the body's tessellation (overlay_shown).
+        Mid-stroke (no Precision split) the overlay holds every source
+        triangle, its corners set once at the stroke's start, and each dab
+        rewrites only the colours that changed (overlay_runs); otherwise the
+        painted triangles alone, rebuilt whole (a mask change, not a dab)."""
         g = self._graph()
         snap = self.w.snapshot()
         c = self.w.controller
@@ -302,6 +326,7 @@ class PaintView:
         if not show:
             if self.overlay is not None:
                 self.overlay.whichChild = -1
+            self._ov = None
             return
         from pivy import coin
 
@@ -317,19 +342,50 @@ class PaintView:
                 sep.addChild(n)
             self.overlay.addChild(sep)
             g.addChild(self.overlay)
+            self._ov = None
         s = paint.surface_for(snap[1])
         # mid-stroke: the stroke's own state, no replay per dab
-        st = k["state"] if k is not None and k["s"] is s else paint.state_from_mask(s, live.draft().mask(), snap[2])
-        P, a = paint.overlay(st)
+        mid = k is not None and k["s"] is s
+        st = k["state"] if mid else paint.state_from_mask(s, live.draft().mask(), snap[2])
+        if mid and not st.split:
+            P = np.asarray(s.positions, np.float64).reshape(-1, 3)
+            a = st.corners().reshape(-1)
+            key = ("stroke", id(k), len(P))
+        else:
+            P, a = paint.overlay(st)
+            key = None
         on = len(P) // 3
         if not on:
             self.overlay.whichChild = -1
+            self._ov = None
             return
-        col = overlay_rgba(a)
-        self._oc.point.setValues(0, len(P), P.tolist())
-        self._oc.point.setNum(len(P))
-        self._om.orderedRGBA.setValues(0, len(col), col)
-        self._om.orderedRGBA.setNum(len(col))
-        self._of.numVertices.setValues(0, on, [3] * on)
-        self._of.numVertices.setNum(on)
+        col = np.asarray(overlay_rgba(a), np.int64)
+        runs = overlay_runs(self._ov, key, col)
+        if runs is None:
+            self._oc.point.setValues(0, len(P), P.tolist())
+            self._oc.point.setNum(len(P))
+            self._om.orderedRGBA.setValues(0, len(col), col.tolist())
+            self._om.orderedRGBA.setNum(len(col))
+            self._of.numVertices.setValues(0, on, [3] * on)
+            self._of.numVertices.setNum(on)
+        else:
+            f = self._om.orderedRGBA
+            for i, j in runs:
+                f.setValues(int(i), int(j - i), col[i:j].tolist())
+        self._ov = (key, col)
         self.overlay.whichChild = 0
+
+
+def overlay_runs(prev, key, col):
+    """The overlay's colour updates for a dab: None when the corners must be
+    set again (the first draw, a new stroke, a mask change: key None), else
+    the [start, end) runs of corners whose packed colour changed."""
+    if prev is None or key is None or prev[0] != key or len(prev[1]) != len(col):
+        return None
+    ch = np.nonzero(np.asarray(prev[1]) != np.asarray(col))[0]
+    if not len(ch):
+        return []
+    cut = np.nonzero(np.diff(ch) > 1)[0]
+    starts = np.concatenate([[ch[0]], ch[cut + 1]])
+    ends = np.concatenate([ch[cut], [ch[-1]]]) + 1
+    return list(zip(starts.tolist(), ends.tolist()))
