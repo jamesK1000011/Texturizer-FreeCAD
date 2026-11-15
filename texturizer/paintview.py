@@ -52,7 +52,8 @@ class PaintView:
         self.ring = None
         self.overlay = None
         self.hover = None
-        self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor, self._hover)
+        self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor, self._hover,
+                                    self._draw_overlay)
 
     # -- on and off -------------------------------------------------------------------------
     def sync(self):
@@ -256,11 +257,13 @@ class PaintView:
         self.hover.whichChild = 0
 
     def _draw_overlay(self):
-        """The active layer's paint on the body's tessellation, while the CPU preview is not shown."""
+        """The active layer's paint on the body's tessellation, while the CPU
+        preview is not shown or a stroke is on (the preview catches up on release)."""
         g = self._graph()
         snap = self.w.snapshot()
         c = self.w.controller
-        show = g is not None and snap is not None and not (c is not None and c.showing == "cpu")
+        k = self.tool.stroke
+        show = g is not None and snap is not None and (k is not None or not (c is not None and c.showing == "cpu"))
         if not show:
             if self.overlay is not None:
                 self.overlay.whichChild = -1
@@ -280,7 +283,7 @@ class PaintView:
             self.overlay.addChild(sep)
             g.addChild(self.overlay)
         s = paint.surface_for(snap[1])
-        k = self.tool.stroke   # mid-stroke: the stroke's own state, no replay per dab
+        # mid-stroke: the stroke's own state, no replay per dab
         st = k["state"] if k is not None and k["s"] is s else paint.state_from_mask(s, live.draft().mask(), snap[2])
         P, a = paint.overlay(st)
         on = len(P) // 3

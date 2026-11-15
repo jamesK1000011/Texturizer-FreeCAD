@@ -432,6 +432,34 @@ class Events(unittest.TestCase):
         std = paint.apply_stroke(paint.State(SURF), [hit_at(5, 5)], paint.Brush(True, 10, 100, "standard"))
         self.assertEqual(d.mask(), {"faces": [], "triangles": np.nonzero(std.hard)[0].tolist()})
 
+    def test_a_stroke_reaches_the_draft_once(self):
+        """Dabs paint the stroke's state and redraw it; the draft (and so the
+        preview) changes once, on release, or when the stroke is cut short."""
+        d, events, drawn = self.d, [], []
+        d.subscribe(lambda ev: events.append(ev["kind"]))
+        t = paint.PaintTool(d, lambda: (SURF, {}), lambda x, y: self.at.get((x, y)), on_paint=lambda: drawn.append(1))
+        d.set("exclusionTool", "brush")
+        d.set("brushPrecision", False)
+        events.clear()
+        self.assertTrue(t.button(paint.LEFT, True, 1, 1))
+        for xy in ((2, 1), (3, 1), (2, 1)):
+            self.assertTrue(t.move(*xy))
+        self.assertEqual((events, len(drawn)), ([], 4))
+        self.assertTrue(t.stroke["state"].hard.any())
+        self.assertTrue(t.button(paint.LEFT, False, 2, 1))
+        self.assertEqual(events, ["mask"])
+        want = paint.apply_stroke(paint.State(SURF), [hit_at(5, 5), hit_at(7, 5), hit_at(9, 6), hit_at(7, 5)],
+                                  paint.Brush(True, 10, 50, "standard"))
+        self.assertEqual(d.mask()["triangles"], np.nonzero(want.hard)[0].tolist())
+        d.set("brushPrecision", True)
+        events.clear()
+        t.button(paint.LEFT, True, 3, 1, shift=True)
+        t.cancel()   # the tool switched mid-stroke: the erase so far is kept, as one step
+        self.assertEqual(events, ["mask"])
+        self.assertIsNone(t.stroke)
+        d.undo()
+        self.assertEqual(d.mask()["triangles"], np.nonzero(want.hard)[0].tolist())
+
     def test_fill_click(self):
         self.d.set("exclusionTool", "bucket")
         self.d.set("bucketThreshold", 30)
