@@ -55,9 +55,13 @@ def runner():
     return _LOCAL
 
 
-def run(tool, args):
-    """One tool through the runner; every open Texture panel refreshed."""
-    ok, out = runner()(tool, args)
+def run(tool, args, quiet=False):
+    """One tool through the runner; every open Texture panel refreshed.
+    quiet: done by the window itself (loading the selection as the
+    workbench opens), not a click: under Agent Link nothing shown and
+    nothing in Activity."""
+    r = runner()
+    ok, out = r(tool, args, quiet=True) if quiet and getattr(r, "quiet_ok", False) else r(tool, args)
     refresh()
     return ok, out
 
