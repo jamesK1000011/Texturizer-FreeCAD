@@ -40,8 +40,22 @@ def hold_events(view, on):
     if (on and n == 1) or (not on and n <= 0):
         try:  # on the view's viewer (View3DInventorViewerPy), not the view
             view.getViewer().setRedirectToSceneGraph(bool(on))
-        except Exception:  # noqa: BLE001 - a closed view: nothing to give back
-            pass
+        except Exception as e:  # noqa: BLE001 - a closed view: nothing to give back
+            _probe(f"redirect {on} failed: {e}")
+            return
+    try:
+        _probe(f"hold {on} n={n} view={id(view)} redirected={view.getViewer().isRedirectedToSceneGraph()}")
+    except Exception as e:  # noqa: BLE001
+        _probe(f"probe failed {e}")
+
+
+def _probe(msg):  # TEMP: live check of the redirect
+    try:
+        import FreeCAD
+
+        FreeCAD.Console.PrintWarning(f"Texturizer probe: {msg}\n")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class PaintView:
