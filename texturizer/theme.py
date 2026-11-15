@@ -70,4 +70,17 @@ def sheet(name, r):
 def apply(widget):
     """Style widget (by its object name) from the roles; call again on
     QEvent.PaletteChange so applying a theme restyles it."""
-    widget.setStyleSheet(sheet(widget.objectName(), roles(widget)))
+    # setStyleSheet sends the widget a PaletteChange of its own, and the
+    # panel calls apply on PaletteChange: the same sheet is not set again
+    # and a change met while applying is ignored, or it recurses until the
+    # stack runs out (seen in the GUI pass: FreeCAD crashed on a theme switch).
+    if getattr(widget, "_texturizer_styling", False):
+        return
+    css = sheet(widget.objectName(), roles(widget))
+    if css == widget.styleSheet():
+        return
+    widget._texturizer_styling = True
+    try:
+        widget.setStyleSheet(css)
+    finally:
+        widget._texturizer_styling = False
