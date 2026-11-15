@@ -34,6 +34,8 @@ NOOP = {
     "setValidator", "setClearButtonEnabled", "setSelectionMode", "setMaximumHeight",
     "setPopupMode", "setMenu", "setFlat", "setAccessibleName", "setProperty", "setFont", "setPixmap",
     "setExclusive", "raise_", "addStretch", "setParent", "setSpacing", "deleteLater", "splitDockWidget",
+    "setSizePolicy", "setMinimumWidth", "setFixedWidth", "updateGeometry", "setHorizontalScrollBarPolicy",
+    "setHeightForWidth",
 }
 
 
@@ -170,8 +172,28 @@ class QWidget(_Base):
     def closeEvent(self, ev):  # noqa: N802
         pass
 
+    def width(self):
+        return 0
+
+    def sizeHint(self):  # noqa: N802
+        return QSize(80, 60)
+
+    def minimumSizeHint(self):  # noqa: N802
+        return QSize(80, 60)
+
+    def fontMetrics(self):  # noqa: N802
+        return _Metrics()
+
+    def resizeEvent(self, ev):  # noqa: N802
+        pass
+
     def children_widgets(self):
         return self._layout.widgets() if self._layout else []
+
+
+class _Metrics:
+    def horizontalAdvance(self, text):  # noqa: N802
+        return 7 * len(text)
 
 
 class QLabel(QWidget):
@@ -388,6 +410,12 @@ class QProgressBar(QWidget):
 class QScrollArea(QWidget):
     _w = None
 
+    def verticalScrollBar(self):  # noqa: N802
+        return QWidget()
+
+    def frameWidth(self):  # noqa: N802
+        return 1
+
     def setWidget(self, w):  # noqa: N802
         self._w = w
 
@@ -478,13 +506,24 @@ class QSize:
     def __init__(self, w, h):
         self.w, self.h = w, h
 
+    def width(self):
+        return self.w
+
+    def height(self):
+        return self.h
+
+
+class QSizePolicy(_Base):
+    Fixed, Preferred, Expanding, Ignored = 0, 5, 7, 13
+
 
 class _Qt:
     Horizontal, Vertical = 1, 2
     LeftDockWidgetArea, RightDockWidgetArea = 1, 2
     ToolButtonTextBesideIcon, ToolButtonTextUnderIcon = 2, 3
     DownArrow, RightArrow = 2, 4
-    AlignRight = 2
+    AlignLeft, AlignRight, AlignTop = 1, 2, 0x20
+    ScrollBarAlwaysOff = 1
     RichText = 1
     KeepAspectRatio, SmoothTransformation = 1, 1
 
@@ -499,6 +538,6 @@ def modules():
     w = types.ModuleType("QtWidgets")
     for c in (QWidget, QLabel, QPushButton, QToolButton, QCheckBox, QSlider, QDoubleSpinBox, QLineEdit, QComboBox,
               QListWidget, QMenu, QProgressBar, QScrollArea, QDockWidget, QMainWindow, QButtonGroup,
-              QAbstractItemView, QMessageBox, QApplication, QVBoxLayout, QHBoxLayout, QGridLayout):
+              QAbstractItemView, QMessageBox, QApplication, QVBoxLayout, QSizePolicy, QHBoxLayout, QGridLayout):
         setattr(w, c.__name__, c)
     return core, gui, w

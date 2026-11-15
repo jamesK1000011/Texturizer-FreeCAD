@@ -139,6 +139,11 @@ def mask_count_text(n, include_only):
     return S("excl.faceExcluded" if n == 1 else "excl.facesExcluded", n=n)
 
 
+def min_dock_width(content, scrollbar, frame=0):
+    """The sidebar's minimum width for content of minimum width content."""
+    return int(content) + int(scrollbar) + 2 * int(frame)
+
+
 if QtWidgets is not None:
 
     class _Bind:
@@ -255,6 +260,9 @@ if QtWidgets is not None:
                 f.setBold(i == d.active)
                 name.setFont(f)
                 name.setToolTip(S("layers.rowTitle", n=i + 1))
+                # The row gives the name what is left; "Layer n" always fits.
+                name.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+                name.setMinimumWidth(name.fontMetrics().horizontalAdvance(S("layers.name", n=len(d.layers))) + 16)
                 name.clicked.connect(lambda *_, i=i: d.set_active(i))
                 h.addWidget(name, 1)
                 solo = QtWidgets.QToolButton()
@@ -322,10 +330,24 @@ if QtWidgets is not None:
             v.addWidget(self._footer())
             scroll = QtWidgets.QScrollArea()
             scroll.setWidgetResizable(True)
+            # Content follows the dock's width (tiles reflow, labels wrap):
+            # never a horizontal scrollbar, and the dock is never narrower
+            # than the content's minimum, so nothing is clipped.
+            scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             scroll.setWidget(body)
+            self.scroll = scroll
             self.setWidget(scroll)
             self._unsub = draft.subscribe(self._on_draft)
             self.refresh()
+            self.fit_width()
+
+        def fit_width(self):
+            """The dock's minimum width: the content's minimum plus the
+            vertical scrollbar and the frame."""
+            bar = self.scroll.verticalScrollBar().sizeHint().width()
+            w = min_dock_width(self.body.minimumSizeHint().width(), bar, self.scroll.frameWidth())
+            self.scroll.setMinimumWidth(w)
+            return w
 
         # -- library -------------------------------------------------------------
         def textures(self):

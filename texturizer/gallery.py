@@ -20,6 +20,7 @@ from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
 COLUMNS = 4  # BumpMesh's favourites grid is 4 wide, one row per 4
+SPACING = 6  # px between tiles, the same both ways
 CUSTOM = "custom"
 CATEGORY_LABEL = {c["id"]: c["label"] for c in controls.CATEGORIES}
 CATEGORY_LABEL[CUSTOM] = S("gallery.catCustom")
@@ -103,6 +104,34 @@ def filter_entries(entries, flt="all", query="", favourites=()):
         pool = [e for e in presets if e.get("category") == flt]
     keys = [e for e in pool if _matches(e, q)]
     return [(None, keys)] if keys else []
+
+
+def columns_for(width, cell, spacing=SPACING, most=None):
+    """How many tiles of width cell fit in width (at least 1, at most most):
+    the grid reflows to the dock's width instead of forcing a scrollbar."""
+    width, cell = int(width or 0), max(1, int(cell or 0))
+    n = max(1, (width + spacing) // (cell + spacing))
+    return min(n, most) if most else n
+
+
+def rows_for(count, columns):
+    return -(-int(count) // max(1, int(columns))) if count else 0
+
+
+def _spin(on, speed=0.4):
+    """Turntable: spin FreeCAD's active view slowly about its up axis (True),
+    or stop (False). False when there is no 3D view to spin."""
+    try:
+        import FreeCADGui
+
+        view = FreeCADGui.ActiveDocument.ActiveView
+        if on:
+            view.startAnimating(0, 0, 1, speed)
+        else:
+            view.stopAnimating()
+        return True
+    except Exception:
+        return False
 
 
 def empty_note(flt, query):
@@ -215,9 +244,73 @@ if QtWidgets is not None:
             self.setToolTip(_tile_tip(entry))
             self.clicked.connect(lambda *_: on_pick(entry))
 
+    class ReflowGrid(QtWidgets.QWidget):
+        """Equal-width cells laid out in as many columns as the width takes
+        (columns_for), so a narrow dock shows fewer columns rather than a
+        horizontal scrollbar or clipped tiles. The caller owns the widgets."""
+
+        def __init__(self, most=None, parent=None):
+            super().__init__(parent)
+            self.most = most
+            self.items = []
+            self.cell = QtCore.QSize(1, 1)
+            self.cols = 0
+            self.grid = QtWidgets.QGridLayout(self)
+            self.grid.setContentsMargins(0, 0, 0, 0)
+            self.grid.setSpacing(SPACING)
+            self.grid.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            sp = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+            sp.setHeightForWidth(True)
+            self.setSizePolicy(sp)
+
+        def set_items(self, widgets):
+            while self.grid.count():
+                self.grid.takeAt(0)
+            self.items = list(widgets)
+            w = h = 1
+            for x in self.items:
+                hint = x.sizeHint()
+                w, h = max(w, hint.width()), max(h, hint.height())
+            self.cell = QtCore.QSize(w, h)
+            for x in self.items:
+                x.setFixedWidth(w)  # equal cells: even gaps between columns
+            self.cols = 0
+            self._place(self.width() if self.width() > w else (self.most or COLUMNS) * (w + SPACING))
+
+        def _place(self, width):
+            n = columns_for(width, self.cell.width(), SPACING, self.most)
+            if n == self.cols:
+                return
+            self.cols = n
+            while self.grid.count():
+                self.grid.takeAt(0)
+            for k, x in enumerate(self.items):
+                self.grid.addWidget(x, k // n, k % n)
+            self.updateGeometry()
+
+        def resizeEvent(self, ev):  # noqa: N802
+            super().resizeEvent(ev)
+            self._place(ev.size().width())
+
+        def hasHeightForWidth(self):  # noqa: N802
+            return True
+
+        def heightForWidth(self, width):  # noqa: N802
+            r = rows_for(len(self.items), columns_for(width, self.cell.width(), SPACING, self.most))
+            return max(0, r * self.cell.height() + (r - 1) * SPACING)
+
+        def minimumSizeHint(self):  # noqa: N802
+            return QtCore.QSize(self.cell.width() if self.items else 0, self.cell.height() if self.items else 0)
+
+        def sizeHint(self):  # noqa: N802
+            n = max(1, min(len(self.items), self.most or COLUMNS))
+            w = n * self.cell.width() + (n - 1) * SPACING
+            return QtCore.QSize(w, self.heightForWidth(w))
+
     class FavouritesGrid(QtWidgets.QWidget):
-        """The sidebar's favourites grid (section 2): 4 wide, one row per 4,
-        plus a tile for a picked texture that is not a favourite, as BumpMesh."""
+        """The sidebar's favourites grid (section 2): up to 4 wide as BumpMesh,
+        fewer when the dock is narrow, plus a tile for a picked texture that
+        is not a favourite, as BumpMesh."""
 
         def __init__(self, list_textures, favourites=None, on_pick=None, parent=None):
             super().__init__(parent)
@@ -227,10 +320,13 @@ if QtWidgets is not None:
             self.on_pick = on_pick or (lambda e: None)
             self.active = None
             self.tiles = []
-            self.grid = QtWidgets.QGridLayout(self)
-            self.grid.setContentsMargins(0, 0, 0, 0)
+            v = QtWidgets.QVBoxLayout(self)
+            v.setContentsMargins(0, 0, 0, 0)
+            self.flow = ReflowGrid(most=COLUMNS)
+            v.addWidget(self.flow)
             self.empty = QtWidgets.QLabel(S("ui.noFavourites"))
             self.empty.setWordWrap(True)
+            v.addWidget(self.empty)
             self.refresh()
 
         def ids(self):
@@ -242,22 +338,19 @@ if QtWidgets is not None:
             return ids
 
         def refresh(self):
-            while self.grid.count():
-                w = self.grid.takeAt(0).widget()
-                if w is not None and w is not self.empty:  # later: the clicked tile may be one of them
-                    w.hide()
-                    w.deleteLater()
+            for w in self.tiles:  # later: the clicked tile may be one of them
+                w.hide()
+                w.deleteLater()
             by_id = {e["id"]: e for e in self.list_textures()}
             self.tiles = []
             ids = self.ids()
-            for n, i in enumerate(ids):
-                t = Tile(by_id[i], self.on_pick, size=40)
+            for i in ids:
+                t = Tile(by_id[i], self.on_pick, size=40, parent=self.flow)
                 t.setChecked(i == self.active)
-                self.grid.addWidget(t, n // COLUMNS, n % COLUMNS)
                 self.tiles.append(t)
+            self.flow.set_items(self.tiles)
+            self.flow.setVisible(bool(ids))
             self.empty.setVisible(not ids)
-            if not ids:
-                self.grid.addWidget(self.empty, 0, 0, 1, COLUMNS)
 
         def set_active(self, texture_id):
             self.active = texture_id
@@ -269,7 +362,7 @@ if QtWidgets is not None:
         favorites, Your textures, the hint, Done, and a credit per tile."""
 
         def __init__(self, list_textures, favourites=None, on_pick=None, draft=None, runner=None,
-                     on_favourites=None, parent=None):
+                     on_favourites=None, spin=None, parent=None):
             super().__init__(S("gallery.title"), parent)
             self.setObjectName("TexturizerGallery")
             self.list_textures = list_textures
@@ -282,16 +375,16 @@ if QtWidgets is not None:
             self.tiles = {}
             self._unsub = draft.subscribe(self._draft_changed) if draft is not None else None
 
+            self.spin = spin or _spin
             body = QtWidgets.QWidget()
             v = QtWidgets.QVBoxLayout(body)
+            # No title in the body: the dock's title bar already says Texture Gallery.
             head = QtWidgets.QHBoxLayout()
-            title = QtWidgets.QLabel(S("gallery.title"))
-            title.setProperty("role", "title")
-            head.addWidget(title)
             head.addStretch(1)
             self.turntable = QtWidgets.QPushButton(S("gallery.turntable"))
-            self.turntable.setToolTip(S("gallery.turntableTitle") + " (later)")
-            self.turntable.setEnabled(False)
+            self.turntable.setToolTip(S("gallery.turntableTitle"))
+            self.turntable.setCheckable(True)
+            self.turntable.toggled.connect(self.set_turntable)
             head.addWidget(self.turntable)
             self.done = QtWidgets.QPushButton(S("gallery.done"))
             self.done.clicked.connect(lambda *_: self.close())
@@ -323,20 +416,22 @@ if QtWidgets is not None:
                 self.chips[fid] = b
             v.addWidget(chips)
 
-            status = QtWidgets.QHBoxLayout()
+            # The hint on its own full-width row; Favorites: n and Reset favorites below it.
             self.hint = QtWidgets.QLabel(S("gallery.hint"))
             self.hint.setWordWrap(True)
-            status.addWidget(self.hint, 1)
+            v.addWidget(self.hint)
+            status = QtWidgets.QHBoxLayout()
             self.fav_count = QtWidgets.QLabel()
             status.addWidget(self.fav_count)
+            status.addStretch(1)
             self.fav_reset = QtWidgets.QPushButton(S("gallery.resetFavourites"))
-            self.fav_reset.setFlat(True)
             self.fav_reset.clicked.connect(lambda *_: self.reset_favourites())
             status.addWidget(self.fav_reset)
             v.addLayout(status)
 
             self.scroll = QtWidgets.QScrollArea()
             self.scroll.setWidgetResizable(True)
+            self.scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             v.addWidget(self.scroll, 1)
 
             credits = QtWidgets.QLabel(S("gallery.credits") + "<br>" + BUMPMESH_CREDIT
@@ -375,6 +470,18 @@ if QtWidgets is not None:
             else:
                 self.sync()
 
+        def set_turntable(self, on):
+            """BumpMesh's Turntable: spin the 3D view slowly while browsing."""
+            if not self.spin(bool(on)) and on:
+                self.turntable.blockSignals(True)
+                self.turntable.setChecked(False)
+                self.turntable.blockSignals(False)
+
+        def closeEvent(self, ev):  # noqa: N802
+            if self.turntable.isChecked():
+                self.turntable.setChecked(False)
+            super().closeEvent(ev)
+
         def reset_favourites(self):
             self.favourites.reset(self.list_textures())
             self.on_favourites()
@@ -398,9 +505,10 @@ if QtWidgets is not None:
                     h = QtWidgets.QLabel(title)
                     h.setProperty("role", "title")
                     v.addWidget(h)
-                g = QtWidgets.QGridLayout()
-                for n, e in enumerate(es):
-                    cell = QtWidgets.QWidget()
+                g = ReflowGrid()
+                cells = []
+                for e in es:
+                    cell = QtWidgets.QWidget(g)
                     cv = QtWidgets.QVBoxLayout(cell)
                     cv.setContentsMargins(0, 0, 0, 0)
                     t = Tile(e, self.on_pick)
@@ -422,10 +530,11 @@ if QtWidgets is not None:
                         row.addWidget(dl)
                         row.addWidget(rm)
                     cv.addLayout(row)
-                    g.addWidget(cell, n // COLUMNS, n % COLUMNS)
+                    cells.append(cell)
                     self.tiles[e["id"]] = t
                     self.stars[e["id"]] = star
-                v.addLayout(g)
+                g.set_items(cells)
+                v.addWidget(g)
             if self.filter == CUSTOM and not secs and not self.search.text().strip():
                 self.empty = QtWidgets.QLabel(S("gallery.customEmpty"))
             elif not secs:
