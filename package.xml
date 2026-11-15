@@ -7,11 +7,21 @@
   <maintainer email="jamesK1000011@users.noreply.github.com">jamesK1000011</maintainer>
   <license file="LICENSE">AGPL-3.0-only</license>
   <url type="repository" branch="main">https://github.com/jamesK1000011/Texturizer-FreeCAD</url>
+  <url type="bugtracker">https://github.com/jamesK1000011/Texturizer-FreeCAD/issues</url>
+  <url type="readme">https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/README.md</url>
+  <url type="documentation">https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/README.md</url>
   <freecadmin>1.0.0</freecadmin>
   <icon>texturizer/icons/Texturizer_Workbench.svg</icon>
   <tag>3D printing</tag>
   <tag>texture</tag>
   <tag>mesh</tag>
+  <tag>surface texture</tag>
+  <tag>displacement</tag>
+  <tag>STL</tag>
+  <tag>3MF</tag>
+  <tag>BumpMesh</tag>
+  <tag>AI agent</tag>
+  <depend type="python">numpy</depend>
   <content>
     <workbench>
       <name>Texturizer</name>

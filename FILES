@@ -3,9 +3,11 @@ Init.py
 InitGui.py
 LICENSE
 LICENSE-DATA
+LICENSES/AGPL-3.0-only.txt
 LICENSES/Apache-2.0.txt
 LICENSES/CC-BY-4.0.txt
 LICENSES/CC0-1.0.txt
+LICENSES/LGPL-2.1-or-later.txt
 LICENSES/MIT.txt
 README.md
 REUSE.toml
@@ -22,6 +24,7 @@ tests/test_preview.py
 tests/test_project.py
 tests/test_projection_extras.py
 tests/test_quicklook.py
+tests/test_release.py
 tests/test_sidebar.py
 tests/test_texture.py
 tests/test_wiring.py
@@ -288,3 +291,4 @@ texturizer/textures/woodgrain_03.png
 texturizer/theme.py
 texturizer/uvmath.py
 texturizer/window.py
+tools/gen_readme_tools.py

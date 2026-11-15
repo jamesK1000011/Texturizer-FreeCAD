@@ -1,7 +1,33 @@
 # Changelog
 
+All notable changes to Texturizer for FreeCAD. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/).
+
 Texturizer for FreeCAD is based on BumpMesh by Stefan Hermann (CNC Kitchen),
 github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
+
+## [Unreleased]
+
+### Added
+
+- Bake Textures: Mask just-baked faces, as BumpMesh does it. After a bake,
+  the fresh layer on the baked part starts with the faces just textured
+  excluded, so the next pass doesn't texture them twice. Turn it off with the
+  "Mask just-baked faces from further texturing" box (`bakeMask`).
+- Release preparation: a beginner's README with the agent tool list generated
+  from `texturizer/data/tools.json` (`tools/gen_readme_tools.py`, with
+  `--check`), complete Addon Manager metadata (bug tracker, readme and
+  documentation links, tags, the numpy dependency), every file's licence
+  stated in its header or in `REUSE.toml` with the texts in `LICENSES/`, and
+  tests for all of it (`tests/test_release.py`).
+
+### Changed
+
+- Bake Textures runs BumpMesh's bake pipeline: no decimation, so the baked
+  mesh keeps the triangles the mask refers to. Textured objects made by a bake
+  are marked `Baked` and update the same way.
+- The Bake Textures controls are no longer marked "later" in the sidebar.
 
 ## 0.3.0 — 2026-11-14
 
