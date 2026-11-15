@@ -283,6 +283,20 @@ class SidebarWidget(unittest.TestCase):
                                   selection=lambda: ["Face4"])
         return d, sb
 
+    def test_gallery_slides_out_inside_the_sidebar(self):
+        """The Texture Gallery is a page of the sidebar, not a dock of its
+        own beside it (which widened the window on the Mac); Done slides it
+        back to the settings."""
+        _d, sb = self.make()
+        self.assertIs(sb.pages.currentWidget(), sb.scroll)
+        g = sb.press("textureGallery")
+        self.assertTrue(sb.gallery_open())
+        self.assertIsNone(sb._gallery.parentWidget())  # never put in the main window
+        sb._gallery.done.click()
+        self.assertFalse(sb.gallery_open())
+        self.assertIs(sb.pages.currentWidget(), sb.scroll)
+        self.assertTrue(g)
+
     def test_sections_in_bumpmesh_order(self):
         d, sb = self.make()
         self.assertEqual(sb.windowTitle(), "Texturizer")

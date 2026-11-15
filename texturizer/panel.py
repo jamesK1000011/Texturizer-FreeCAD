@@ -190,12 +190,21 @@ def hosted_factory(panel):
 
 
 def show_dock():
-    """Alone: the panel as Texturizer's own dock, tabbed with the Combo View.
-    Hosted: raise the Texture tab in Agent Link's panel."""
+    """Alone: the panel as Texturizer's own dock, placed by the panel layout
+    setting (layout.py). Hosted: the Texture tab in Agent Link's panel."""
+    import importlib
+
     import FreeCADGui
+
+    from . import layout
 
     mw = FreeCADGui.getMainWindow()
     if hosted():
+        try:
+            importlib.import_module("agentlink.panel").show(tab=TITLE)
+            return
+        except Exception:  # noqa: BLE001 — an older Agent Link: find the tab as before
+            pass
         w = mw.findChild(QtWidgets.QWidget, NAME)
         p = w.parentWidget() if w is not None else None
         while p is not None and not isinstance(p, QtWidgets.QTabWidget):
@@ -216,9 +225,6 @@ def show_dock():
         dock = QtWidgets.QDockWidget(TITLE, mw)
         dock.setObjectName(DOCK)
         dock.setWidget(TexturePanel(runner()))
-        mw.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-        combo = mw.findChild(QtWidgets.QDockWidget, "Combo View")
-        if combo is not None:
-            mw.tabifyDockWidget(combo, dock)
-    dock.show()
-    dock.raise_()
+    pl = layout.placer()
+    pl.show(DOCK, dock, "TexturizerWorkbench", TITLE)
+    pl.reveal(DOCK)

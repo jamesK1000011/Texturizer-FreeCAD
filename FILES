@@ -20,6 +20,7 @@ tests/test_api.py
 tests/test_engine_api.py
 tests/test_engine_parity.py
 tests/test_gui.py
+tests/test_layout.py
 tests/test_paint.py
 tests/test_preview.py
 tests/test_project.py
@@ -88,6 +89,7 @@ texturizer/icons/Texturizer_Section.svg
 texturizer/icons/Texturizer_Undo.svg
 texturizer/icons/Texturizer_Wireframe.svg
 texturizer/icons/Texturizer_Workbench.svg
+texturizer/layout.py
 texturizer/live.py
 texturizer/mesh.py
 texturizer/meshdist.py
