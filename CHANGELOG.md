@@ -9,7 +9,12 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+The dated versions below were never tagged: the first tagged release is
+being prepared.
+
 ### Added
+
+- README: how to uninstall, and a privacy statement.
 
 - `texture_check { object }` checks a Textured object against its body with the mask it stores (draft or arguments), with no `texture_prepare` mask; `path` of its `texture_export` STL alone works too. Faces BumpMesh's angle limits cover whole are listed as `angleMasked`, not `bare`. The `-mask.json` route is unchanged.
 
