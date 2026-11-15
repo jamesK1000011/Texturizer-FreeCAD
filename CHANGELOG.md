@@ -11,6 +11,8 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ### Added
 
+- `texture_check { object }` checks a Textured object against its body with the mask it stores (draft or arguments), with no `texture_prepare` mask; `path` of its `texture_export` STL alone works too. Faces BumpMesh's angle limits cover whole are listed as `angleMasked`, not `bare`. The `-mask.json` route is unchanged.
+
 - Paint brush, ported from BumpMesh: Single / Circle, Size, Hardness (soft coverage per vertex), Shift to erase, one undo step per stroke; Fill on meshes; `texture_mask { paint, fill }`. Painted masks round-trip `.bumpmesh` projects exactly. Precision mode comes later.
 
 - Bake Textures: Mask just-baked faces, as BumpMesh does it. After a bake,
@@ -26,6 +28,7 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ### Changed
 
+- `texture_apply` with `layers`: a layer without its own `texture`, `faces` or `mode` takes the top-level one (they were ignored, so the whole body was textured); a layer that gives a different one, or a setting outside `settings`, is refused. Top-level layer settings are every layer's defaults.
 - Bake Textures runs BumpMesh's bake pipeline: no decimation, so the baked
   mesh keeps the triangles the mask refers to. Textured objects made by a bake
   are marked `Baked` and update the same way.

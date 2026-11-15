@@ -265,6 +265,27 @@ class Handlers(unittest.TestCase):
             handlers.texture_apply(ctx, {"texture": "Dots", "settings": {"refineLength": 0.001}})
 
 
+    def test_apply_layers_take_top_level_faces_and_mode(self):
+        # The live check: layers given with top-level faces / mode textured
+        # the whole body. A layer without them takes them; a layer that
+        # differs, or a setting outside settings, is refused.
+        base = {"faces": ["Face6"], "mode": "include", "settings": {"refineLength": 2, "harvestFlatFaces": False}}
+        out = self.apply(Ctx(), {**base, "layers": [{"texture": "Knurling", "settings": {"textureHeight": 0.4}}]})
+        self.assertEqual(out["layers"], [{"layer": 1, "mode": "include", "faces": ["Face6"]}])
+        out = self.apply(Ctx(), {**base, "layers": [{"texture": "Knurling", "faces": "Face6", "mode": "include"}]})
+        self.assertEqual(out["layers"][0]["faces"], ["Face6"])
+        out = self.apply(Ctx(), {"texture": "Knurling", "settings": {"refineLength": 2}, "layers": [{"faces": ["Face1"]}]})
+        self.assertEqual(out["layers"][0], {"layer": 1, "mode": "exclude", "faces": ["Face1"]})
+        for bad, word in (({**base, "layers": [{"texture": "Knurling", "faces": ["Face2"]}]}, "faces"),
+                          ({**base, "layers": [{"texture": "Knurling", "mode": "exclude"}]}, "mode"),
+                          ({"texture": "Dots", "layers": [{"texture": "Knurling"}]}, "texture"),
+                          ({**base, "layers": [{"texture": "Knurling", "textureHeight": 0.4}]}, "layers.0.settings"),
+                          ({**base, "layers": [{"texture": "Knurling", "bogus": 1}]}, "not a layer argument")):
+            with self.assertRaises(handlers.ToolError, msg=str(bad)) as e:
+                handlers.texture_apply(Ctx(), bad)
+            self.assertEqual(e.exception.code, "invalid_input")
+            self.assertIn(word, e.exception.message if hasattr(e.exception, "message") else str(e.exception))
+
     def test_apply_with_freecads_mesh_module(self):
         # As in the bake-off, where FreeCAD's Mesh imports (another test
         # module imported FreeCAD): a body in no document still gives no

@@ -47,7 +47,7 @@ class FakeShape:
         self.Faces = [object()] * 6
         self.Solids = [object()]
         self.Volume, self.Area = volume, 600.0
-        self.BoundBox = Box(XMin=0, YMin=0, ZMin=0, XMax=10, YMax=10, ZMax=10)
+        self.BoundBox = Box(XMin=0, YMin=0, ZMin=0, XMax=10, YMax=10, ZMax=10, DiagonalLength=17.32)
 
 
 class Obj:
@@ -82,6 +82,11 @@ class FakeMesh:
     def __init__(self, positions):
         self.positions = np.asarray(positions, np.float32)
         self.CountFacets = len(self.positions) // 9
+
+    @property
+    def Topology(self):  # noqa: N802 (FreeCAD)
+        p = self.positions.reshape(-1, 3)
+        return [Box(x=float(x), y=float(y), z=float(z)) for x, y, z in p], [tuple(range(k, k + 3)) for k in range(0, len(p), 3)]
 
 
 class Session(unittest.TestCase):
@@ -246,6 +251,38 @@ class Retexture(Session):
         self.assertEqual(handlers.mark_out_of_date(self.doc), [obj.Name])
         out = self.ok("texture_apply", {"update": obj.Name})
         self.assertFalse(obj.OutOfDate)
+
+    def test_check_a_textured_object(self):
+        # texture_check from what texture_apply stored: no texture_prepare
+        # mask, by object or by the STL texture_export wrote.
+        pos, _ft = cube()
+        saved = handlers.mesh.face_triangles
+        handlers.mesh.face_triangles = lambda shape, tol: (pos.reshape(-1, 3, 3).tolist(), {f"Face{k + 1}": [2 * k, 2 * k + 2] for k in range(6)})
+        self.addCleanup(setattr, handlers.mesh, "face_triangles", saved)
+        out = self.ok("texture_apply", {"body": "Grip", "faces": ["Face2"], "mode": "include",
+                                        "layers": [{"texture": "Knurling", "settings": {"textureHeight": 0.4}}],
+                                        "settings": {"refineLength": 1}})
+        self.assertIn("texture_check { object: \"%s\" }" % out["object"], out["next"])
+        obj = live.find(self.doc, out["object"])
+        chk = self.ok("texture_check", {"object": obj.Name})
+        self.assertEqual((chk["object"], set(chk["texturedFaces"])), (obj.Name, {"Face2"}))
+        self.assertGreater(chk["texturedFaces"]["Face2"]["moved"], 0.5)
+        self.assertNotIn("Face1", chk.get("leaked", {}).get("faces", []))
+        exp = self.ok("texture_export", {"format": "stl", "object": obj.Name, "path": "tile.stl"})
+        self.assertIn("texture_check", exp["next"])
+        chk2 = self.ok("texture_check", {"path": exp["path"]})
+        self.assertEqual((chk2["object"], chk2["texturedFaces"].keys()), (obj.Name, chk["texturedFaces"].keys()))
+        # A whole-body texture: the bottom, under BumpMesh's 5 degree limit, stays plain.
+        out = self.ok("texture_apply", {"body": "Grip", "texture": "Knurling", "settings": {"refineLength": 2.5}, "name": "All"})
+        chk = self.ok("texture_check", {"object": out["object"]})
+        self.assertEqual(chk["angleMasked"], ["Face1"])
+        self.assertNotIn("Face1", chk["texturedFaces"])
+        # The old route still refuses without its mask, and names the new one.
+        ok, err = self.run("texture_check", {"body": "Grip", "path": os.path.join(self.ctx.out_dir, "nothing.stl")})
+        self.assertEqual((ok, err["error"]["code"]), (False, "not_found"))
+        for bad in ({"object": "Grip"}, {"object": obj.Name, "mask": "x.json"}, {"object": obj.Name, "body": "Nope"}):
+            ok, err = self.run("texture_check", bad)
+            self.assertFalse(ok, bad)
 
     def test_bake(self):
         self.ok("texture_draft", {})

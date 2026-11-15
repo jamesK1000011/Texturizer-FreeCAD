@@ -91,10 +91,126 @@ def texture_prepare(s, a):
 
 
 def texture_check(s, a):
-    o = s.body(a.get("body"))
+    """A textured STL against its body. The mask: object (a Textured object
+    texture_apply made: its stored draft or arguments, its body), mask
+    (texture_prepare's -mask.json), the -mask.json beside path by name, or
+    the Textured object path was exported from."""
     path = a.get("path")
-    mask = a.get("mask") or (os.path.splitext(path)[0].replace("-textured", "") + "-for-texture-mask.json" if path else "")
-    return remember("texture_check", mesh.check(o.Shape, path, mask, num(a.get("tolerance", 0.02), "tolerance"), a.get("reach"), num(a.get("flat", 0.01), "flat"), o.Label))
+    tol = num(a.get("tolerance", 0.02), "tolerance")
+    doc = _doc(s)
+    obj = None
+    if a.get("object") is not None:
+        if a.get("mask"):
+            raise ToolError("invalid_input", "object or mask, not both: a Textured object carries its own mask.")
+        obj = live.find(doc, a["object"])
+        if obj is None or "SourceBody" not in getattr(obj, "PropertiesList", []):
+            raise ToolError("not_found", f"object {a['object']!r}: not a Textured object in this document "
+                            f"({', '.join(o.Label for o in textured_objects(doc)) or 'none'}).")
+    mask = a.get("mask")
+    if obj is None and not mask:
+        if not path:
+            raise ToolError("invalid_input", "object: the Textured object texture_apply made (or path: its STL).")
+        beside = os.path.splitext(path)[0].replace("-textured", "") + "-for-texture-mask.json"
+        if os.path.isfile(beside):
+            mask = beside
+        else:
+            obj = _exported_from(doc, path, a.get("body"))
+            if obj is None:
+                mask = beside  # refused below, naming both ways
+    if obj is None:
+        o = s.body(a.get("body"))
+        return remember("texture_check", mesh.check(o.Shape, path, mask, tol, a.get("reach"), num(a.get("flat", 0.01), "flat"), o.Label))
+    o = s.body(obj.SourceBody)
+    if a.get("body") is not None and s.body(a["body"]).Name != o.Name:
+        raise ToolError("invalid_input", f"body {a['body']!r}: {obj.Label} was made from {o.Label}.")
+    m = _object_mask(obj, o)
+    tmp = None
+    if not path:
+        # The object's own mesh, as texture_export writes it.
+        import tempfile
+
+        from .engine import writers
+
+        fd, tmp = tempfile.mkstemp(suffix=".stl")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(writers.stl_bytes(live.mesh_positions(obj.Mesh)))
+    try:
+        out = mesh.check(o.Shape, path or tmp, m, tol, a.get("reach"), num(a.get("flat", 0.01), "flat"), o.Label)
+    finally:
+        if tmp:
+            os.unlink(tmp)
+    if tmp:
+        out["file"] = f"{obj.Label} (its mesh)"
+    out["object"] = obj.Name
+    if getattr(obj, "OutOfDate", False):
+        out.setdefault("warnings", []).append(f"{obj.Label} is out of date: its body changed (texture_apply {{ update: \"{obj.Name}\" }} first).")
+    return remember("texture_check", out)
+
+
+# Where texture_export wrote each Textured object (this session): texture_check
+# finds the object from its STL.
+EXPORTED = {}
+
+
+def _exported_from(doc, path, body=None):
+    """The Textured object an STL came from: the one texture_export wrote it
+    from, else the one whose label is the file's name (texture_export's
+    default), else the only one of body."""
+    objs = textured_objects(doc)
+    name = EXPORTED.get(os.path.realpath(path))
+    hit = [o for o in objs if o.Name == name]
+    if not hit:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        hit = [o for o in objs if o.Label == stem]
+    if not hit and body is not None:
+        hit = [o for o in objs if o.SourceBody == body or getattr(live.find(doc, o.SourceBody), "Label", None) == body]
+    return hit[0] if len(hit) == 1 else None
+
+
+def _object_mask(obj, body):
+    """The faces a Textured object was textured on, from what it stores:
+    the draft (each visible layer's faces; a painted include mask counts
+    the faces it touches) or texture_apply's arguments; with the angle
+    limits it ran with."""
+    import json
+
+    from . import engine
+
+    names = [f"Face{i + 1}" for i in range(len(body.Shape.Faces))]
+    textured = set()
+    stored = getattr(obj, "TextureDraft", "") or ""
+    args = json.loads(getattr(obj, "TextureArgs", "") or "{}")
+    if stored:
+        from .draft import Draft
+
+        d = Draft.from_json(stored)
+        ft = None
+        for L in d.layers:
+            if L.get("visible", True) is False:
+                continue
+            faces, tris = set(L["mask"]["faces"]), L["mask"]["triangles"]
+            if L.get("includeOnly"):
+                if tris:
+                    ft = ft if ft is not None else live.mesh_for(body)[1]
+                    hit = set(tris)
+                    faces |= {f for f, ts in ft.items() if hit.intersection(ts)}
+                textured |= faces
+            else:
+                textured |= set(names) - faces
+    elif args:
+        for L in _layer_specs(args, lambda q: pick_faces(body.Shape, q)):
+            if L.get("visible", True) is False:
+                continue
+            if L.get("faces") is None:
+                textured |= set(names)
+                continue
+            listed = pick_faces(body.Shape, L["faces"])
+            textured |= set(listed) if (L.get("mode") or "exclude") == "include" else set(names) - set(listed)
+    else:
+        raise ToolError("invalid_state", f"{obj.Label}: made without stored settings; texture its body again.")
+    run = json.loads(getattr(obj, "TextureSettings", "") or "{}")
+    g = {k: run.get(k, engine.DEFAULTS[k]) for k in ("bottomAngleLimit", "topAngleLimit")}
+    return {"textured": sorted(textured), "angles": {"bottom": g["bottomAngleLimit"], "top": g["topAngleLimit"]}}
 
 
 # ── BumpMesh's engine ──────────────────────────────────────────────────────
@@ -201,30 +317,71 @@ def _mask_from(shape, per_face, n, q, mode):
     return engine.from_triangles(n, tris, mode), sorted(names)
 
 
-def _layers_from_args(s, a, o, per_face, n, settings):
-    """texture_apply's own layers (texture, or layers with face masks)."""
+LAYER_ARGS = ("texture", "settings", "faces", "mode", "blendAdd", "visible")
+
+
+def _layer_specs(a, resolve):
+    """texture_apply's layers, bottom first: the one texture (texture, faces,
+    mode), or the layers given, each taking the top-level texture, faces and
+    mode it does not give itself. A layer that gives other ones than the top
+    level is refused, as is any argument a layer does not take: none is
+    dropped without a word. resolve(faces) -> the face names, to compare."""
     from . import engine
 
     specs = a.get("layers")
     if specs is None:
-        specs = [{"texture": a["texture"], "settings": {}, "faces": a.get("faces"), "mode": a.get("mode", "exclude")}]
+        return [{"texture": a.get("texture"), "faces": a.get("faces"), "mode": a.get("mode", "exclude")}]
     if not isinstance(specs, list) or not specs:
         raise ToolError("invalid_input", "layers: a list of 1 to 4 layers, bottom first.")
     if len(specs) > engine.MAX_LAYERS:
         raise ToolError("invalid_input", "layers: at most 4 (BumpMesh's limit).")
+    out = []
+    for i, L in enumerate(specs):
+        if not isinstance(L, dict):
+            raise ToolError("invalid_input", f"layers.{i}: an object with {', '.join(LAYER_ARGS)}.")
+        for k in L:
+            if k in LAYER_ARGS:
+                continue
+            if k in engine.LAYER_KEYS or k in engine.GLOBAL_KEYS:
+                raise ToolError("invalid_input", f"layers.{i}.{k}: a BumpMesh setting; give it in layers.{i}.settings "
+                                "(or in settings, for every layer).")
+            raise ToolError("invalid_input", f"layers.{i}.{k}: not a layer argument ({', '.join(LAYER_ARGS)}).")
+        L = dict(L)
+        for k in ("texture", "faces", "mode"):
+            top = a.get(k)
+            if top is None:
+                continue
+            if L.get(k) is None:
+                L[k] = top
+                continue
+            same = {"texture": lambda x, y: _texture_id(x) == _texture_id(y),
+                    "faces": lambda x, y: set(resolve(x)) == set(resolve(y)),
+                    "mode": lambda x, y: x == y}[k](L[k], top)
+            if not same:
+                raise ToolError("invalid_input", f"layers.{i}.{k} {L[k]!r} and the top-level {k} {top!r} differ: give {k} "
+                                f"once (top level for every layer that gives none, or on the layer).")
+        out.append(L)
+    return out
+
+
+def _layers_from_args(s, a, o, per_face, n, settings):
+    """texture_apply's own layers (texture, or layers with face masks). The
+    layer settings in settings are every layer's defaults."""
+    from . import engine
+
+    specs = _layer_specs(a, lambda q: pick_faces(o.Shape, q))
+    shared = {k: v for k, v in settings.items() if k in engine.LAYER_KEYS}
     layers, masked = [], []
     for i, L in enumerate(specs):
-        if not isinstance(L, dict) or not L.get("texture"):
+        if not L.get("texture"):
             raise ToolError("invalid_input", f"layers.{i}.texture: a library id (texture_list).")
         mask, names = None, []
         if L.get("faces") is not None:
-            mask, names = _mask_from(o.Shape, per_face, n, L["faces"], L.get("mode", "exclude"))
+            mask, names = _mask_from(o.Shape, per_face, n, L["faces"], L.get("mode") or "exclude")
         elif L.get("mode") == "include":
             raise ToolError("invalid_input", f"layers.{i}.faces: include needs the faces to texture.")
-        masked.append({"layer": i + 1, "mode": L.get("mode", "exclude") if names else None, "faces": names})
-        ls = _numbers(L.get("settings"), f"layers.{i}.settings")
-        if i == 0 and a.get("layers") is None:
-            ls = {**{k: v for k, v in settings.items() if k in engine.LAYER_KEYS}, **ls}
+        masked.append({"layer": i + 1, "mode": (L.get("mode") or "exclude") if names else None, "faces": names})
+        ls = {**shared, **_numbers(L.get("settings"), f"layers.{i}.settings")}
         layers.append({"texture": _texture_id(L["texture"]), "settings": ls, "mask": mask,
                        "blendAdd": bool(L.get("blendAdd")) and i > 0, "visible": L.get("visible", True) is not False})
     return layers, masked
@@ -385,12 +542,14 @@ def texture_apply(s, a):
             out = _apply_args(s, args, target=target)
             out["updated"] = True
         out["outOfDate"] = False
-        out["next"] = "texture_check against the body, or texture_export for an STL / 3MF."
+        out["next"] = (f"texture_check {{ object: \"{out['object']}\" }} measures it face by face against its body; "
+                       "texture_export for an STL / 3MF.")
         return remember("texture_apply", out)
     if a.get("texture") or a.get("layers") is not None:
         out = _apply_args(s, a)
-        out["next"] = (f"texture_check {{ body: \"{out['body']}\", path: <an STL export> }} measures the depth face by face; "
-                       "slice the export or the mesh object.")
+        out["next"] = ((f"texture_check {{ object: \"{out['object']}\" }}" if out.get("object") else
+                        f"texture_check {{ body: \"{out['body']}\", path: <the export> }}")
+                       + " measures the depth face by face; slice the export or the mesh object.")
         return remember("texture_apply", out)
     if a.get("draft") is not None:
         try:
@@ -428,8 +587,8 @@ def texture_apply(s, a):
         live.TARGET["object"] = None
         out["baked"] = obj.Name
         out["maskedTriangles"] = len(baked or []) if bake_mask else 0
-    out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check against the body; "
-                   "texture_export for an STL / 3MF." % (out["object"] or ""))
+    out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check { object: \"%s\" } "
+                   "measures it face by face; texture_export for an STL / 3MF." % (out["object"] or "", out["object"] or ""))
     return remember("texture_apply", out)
 
 
@@ -1215,6 +1374,9 @@ def texture_export(s, a):
         with open(path, "wb") as fh:
             fh.write(data)
         out = {"path": path, "format": fmt, "triangles": len(pos) // 9, "object": obj.Name, "credit": credit}
+        if fmt == "stl":
+            EXPORTED[os.path.realpath(path)] = obj.Name
+            out["next"] = f"texture_check {{ object: \"{obj.Name}\" }} (or {{ path }} of this STL) measures it face by face."
         if getattr(obj, "OutOfDate", False):
             out["warnings"] = [f"{obj.Label} is out of date: its body changed (Update first)."]
         return out
