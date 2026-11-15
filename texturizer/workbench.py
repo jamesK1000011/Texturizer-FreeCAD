@@ -106,9 +106,12 @@ def make_class(Gui):
             # the selected body loaded (hosted or not; the Texture tab stays in
             # Agent Link's panel).
             try:
-                from . import commands
+                from . import commands, layout
 
-                commands.open_sidebar(load=True)
+                # Opening the sidebar changes nothing: the window's "*" stays
+                # as it was (layout.keep_marks).
+                with layout.keep_marks():
+                    commands.open_sidebar(load=True)
             except Exception as e:  # noqa: BLE001 — never stop the bench
                 import FreeCAD
 
