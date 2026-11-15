@@ -340,7 +340,7 @@
   },
   "texture_apply": {
    "group": "texture",
-   "description": "Add to document / Update / Bake Textures with BumpMesh's engine (Stefan Hermann, CNC Kitchen), ported to Python and run inside FreeCAD; the body is never changed. With no texture or layers it textures the draft the sidebar shows (draft: a whole draft first) and makes a Textured Mesh object, or updates the one this draft made (new: true for another). update: a Textured object's name, run again with the settings it stores (an object goes out of date when its body changes and reruns only here). bake: BumpMesh's Bake Textures, the result (undecimated) becomes the part with a fresh layer; with bakeMask on (the default) that layer excludes the faces just textured. Or one texture (texture, faces, mode) or up to 4 layers, bottom first, each {texture, settings, faces, mode include|exclude, blendAdd}. settings: BumpMesh names. rotation [x, y, z] degrees: BumpMesh's Rotate. Optional export STL / 3MF. Answers triangles, repair, warnings and the credit. Refuses a run that would need more than memoryLimitGB (4).",
+   "description": "Add to document / Update / Bake Textures with BumpMesh's engine (Stefan Hermann, CNC Kitchen), ported to Python and run inside FreeCAD; the body is never changed. With no texture or layers it textures the draft the sidebar shows (draft: a whole draft first) and makes a Textured Mesh object, or updates the one this draft made (new: true for another). update: a Textured object's name, run again with the settings it stores (an object goes out of date when its body changes and reruns only here). bake: BumpMesh's Bake Textures, the result (undecimated) becomes the part with a fresh layer; with bakeMask on (the default) that layer excludes the faces just textured. Or one texture (texture, faces, mode) or up to 4 layers, bottom first, each {texture, settings, faces, mode include|exclude, blendAdd}; a layer without its own texture, faces or mode takes the top-level one, and one that differs is refused. settings' layer settings are every layer's defaults. settings: BumpMesh names. rotation [x, y, z] degrees: BumpMesh's Rotate. Optional export STL / 3MF. Answers triangles, repair, warnings and the credit; texture_check { object } checks the result. Refuses a run that would need more than memoryLimitGB (4).",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -536,10 +536,14 @@
   },
   "texture_check": {
    "group": "texture",
-   "description": "Check a textured STL against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep (p95, out, into); leaked — faces meant to stay plain that moved (a mating face, a datum); bare — faces meant for texture that barely moved; and whether the mesh is closed. path: the textured STL; mask: texture_prepare's -mask.json (found beside it by name); tolerance as texture_prepare used. verdict ok or check. Changes nothing.",
+   "description": "Check a textured mesh against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep (p95, out, into); leaked — faces meant to stay plain that moved (a mating face, a datum); bare — faces meant for texture that barely moved; and whether the mesh is closed. object: a Textured object texture_apply made — its body and mask come from what it stores, and its own mesh is checked (or path: its texture_export STL, found by itself). For an STL textured outside FreeCAD: body, path and mask (texture_prepare's -mask.json, found beside it by name); tolerance as texture_prepare used. Faces BumpMesh's angle limits cover whole are listed as angleMasked. verdict ok or check. Changes nothing.",
    "inputSchema": {
     "type": "object",
     "properties": {
+     "object": {
+      "type": "string",
+      "description": "A Textured object (texture_apply's): its body, mask and mesh."
+     },
      "body": {
       "type": "string"
      },
@@ -560,9 +564,6 @@
       "type": "number"
      }
     },
-    "required": [
-     "path"
-    ],
     "additionalProperties": false
    },
    "changes": false,

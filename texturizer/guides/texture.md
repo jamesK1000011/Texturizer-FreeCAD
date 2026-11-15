@@ -23,9 +23,9 @@ A Textured object stores the draft it was made from. When its body changes it is
 
 ## Without the draft
 
-- `texture_apply { body, texture, faces, mode, settings }` runs BumpMesh's engine in one call: `include` textures only the faces (a grip), `exclude` keeps them plain. Depth `textureHeight` (mm), tile `scaleU` (mm), `mappingMode` 0-8, up to 4 `layers`. `export: "part.stl"` (or .3mf) writes the file too. It can be updated the same way.
+- `texture_apply { body, texture, faces, mode, settings }` runs BumpMesh's engine in one call: `include` textures only the faces (a grip), `exclude` keeps them plain. Depth `textureHeight` (mm), tile `scaleU` (mm), `mappingMode` 0-8, up to 4 `layers`, each `{texture, settings, faces, mode}`: a layer that gives no `texture`, `faces` or `mode` takes the top-level one; one that gives a different one is refused. Settings go in `settings` (every layer) or the layer's `settings`. `export: "part.stl"` (or .3mf) writes the file too. It can be updated the same way.
 - `texture_prepare { body, faces, mode }` writes the part as an STL and a mask of those faces' triangles, for texturing outside FreeCAD.
 
 ## Check
 
-`texture_check { body, path }` — the depth on each textured face, `leaked` (a face meant to stay plain that moved: fix the mask, texture again), `bare` (meant for texture, barely moved: the texture is finer than `refineLength`), and whether the mesh is closed. Only an `ok` goes to the slicer. A textured part is a mesh: slice it as it is.
+`texture_check { object }` — the Textured object `texture_apply` made, checked against its body with the mask it stores (no `texture_prepare` needed; `path` of its `texture_export` STL works too). For a file textured outside FreeCAD, `texture_check { body, path }` with `texture_prepare`'s mask. It answers the depth on each textured face, `leaked` (a face meant to stay plain that moved: fix the mask, texture again), `bare` (meant for texture, barely moved: the texture is finer than `refineLength`), and whether the mesh is closed. Only an `ok` goes to the slicer. A textured part is a mesh: slice it as it is.

@@ -127,7 +127,7 @@ the agent works. The list is generated from `texturizer/data/tools.json` by
 | `texture_apply` | texture | Add to document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |
 | `texture_export` | texture | Write a file: format stl or 3mf, or bumpmesh. |
 | `texture_prepare` | texture | A body made ready for a surface texture by BumpMesh: an STL written face by face from one mesh of the whole part, and a mask file of the triangles of … |
-| `texture_check` | texture | Check a textured STL against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep … |
+| `texture_check` | texture | Check a textured mesh against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep … |
 <!-- tools:end -->
 
 The texturing in every one of them is BumpMesh's engine, ported to Python.

@@ -84,20 +84,26 @@ def prepare(shape, faces, mode, tol, stl, label=""):
     return {"stl": stl, "triangles": len(tris), "mask": mask_path, "maskTriangles": len(mask), "mode": mode, "faces": want}
 
 
-def check(shape, path, mask_path, tol=0.02, reach=None, flat=0.01, label=""):
+def check(shape, path, mask, tol=0.02, reach=None, flat=0.01, label=""):
     """A textured STL measured against the body face by face: how deep the
     texture stands on the faces it was for, whether it leaked onto any
-    other, and whether the mesh stayed closed. Changes nothing."""
+    other, and whether the mesh stayed closed. Changes nothing. mask: the
+    -mask.json texture_prepare wrote, or a dict {faces, mode} or {textured}
+    (the faces meant for texture), with angles {bottom, top} (BumpMesh's
+    angle limits: a face they cover whole is to stay plain)."""
     import numpy as np
 
     if not path or not os.path.isfile(path):
         raise Refused(f"path {path!r}: the textured STL.", "not_found")
-    if not os.path.isfile(mask_path):
-        raise Refused(f"mask {mask_path!r}: the -mask.json texture_prepare wrote (give mask).", "not_found")
-    with open(mask_path, encoding="utf-8") as fh:
-        m = json.load(fh)
+    if isinstance(mask, dict):
+        m = mask
+    else:
+        if not os.path.isfile(mask):
+            raise Refused(f"mask {mask!r}: the -mask.json texture_prepare wrote (give mask), or give object: the Textured object texture_apply made.", "not_found")
+        with open(mask, encoding="utf-8") as fh:
+            m = json.load(fh)
     tris, per_face = face_triangles(shape, tol)
-    if len(tris) != m.get("stlTriangles"):
+    if m.get("stlTriangles") is not None and len(tris) != m.get("stlTriangles"):
         raise Refused(f"{label} tessellates to {len(tris)} triangles, the mask was made from {m.get('stlTriangles')}: the body changed since texture_prepare, or a different tolerance — give the one texture_prepare used.", "invalid_state")
     T = np.array(tris, float)
     Vb = T.reshape(-1, 3)
@@ -106,8 +112,24 @@ def check(shape, path, mask_path, tol=0.02, reach=None, flat=0.01, label=""):
     names = sorted(per_face, key=lambda k: per_face[k][0])
     for name in names:
         face_of[per_face[name][0]:per_face[name][1]] = name
-    listed = set(m.get("faces") or [])
-    textured = listed if m.get("mode", "include") == "include" else set(names) - listed
+    if m.get("textured") is not None:
+        textured = set(m["textured"])
+    else:
+        listed = set(m.get("faces") or [])
+        textured = listed if m.get("mode", "include") == "include" else set(names) - listed
+    angled = []
+    ang = m.get("angles") or {}
+    bal, tal = float(ang.get("bottom") or 0), float(ang.get("top") or 0)
+    if textured and (bal > 0 or tal > 0):
+        # BumpMesh's angle masks (index._angle_masked): a face they cover
+        # whole gets no texture.
+        n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+        ln = np.linalg.norm(n, axis=1)
+        nz = np.where(ln > 1e-12, n[:, 2] / np.where(ln > 1e-12, ln, 1), 0.0)
+        a = np.degrees(np.arccos(np.clip(np.abs(nz), 0, 1)))
+        off = np.where(nz < 0, (bal > 0) & (a <= bal), (tal > 0) & (a <= tal))
+        angled = sorted(f for f in textured if f in per_face and off[per_face[f][0]:per_face[f][1]].all())
+        textured -= set(angled)
     is_tex = np.array([f in textured for f in face_of])
     Tx = read_stl(path)
     if not len(Tx):
@@ -157,6 +179,8 @@ def check(shape, path, mask_path, tol=0.02, reach=None, flat=0.01, label=""):
         out["leaked"] = {"faces": leaked, "points": int(leak.sum()), "worst": round(float(np.abs(signed[leak]).max()), 3)}
     if bare:
         out["bare"] = sorted(bare)
+    if angled:
+        out["angleMasked"] = angled
     if (~found).any():
         out["far"] = {"points": int((~found).sum()), "reach": round(reach, 3), "note": "Farther than reach from the body: a texture deeper than reach (give reach), or the STL is not of this body."}
     if open_edges or bad_edges:
