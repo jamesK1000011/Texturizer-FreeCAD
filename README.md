@@ -148,6 +148,24 @@ and the `fam_*` module it loads import Agent Link, and only Agent Link loads
 them. Agent Link carries no cost for Texturizer when Texturizer is not
 installed.
 
+## Uninstall
+
+- **Addon Manager**: Tools ▸ Addon manager ▸ Texturizer ▸ Uninstall, then
+  restart FreeCAD.
+- **By hand, or installed through Agent Link**: delete the `Texturizer`
+  folder from FreeCAD's `Mod` folder, and restart FreeCAD.
+- Exports and `.bumpmesh` projects are yours to keep: they go where you
+  save them (or to `~/Texturizer` when an agent gives no folder). Export a
+  Textured object as STL or 3MF first if you want it without Texturizer.
+
+## Privacy
+
+Texturizer has no telemetry and makes no network connection: the texture
+library ships with it, and images you add are read from your own disk. Your
+part, its textures and exports stay on your computer. With Agent Link, what
+the agent reads goes to the AI provider your MCP client uses, under that
+provider's terms.
+
 ## Texture licences
 
 The texture library is BumpMesh's, as `texturizer/textures/LICENSES.md` lists
