@@ -495,6 +495,9 @@ class Window:
     def mesh_shown(self, n):
         if self.sidebar is not None:
             self.sidebar.say(f"Preview: {sidebar.format_m(n)} triangles")
+        if self.paint is not None:   # the CPU preview now tints the paint: the overlay steps aside
+            self.paint.stale = False
+            self.paint._draw_overlay()
 
     # -- what the tools ask of the window -----------------------------------------------------------
     def press(self, key):

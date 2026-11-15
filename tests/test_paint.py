@@ -341,6 +341,29 @@ class CoarseBody(unittest.TestCase):
                                                                 for L in d.layers]))
 
 
+    def test_the_overlay_carries_split_leaves_over_a_stale_preview(self):
+        """Brush on with the 3D Preview: the overlay draws the leaves with their
+        own paint as alpha (no grey body over the preview), while a stroke is
+        on and until the CPU preview is rebuilt with the paint."""
+        from texturizer import paintview
+
+        st = paint.apply_stroke(paint.State(paint.Surface(BOX)), box_drag(), paint.Brush(True, 10, 50))
+        P, a = paint.overlay(st)
+        self.assertGreater(len(P) // 3, BOX.size // 9)   # the leaves, not the 12 source triangles
+        rgba = np.asarray(paintview.overlay_rgba(a), np.int64)
+        np.testing.assert_array_equal(rgba & 0xFF, np.round(a * 255))   # alpha: the corner's paint
+        self.assertEqual(set((rgba >> 8).tolist()), {0xD96626})        # one colour, BumpMesh's orange
+        self.assertEqual(int(a.max()), 1)
+        shown = paintview.overlay_shown
+        self.assertTrue(shown(True, "cpu", True, False))      # mid-stroke, over the CPU preview
+        self.assertTrue(shown(False, "cpu", True, True))      # released: until the rerun shows the paint
+        self.assertTrue(shown(False, "quicklook", True, True))
+        self.assertFalse(shown(False, "cpu", True, False))    # the CPU preview tints it now
+        self.assertFalse(shown(False, "quicklook", False, True))   # the Quick look tints it at once
+        self.assertTrue(shown(False, "body", False, False))
+        self.assertTrue(shown(False, None, False, False))
+
+
 class SplitEngine(unittest.TestCase):
     """The Precision brush's split masks in the engine: flattened for an export
     (BumpMesh's _pipelineInputs), sampled per refined corner in the preview."""
