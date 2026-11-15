@@ -1,0 +1,42 @@
+# Texturizer for FreeCAD
+
+Surface textures for printed parts in FreeCAD, **based on BumpMesh by Stefan
+Hermann (CNC Kitchen)** — [CNCKitchen/stlTexturizer](https://github.com/CNCKitchen/stlTexturizer),
+AGPL-3.0. This add-on is licensed AGPL-3.0 to match.
+
+Not affiliated with or endorsed by the FreeCAD project, the FreeCAD Project
+Association, or CNC Kitchen.
+
+## What it does today
+
+- **Prepare a part for texturing:** the part written as one closed STL, face
+  by face, and a mask of exactly the faces to texture (`include`: only them,
+  a grip; `exclude`: all but them, a mating face kept plain).
+- **Check the textured result** against the part, face by face: how deep the
+  texture stands on each textured face, any face it leaked onto, faces meant
+  for texture that barely moved, and whether the mesh is still closed.
+
+The texturing itself runs in BumpMesh for now; bringing its engine into
+FreeCAD is this add-on's next step.
+
+## Installs alone
+
+Texturizer needs FreeCAD (1.0 or newer) and numpy, and no other add-on. Its
+API is `texturizer.mesh` (plain FreeCAD and numpy).
+
+## For agents
+
+When [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD)
+is installed beside it, agents get two tools (defined in
+`texturizer/data/tools.json`):
+
+| Tool | What it does |
+|---|---|
+| `texture_prepare` | A body as an STL plus a mask of the faces to texture; answers the BumpMesh call to make. |
+| `texture_check` | A textured STL checked against the body face by face; verdict `ok` or `check`. |
+
+## Licences
+
+Code: AGPL-3.0-only (`LICENSE`); `texturizer/meshdist.py` is a copy of Agent
+Link's, kept under its LGPL-2.1-or-later. Data files: CC BY 4.0
+(`LICENSE-DATA`).
