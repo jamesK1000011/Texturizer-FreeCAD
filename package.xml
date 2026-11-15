@@ -13,9 +13,11 @@
   <tag>texture</tag>
   <tag>mesh</tag>
   <content>
-    <other>
+    <workbench>
       <name>Texturizer</name>
+      <classname>TexturizerWorkbench</classname>
       <subdirectory>./</subdirectory>
-    </other>
+      <icon>texturizer/icons/Texturizer_Workbench.svg</icon>
+    </workbench>
   </content>
 </package>
