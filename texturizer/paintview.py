@@ -62,6 +62,23 @@ def hold_events(view, on):
             pass
 
 
+def _line(coin, vv, pt):
+    """The view volume's line through a normalised point: (origin, direction).
+    pivy wraps projectPointToLine as one argument, returning an SbLine or
+    the (near, far) points; the C++ form fills a line passed in."""
+    try:
+        got = vv.projectPointToLine(pt)
+    except TypeError:
+        got = coin.SbLine()
+        vv.projectPointToLine(pt, got)
+    if hasattr(got, "getPosition"):
+        return got.getPosition().getValue(), got.getDirection().getValue()
+    near, far = (tuple(p.getValue()) if hasattr(p, "getValue") else tuple(p) for p in got[:2])
+    d = [b - a for a, b in zip(near, far)]
+    n = sum(c * c for c in d) ** 0.5 or 1.0
+    return near, tuple(c / n for c in d)
+
+
 def _told(fn):
     """An event callback whose errors reach the Report view whole: pivy
     prints only the exception's class ("<class 'TypeError'>")."""
@@ -197,9 +214,7 @@ class PaintView:
         vv = cam.getViewVolume(a)
         if 0 < a < 1.0:  # a tall view: Coin widens the volume by 1 / aspect when it draws
             vv.scale(1.0 / a)
-        line = coin.SbLine()
-        vv.projectPointToLine(coin.SbVec2f(x / max(w, 1), y / max(h, 1)), line)
-        return line.getPosition().getValue(), line.getDirection().getValue()
+        return _line(coin, vv, coin.SbVec2f(x / max(w, 1), y / max(h, 1)))
 
     # -- drawing ----------------------------------------------------------------------------------
     def _graph(self):
