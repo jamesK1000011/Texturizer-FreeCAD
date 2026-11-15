@@ -1,0 +1,678 @@
+[
+ {
+  "name": "Armor",
+  "file": "armor.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Art Deco",
+  "file": "artDeco.png",
+  "category": "patterns",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Autumn",
+  "file": "hero-autumn.png",
+  "category": "patterns",
+  "defaultScale": 0.75,
+  "credit": "hero"
+ },
+ {
+  "name": "Aztec",
+  "file": "hero-aztec.png",
+  "category": "patterns",
+  "defaultScale": 0.5,
+  "credit": "hero"
+ },
+ {
+  "name": "Bamboo",
+  "file": "hero-bamboo.png",
+  "category": "patterns",
+  "defaultScale": 0.25,
+  "credit": "hero"
+ },
+ {
+  "name": "Bamboo Culms",
+  "file": "bambooCulms.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Bank Note",
+  "file": "hero-bank-note.png",
+  "category": "patterns",
+  "defaultScale": 0.8,
+  "credit": "hero"
+ },
+ {
+  "name": "Bark",
+  "file": "bark.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=Bark001"
+ },
+ {
+  "name": "Basket 2",
+  "file": "basket_02.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Brick 2",
+  "file": "brick_02.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Brushed",
+  "file": "brushed.png",
+  "category": "mold",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Bubbles",
+  "file": "hero-bubbles.png",
+  "category": "patterns",
+  "defaultScale": 0.8,
+  "credit": "hero"
+ },
+ {
+  "name": "Cage",
+  "file": "hero-cage.png",
+  "category": "geometric",
+  "defaultScale": 0.25,
+  "credit": "hero"
+ },
+ {
+  "name": "Carbon Fiber",
+  "file": "carbonFiber.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Carbon Twill",
+  "file": "carbonTwill.png",
+  "category": "fabric",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Chainmail",
+  "file": "chainmail.png",
+  "category": "fabric",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Chevron",
+  "file": "chevron.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Circles",
+  "file": "circles.png",
+  "category": "geometric",
+  "defaultScale": 0.35,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Classic Flutes",
+  "file": "flutes.png",
+  "category": "geometric",
+  "defaultScale": 0.35,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Cobblestone",
+  "file": "cobblestone.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Concrete",
+  "file": "concrete.png",
+  "category": "mold",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Connections",
+  "file": "hero-connections.png",
+  "category": "patterns",
+  "defaultScale": 0.3,
+  "credit": "hero"
+ },
+ {
+  "name": "Cubes",
+  "file": "cubes.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Current",
+  "file": "hero-current.png",
+  "category": "patterns",
+  "defaultScale": 0.6,
+  "credit": "hero"
+ },
+ {
+  "name": "Curtain",
+  "file": "hero-curtain.png",
+  "category": "patterns",
+  "defaultScale": 0.4,
+  "credit": "hero"
+ },
+ {
+  "name": "Death Star",
+  "file": "hero-death-star.png",
+  "category": "patterns",
+  "defaultScale": 1,
+  "credit": "hero"
+ },
+ {
+  "name": "Dots",
+  "file": "dots.png",
+  "category": "geometric",
+  "defaultScale": 0.1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Endless Clouds",
+  "file": "hero-endless-clouds.png",
+  "category": "patterns",
+  "defaultScale": 0.45,
+  "credit": "hero"
+ },
+ {
+  "name": "Eyes",
+  "file": "hero-eyes.png",
+  "category": "patterns",
+  "defaultScale": 0.3,
+  "credit": "hero"
+ },
+ {
+  "name": "Falling Triangles",
+  "file": "hero-falling-triangles.png",
+  "category": "geometric",
+  "defaultScale": 0.55,
+  "credit": "hero"
+ },
+ {
+  "name": "Fine Leather",
+  "file": "fineLeather.png",
+  "category": "mold",
+  "defaultScale": 0.6,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Fine Ribs",
+  "file": "fineRibs.png",
+  "category": "geometric",
+  "defaultScale": 0.35,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Fine Stipple",
+  "file": "fineStipple.png",
+  "category": "mold",
+  "defaultScale": 0.6,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Fish Scales",
+  "file": "fishScales.png",
+  "category": "natural",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Flagstone",
+  "file": "flagstone.png",
+  "category": "natural",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Flipped Diamonds",
+  "file": "hero-flipped-diamonds.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "hero"
+ },
+ {
+  "name": "Floating Cogs",
+  "file": "hero-floating-cogs.png",
+  "category": "patterns",
+  "defaultScale": 1,
+  "credit": "hero"
+ },
+ {
+  "name": "Formal Invitation",
+  "file": "hero-formal-invitation.png",
+  "category": "patterns",
+  "defaultScale": 0.85,
+  "credit": "hero"
+ },
+ {
+  "name": "Four Point Stars",
+  "file": "hero-four-point-stars.png",
+  "category": "geometric",
+  "defaultScale": 0.2,
+  "credit": "hero"
+ },
+ {
+  "name": "Grid",
+  "file": "grid.png",
+  "category": "geometric",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Grip Surface",
+  "file": "gripSurface.png",
+  "category": "grip",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Groovy",
+  "file": "hero-groovy.png",
+  "category": "patterns",
+  "defaultScale": 0.6,
+  "credit": "hero"
+ },
+ {
+  "name": "Haircell",
+  "file": "haircell.png",
+  "category": "mold",
+  "defaultScale": 0.6,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Hammered",
+  "file": "hammered.png",
+  "category": "mold",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Happy Intersection",
+  "file": "hero-happy-intersection.png",
+  "category": "patterns",
+  "defaultScale": 0.7,
+  "credit": "hero"
+ },
+ {
+  "name": "Hexagon",
+  "file": "hexagon.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Hexagon Outline",
+  "file": "hero-hexagons.png",
+  "category": "geometric",
+  "defaultScale": 0.45,
+  "credit": "hero"
+ },
+ {
+  "name": "Hexagons",
+  "file": "hexagons.png",
+  "category": "geometric",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Intersecting Circles",
+  "file": "hero-intersecting-circles.png",
+  "category": "geometric",
+  "defaultScale": 0.25,
+  "credit": "hero"
+ },
+ {
+  "name": "Isogrid",
+  "file": "isogrid.png",
+  "category": "grip",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Knitting",
+  "file": "knitting.png",
+  "category": "fabric",
+  "defaultScale": 0.25,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Knurling",
+  "file": "knurling.png",
+  "category": "grip",
+  "defaultScale": 0.15,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Labyrinth",
+  "file": "labyrinth.png",
+  "category": "organic",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Leaves",
+  "file": "leaves.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=ScatteredLeaves007"
+ },
+ {
+  "name": "Lips",
+  "file": "hero-lips.png",
+  "category": "patterns",
+  "defaultScale": 0.9,
+  "credit": "hero"
+ },
+ {
+  "name": "Lisbon",
+  "file": "hero-lisbon.png",
+  "category": "patterns",
+  "defaultScale": 0.6,
+  "credit": "hero"
+ },
+ {
+  "name": "Loader Tire",
+  "file": "tireLoader.png",
+  "category": "tires",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Melt",
+  "file": "hero-melt.png",
+  "category": "patterns",
+  "defaultScale": 0.2,
+  "credit": "hero"
+ },
+ {
+  "name": "Mud-Terrain Tire",
+  "file": "tireMudTerrain.png",
+  "category": "tires",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Noise",
+  "file": "noise.png",
+  "category": "organic",
+  "defaultScale": 0.3,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Pine Bark",
+  "file": "pineBark.png",
+  "category": "natural",
+  "defaultScale": 0.75,
+  "credit": "cc0",
+  "source": "https://polyhaven.com/a/pine_bark"
+ },
+ {
+  "name": "Plain Weave",
+  "file": "plainWeave.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Plus",
+  "file": "plus.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Rain",
+  "file": "hero-rain.png",
+  "category": "geometric",
+  "defaultScale": 0.4,
+  "credit": "hero"
+ },
+ {
+  "name": "Roof Tiles",
+  "file": "roofTiles.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=RoofingTiles002"
+ },
+ {
+  "name": "Roof Tiles 2",
+  "file": "roofTiles_02.png",
+  "category": "natural",
+  "defaultScale": 0.75,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=RoofingTiles004"
+ },
+ {
+  "name": "Sand Matte",
+  "file": "sandMatte.png",
+  "category": "mold",
+  "defaultScale": 0.75,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Sazanami Ripples",
+  "file": "sazanami.png",
+  "category": "organic",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Sazanami S-Wave",
+  "file": "sazanamiSWave.png",
+  "category": "organic",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Shingles",
+  "file": "shingles.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=RoofingTiles001"
+ },
+ {
+  "name": "Signal",
+  "file": "hero-signal.png",
+  "category": "geometric",
+  "defaultScale": 0.75,
+  "credit": "hero"
+ },
+ {
+  "name": "Spark Erosion",
+  "file": "sparkErosion.png",
+  "category": "mold",
+  "defaultScale": 0.6,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Speckle",
+  "file": "hero-texture.png",
+  "category": "geometric",
+  "defaultScale": 0.1,
+  "credit": "hero"
+ },
+ {
+  "name": "Square Setts",
+  "file": "setts.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Straw",
+  "file": "straw.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://polyhaven.com/a/thatch_roof_angled"
+ },
+ {
+  "name": "Stripes 1",
+  "file": "stripes.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Stripes 2",
+  "file": "stripes_02.png",
+  "category": "geometric",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Tachiwaki",
+  "file": "tachiwaki.png",
+  "category": "patterns",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Tiles",
+  "file": "tiles.png",
+  "category": "geometric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Tiny Checkers",
+  "file": "hero-tiny-checkers.png",
+  "category": "geometric",
+  "defaultScale": 0.1,
+  "credit": "hero"
+ },
+ {
+  "name": "Touring Tire",
+  "file": "tireTouring.png",
+  "category": "tires",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Tractor Tire",
+  "file": "tireTractor.png",
+  "category": "tires",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Truck Rib Tire",
+  "file": "tireTruckRib.png",
+  "category": "tires",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Twill",
+  "file": "twill.png",
+  "category": "fabric",
+  "defaultScale": 0.75,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=Fabric004"
+ },
+ {
+  "name": "Twill 2",
+  "file": "twill_02.png",
+  "category": "fabric",
+  "defaultScale": 1,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=Fabric015"
+ },
+ {
+  "name": "Voronoi",
+  "file": "voronoi.png",
+  "category": "organic",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Wavy Reeds",
+  "file": "wavyReeds.png",
+  "category": "geometric",
+  "defaultScale": 0.4,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Weave 1",
+  "file": "weave.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Weave 2",
+  "file": "weave_02.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Wicker",
+  "file": "wicker.png",
+  "category": "fabric",
+  "defaultScale": 1,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=Wicker001"
+ },
+ {
+  "name": "Wicker 2",
+  "file": "wicker_02.png",
+  "category": "fabric",
+  "defaultScale": 0.5,
+  "credit": "cc0",
+  "source": "https://ambientcg.com/view?id=Wicker009A"
+ },
+ {
+  "name": "Wood 1",
+  "file": "wood.png",
+  "category": "natural",
+  "defaultScale": 0.5,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Wood 2",
+  "file": "woodgrain_02.png",
+  "category": "natural",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "Wood 3",
+  "file": "woodgrain_03.png",
+  "category": "natural",
+  "defaultScale": 1,
+  "credit": "cnckitchen"
+ },
+ {
+  "name": "YYY",
+  "file": "hero-yyy.png",
+  "category": "patterns",
+  "defaultScale": 1,
+  "credit": "hero"
+ }
+]
