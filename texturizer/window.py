@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from . import gizmoview, handlers, live, paintview, panel, preview, quicklook, sidebar
+from . import gizmoview, handlers, live, paint, paintview, panel, preview, quicklook, sidebar
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
@@ -95,26 +95,46 @@ def quicklook_mesh(positions, face_triangles):
     return pts, tri, nrm
 
 
+def quicklook_split(positions, face_triangles, layers):
+    """When the Precision brush split triangles in one of layers, the Quick
+    look draws the tree's leaves, as BumpMesh draws its flattened PaintTree:
+    a band finer than a source triangle cannot show on the source's corners.
+    (positions, face_triangles on them, layers with per-corner paint), or None."""
+    from .engine import _resolve_masks
+
+    got = paint.flatten_masks(positions, _resolve_masks([dict(L, visible=True) for L in layers], face_triangles))
+    if got is None:
+        return None
+    pos, out, parent = got
+    ft = {f: np.nonzero(np.isin(parent, np.asarray(ts, np.int64)))[0].tolist() for f, ts in (face_triangles or {}).items()}
+    return pos, ft, out
+
+
 def layer_weights(n_tri, tri, n_pts, layers, face_triangles):
     """(N, 4) per-vertex weights, one column per layer slot (0..1): 1 where
     the layer's mask lets the texture through (Exclude: not masked; Include
-    Only: masked)."""
+    Only: masked). A mask may be per-corner paint ({mode, paint}, quicklook_split)."""
     W = np.zeros((n_pts, 4), np.float32)
     for k, L in enumerate(layers[:4]):
         m = L.get("mask") or {}
-        hit = np.zeros(n_tri, bool)
-        idx = [int(t) for t in m.get("triangles") or []]
-        for f in m.get("faces") or []:
-            idx.extend(int(t) for t in (face_triangles or {}).get(f, []))
-        if idx:
-            hit[np.asarray(idx, np.int64)] = True
-        p = np.repeat(hit, 3).astype(np.float32)
-        soft = m.get("soft")
-        if soft:  # the soft brush's coverage per corner
-            sc = np.asarray(soft["corners"], np.int64)
-            ok = sc < n_tri * 3
-            np.maximum.at(p, sc[ok], np.asarray(soft["values"], np.float32)[ok])
-        on = p if L.get("includeOnly") else 1 - p
+        include = L.get("includeOnly")
+        if m.get("paint") is not None:
+            p = np.asarray(m["paint"], np.float32).reshape(-1)
+            include = m.get("mode") == "include"
+        else:
+            hit = np.zeros(n_tri, bool)
+            idx = [int(t) for t in m.get("triangles") or []]
+            for f in m.get("faces") or []:
+                idx.extend(int(t) for t in (face_triangles or {}).get(f, []))
+            if idx:
+                hit[np.asarray(idx, np.int64)] = True
+            p = np.repeat(hit, 3).astype(np.float32)
+            soft = m.get("soft")
+            if soft:  # the soft brush's coverage per corner
+                sc = np.asarray(soft["corners"], np.int64)
+                ok = sc < n_tri * 3
+                np.maximum.at(p, sc[ok], np.asarray(soft["values"], np.float32)[ok])
+        on = p if include else 1 - p
         col = np.zeros(n_pts, np.float32)
         np.maximum.at(col, tri.reshape(-1), on)
         W[:, k] = col
@@ -130,7 +150,7 @@ class CoinView:
         self.cpu = None
         self.face_parent = None  # the CPU preview's source triangle per drawn face (the brush's pick)
         self.ql = None
-        self._ql_part = None
+        self._ql_part = self._ql_key = None
         self._view = None
         self._maps, self._sizes = {}, {}
 
@@ -221,14 +241,19 @@ class CoinView:
             self.ql = quicklook.QuickLook()
             g.addChild(self.ql.root)
         if self._ql_part != (part, id(pos)):
-            pts, tri, nrm = quicklook_mesh(pos, ft)
-            self._ql = (pts, tri, nrm)
-            self.ql.set_mesh(pts, tri, nrm)
-            self._ql_part = (part, id(pos))
-            self._maps = {}
-        pts, tri, nrm = self._ql
+            self._ql_part, self._ql_key, self._maps = (part, id(pos)), None, {}
         layers = d.layers
         slots = quicklook.layer_slots(layers, d.active)
+        shown = [layers[i] for i, _ in slots]
+        split = any((L.get("mask") or {}).get("split") for L in shown)
+        key = repr([(L.get("mask"), L.get("includeOnly")) for L in shown]) if split else None
+        if self._ql_key != (key,):   # the mesh: the part's, or the Precision brush's leaves
+            got = quicklook_split(pos, ft, shown) if split else None
+            pts, tri, nrm = quicklook_mesh(*(got[:2] if got else (pos, ft)))
+            self._ql = (pts, tri, nrm, got[2] if got else None)
+            self.ql.set_mesh(pts, tri, nrm)
+            self._ql_key = (key,)
+        pts, tri, nrm, flat = self._ql
         sizes = {}
         for k, (i, _shown) in enumerate(slots):
             L = layers[i]
@@ -241,7 +266,7 @@ class CoinView:
                 self._maps[k] = key
                 self._sizes[k] = (img.width, img.height)
             sizes[i] = self._sizes.get(k)
-        self.ql.set_weights(layer_weights(len(tri), tri, len(pts), [layers[i] for i, _ in slots], ft))
+        self.ql.set_weights(layer_weights(len(tri), tri, len(pts), flat or shown, None if flat else ft))
         rot = d.frame.get("rotation") or [0, 0, 0]
         frame = {"rotation": rot, "bounds": quicklook.frame_bounds(pts, {"rotation": rot})}
         self.ql.set_uniforms(quicklook.uniforms_from_layers(layers, frame, d.active, sizes))
