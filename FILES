@@ -28,6 +28,8 @@ tests/test_quicklook.py
 tests/test_release.py
 tests/test_sidebar.py
 tests/test_texture.py
+tests/test_theme_loop.py
+tests/test_tooltips.py
 tests/test_wiring.py
 tests/tools/bm_hooks.mjs
 tests/tools/bm_js.mjs
