@@ -65,7 +65,7 @@ def refresh():
 def summary(check):
     """A check answer as short lines for the panel (pure: tested)."""
     if not check:
-        return ["No check yet: texture the part (texture_apply), export an STL, then Check textured mesh."]
+        return ["No check yet: texture the part (Add to Document in the sidebar), export an STL, then Check Textured Mesh."]
     lines = [f"{check.get('verdict', '?').upper()} — {os.path.basename(check.get('file') or '')} on {check.get('body', '')}, {check.get('depth', 0)} mm deep at most"]
     for face, row in sorted((check.get("texturedFaces") or {}).items()):
         lines.append(f"  {face}: {int(round(row.get('moved', 0) * 100))}% moved" + (f", p95 {row['p95']} mm" if "p95" in row else ""))
@@ -81,9 +81,9 @@ def summary(check):
 
 
 def applied_line(out):
-    """The last texture_apply answer in one line (pure: tested)."""
+    """The last Add to Document result in one line (pure: tested)."""
     if not out:
-        return "Nothing textured yet: the sidebar's Add to document makes a Textured object."
+        return "Nothing textured yet: Add to Document in the sidebar makes a Textured object."
     verb = "Updated" if out.get("updated") else "Made"
     return f"{verb} {out.get('label')} from {out.get('body')}: {out.get('triangles', 0):,} triangles" + (
         f", {len(out['warnings'])} warning(s)" if out.get("warnings") else "")
@@ -97,7 +97,7 @@ if QtWidgets is not None:
             self.setObjectName(NAME)
             self._call = call
             lay = QtWidgets.QVBoxLayout(self)
-            head = QtWidgets.QLabel("Prepared for texture")
+            head = QtWidgets.QLabel("Prepared for Texture")
             head.setProperty("role", "title")
             lay.addWidget(head)
             self.prepared = QtWidgets.QTreeWidget()
@@ -105,13 +105,13 @@ if QtWidgets is not None:
             self.prepared.setRootIsDecorated(False)
             self.prepared.itemDoubleClicked.connect(self._reveal)
             lay.addWidget(self.prepared)
-            head3 = QtWidgets.QLabel("Last result")
+            head3 = QtWidgets.QLabel("Last Result")
             head3.setProperty("role", "title")
             lay.addWidget(head3)
             self.applied = QtWidgets.QLabel()
             self.applied.setWordWrap(True)
             lay.addWidget(self.applied)
-            head2 = QtWidgets.QLabel("Last check")
+            head2 = QtWidgets.QLabel("Last Check")
             head2.setProperty("role", "title")
             lay.addWidget(head2)
             self.check = QtWidgets.QLabel()
@@ -119,12 +119,12 @@ if QtWidgets is not None:
             self.check.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             lay.addWidget(self.check)
             row = QtWidgets.QHBoxLayout()
-            side = QtWidgets.QPushButton("Open Texturizer sidebar")
-            side.setToolTip("The settings sidebar and the Texture Gallery, laid out as BumpMesh. " + CREDIT)
+            side = QtWidgets.QPushButton("Open Settings Sidebar")
+            side.setToolTip("Open the settings sidebar and the Texture Gallery.")
             side.clicked.connect(self._sidebar)
             lay.addWidget(side)
-            for text, tip, slot in (("Prepare…", "Prepare the selected faces for a texture. " + CREDIT, self._prepare),
-                                    ("Check…", "Check a textured STL against its body. " + CREDIT, self._check)):
+            for text, tip, slot in (("Prepare…", "Prepare the selected faces for a texture.", self._prepare),
+                                    ("Check…", "Check a textured STL against its body.", self._check)):
                 b = QtWidgets.QPushButton(text)
                 b.setToolTip(tip)
                 b.clicked.connect(slot)

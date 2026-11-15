@@ -15,7 +15,7 @@ badge, Favourites) need no Qt.
 import json
 import os
 
-from . import controls
+from . import controls, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -424,7 +424,7 @@ if QtWidgets is not None:
             self.fav_count = QtWidgets.QLabel()
             status.addWidget(self.fav_count)
             status.addStretch(1)
-            self.fav_reset = QtWidgets.QPushButton(S("gallery.resetFavourites"))
+            self.fav_reset = QtWidgets.QPushButton(title_case(S("gallery.resetFavourites")))
             self.fav_reset.clicked.connect(lambda *_: self.reset_favourites())
             status.addWidget(self.fav_reset)
             v.addLayout(status)

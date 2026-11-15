@@ -246,7 +246,7 @@ class Workbench(unittest.TestCase):
         self.assertEqual(out["toolbars"], [["Texturizer", header], ["View", commands.VIEW_TOOLBAR],
                                            ["Check", [commands.PREPARE, commands.CHECK]]])
         self.assertEqual([out["commands"][n]["MenuText"] for n in header],
-                         ["Undo", "Redo", "Reset to defaults", "Save Project", "Load Project", "Texture Gallery", "Export STL", "Export 3MF"])
+                         ["Undo", "Redo", "Reset to Defaults", "Save Project", "Load Project", "Texture Gallery", "Export STL", "Export 3MF"])
         self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Wireframe", "Perspective View", "Section View"])
         self.assertIn("Texturizer_About", out["menus"][0][1])
         self.assertEqual(out["menus"][0][1][0], commands.TEXTURE)
@@ -254,15 +254,135 @@ class Workbench(unittest.TestCase):
         for name, res in out["commands"].items():  # every command's Pixmap resolves
             pix = res["Pixmap"]
             self.assertTrue(os.path.isfile(os.path.join(PKG, "icons", pix + ".svg")) or pix in FREECAD_ICONS, pix)
-            if name not in [commands.PANEL] + commands.VIEW_TOOLBAR:
-                self.assertIn("Stefan Hermann (CNC Kitchen)", res["ToolTip"], name)
+            # A tooltip says what the command does; the credit is in About,
+            # the sidebar's footer and the workbench's tooltip (macOS cut the
+            # long ones short).
+            self.assertNotIn("Stefan Hermann", res["ToolTip"], name)
+            self.assertLessEqual(len(res["ToolTip"]), 160, name)
+            self.assertEqual(res["MenuText"], texturizer.title_case(res["MenuText"]), name)
         self.assertEqual(out["agentlink"], [])
         self.assertEqual((out["sidebar"], out["about"]), ([True], "About Texturizer"))
         self.assertEqual(out["tip"], "Surface textures for printed parts. " + texturizer.CREDIT)
+        self.assertEqual(out["commands"][commands.ADD]["MenuText"], "Add to Document")
 
     def test_about_credit(self):
-        self.assertIn("Based on BumpMesh by Stefan Hermann (CNC Kitchen)", texturizer.about())
-        self.assertIn("AGPL-3.0-only", texturizer.about())
+        text = texturizer.about()
+        self.assertTrue(text.startswith("Texturizer for FreeCAD\nVersion " + texturizer.VERSION + "\nLicence: AGPL-3.0"))
+        self.assertIn("Based on BumpMesh by Stefan Hermann (CNC Kitchen), github.com/CNCKitchen/stlTexturizer", text)
+        html = texturizer.about_html()
+        self.assertIn("Based on BumpMesh by Stefan Hermann (CNC Kitchen), <a href=\"https://github.com/CNCKitchen/stlTexturizer\">", html)
+        self.assertIn(texturizer.VERSION, html)
+        self.assertIn("AGPL-3.0", html)
+
+    def test_about_and_sidebar_keep_their_menu_place(self):
+        # macOS's text heuristic moved "About Texturizer" (and would move
+        # "Settings Sidebar") into the application menu: both get no role.
+        from texturizer import workbench
+
+        class A:
+            def __init__(self, name):
+                self.name, self.role = name, None
+
+            def objectName(self):  # noqa: N802
+                return self.name
+
+            def setMenuRole(self, r):  # noqa: N802
+                self.role = r
+
+        acts = [A("Texturizer_About"), A("Texturizer_Texture"), A("Std_About"), A("Std_DlgPreferences")]
+        self.assertEqual(workbench.plain_menu_roles(acts, 0), 2)
+        self.assertEqual([a.role for a in acts], [0, 0, None, None])
+
+    def test_section_toggles_and_keeps_the_window_size(self):
+        # Found live: Section View didn't close the Clipping dock when run
+        # again, and opening it grew the main window from 2082 to 2256 px.
+        class Size(tuple):
+            pass
+
+        class Dock:
+            def __init__(self, name, area=1):
+                self.name, self.area, self.visible, self.closed = name, area, True, False
+
+            def objectName(self):  # noqa: N802
+                return self.name
+
+            def isVisible(self):  # noqa: N802
+                return self.visible
+
+            def isFloating(self):  # noqa: N802
+                return False
+
+            def widget(self):
+                return self
+
+            def reject(self):
+                self.closed, self.visible = True, False
+
+            def show(self):
+                self.visible = True
+
+            def raise_(self):
+                pass
+
+        class MW:
+            def __init__(self):
+                self.docks = [Dock("Combo View"), Dock("TexturizerSidebar", 2)]
+                self.h, self.tabbed = 2082, []
+
+            def size(self):
+                return Size((1600, self.h))
+
+            def resize(self, s):
+                self.h = s[1]
+
+            def isMaximized(self):  # noqa: N802
+                return False
+
+            def isFullScreen(self):  # noqa: N802
+                return False
+
+            def findChildren(self, _t):  # noqa: N802
+                return list(self.docks)
+
+            def dockWidgetArea(self, d):  # noqa: N802
+                return d.area
+
+            def tabifyDockWidget(self, a, b):  # noqa: N802
+                self.tabbed.append((a.name, b.name))
+
+        mw = MW()
+        find = lambda m: next((d for d in m.docks if d.name == "Clipping"), None)  # noqa: E731
+        later = []
+
+        def run():  # Std_ToggleClipPlane: a Clipping dock on the left, the window taller
+            mw.docks.append(Dock("Clipping"))
+            mw.h = 2256
+
+        self.assertTrue(commands.toggle_section(mw, run, find=find, later=later.append))
+        self.assertEqual(mw.tabbed, [("Combo View", "Clipping")])  # tabbed in FreeCAD's area, not stacked
+        self.assertEqual(mw.h, 2082)
+        mw.h = 2256
+        later[0]()  # once the layout settles, too
+        self.assertEqual(mw.h, 2082)
+        ran = []
+        self.assertFalse(commands.toggle_section(mw, lambda: ran.append(1), find=find, later=later.append))
+        self.assertTrue(find(mw).closed)  # its own Close
+        self.assertEqual(ran, [])
+
+    def test_panel_names_no_tools(self):
+        self.assertNotIn("texture_apply", panel.summary(None)[0])
+        self.assertIn("Add to Document", panel.summary(None)[0])
+        self.assertIn("Add to Document", panel.applied_line(None))
+
+    def test_title_case(self):
+        t = texturizer.title_case
+        self.assertEqual(t("Reset to defaults"), "Reset to Defaults")
+        self.assertEqual(t("Add to document"), "Add to Document")
+        self.assertEqual(t("Suggest values (change to taste)"), "Suggest Values (Change to Taste)")
+        self.assertEqual(t("Auto-fit"), "Auto-Fit")
+        self.assertEqual(t("Export 3MF"), "Export 3MF")
+        self.assertEqual(t("Advanced / Beta Features ⓘ"), "Advanced / Beta Features ⓘ")
+        self.assertEqual(t("Load Model…"), "Load Model…")
 
 
 class Theme(unittest.TestCase):

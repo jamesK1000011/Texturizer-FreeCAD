@@ -7,7 +7,7 @@
 """The "Texturizer" settings sidebar: a right-hand QDockWidget built from
 controls.py, BumpMesh's sections in BumpMesh's order:
 
-    (top row) Undo, Redo, Reset to defaults, Save Project, Load Project
+    (top row) Undo, Redo, Reset to Defaults, Save Project, Load Project
     1 (untitled) Load Model…, Place on Face, Rotate
     2 Displacement Map   3 Projection   4 Texture Depth   5 Transform
     6 Masking            7 Advanced / Beta Features (collapsed)   8 Export
@@ -22,7 +22,7 @@ own alone; the sidebar doesn't care which (ACTIONS lists what it asks).
 """
 import math
 
-from . import controls, gallery
+from . import controls, gallery, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -52,7 +52,8 @@ ACTIONS = {
     "loadProject": ("texture_draft", {"project": "ask"}),
     "cancel": ("texture_preview", {"cancel": True}),
 }
-ADD_BY = [("direction", "Facing direction"), ("box", "In box"), ("surface", "Same surface")]
+ADD_BY = [("direction", "Facing Direction"), ("box", "In Box"), ("surface", "Same Surface")]
+FLOW_SPACING = 6
 
 
 # -- plain helpers (no Qt) ------------------------------------------------------
@@ -144,7 +145,98 @@ def min_dock_width(content, scrollbar, frame=0):
     return int(content) + int(scrollbar) + 2 * int(frame)
 
 
+def content_width(dock, scrollbar, frame=0):
+    """The width the content gets in a dock this wide: the viewport, that
+    is the dock less the vertical scrollbar and the frame."""
+    return max(0, int(dock) - int(scrollbar) - 2 * int(frame))
+
+
+def flow_rows(widths, avail, spacing=FLOW_SPACING):
+    """Item indices in rows no wider than avail, in order: a row of buttons
+    wraps instead of running under the scrollbar. An item wider than avail
+    gets a row of its own (and is shrunk to avail by the layout)."""
+    rows, cur, x = [], [], 0
+    for i, w in enumerate(widths):
+        w = int(w)
+        need = w if not cur else x + spacing + w
+        if cur and need > avail:
+            rows.append(cur)
+            cur, x = [i], w
+        else:
+            cur.append(i)
+            x = need
+    if cur:
+        rows.append(cur)
+    return rows
+
+
 if QtWidgets is not None:
+
+    class FlowLayout(QtWidgets.QLayout):
+        """Widgets left to right at their own width, wrapping to a new line
+        when the next one would not fit (flow_rows): its minimum width is its
+        widest item's, so a row of buttons never pushes the sidebar wider
+        than its dock."""
+
+        def __init__(self, parent=None, spacing=FLOW_SPACING):
+            super().__init__(parent)
+            self._items = []
+            self._gap = spacing
+            self.setContentsMargins(0, 0, 0, 0)
+
+        def addItem(self, item):  # noqa: N802 (Qt)
+            self._items.append(item)
+
+        def count(self):
+            return len(self._items)
+
+        def itemAt(self, i):  # noqa: N802
+            return self._items[i] if 0 <= i < len(self._items) else None
+
+        def takeAt(self, i):  # noqa: N802
+            return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+        def hasHeightForWidth(self):  # noqa: N802
+            return True
+
+        def heightForWidth(self, width):  # noqa: N802
+            return self.arrange(0, 0, width, apply=False)
+
+        def setGeometry(self, rect):  # noqa: N802
+            super().setGeometry(rect)
+            self.arrange(rect.x(), rect.y(), rect.width())
+
+        def _shown(self):
+            return [it for it in self._items if not it.isEmpty()]
+
+        def minimumSize(self):  # noqa: N802
+            w = h = 0
+            for it in self._shown():
+                m = it.minimumSize()
+                w, h = max(w, m.width()), max(h, m.height())
+            return QtCore.QSize(w, h)
+
+        def sizeHint(self):  # noqa: N802
+            items = self._shown()
+            w = sum(it.sizeHint().width() for it in items) + self._gap * max(0, len(items) - 1)
+            h = max([it.sizeHint().height() for it in items] or [0])
+            return QtCore.QSize(w, h)
+
+        def arrange(self, x0, y0, width, apply=True):
+            """Lay the items out in width from (x0, y0); the height used."""
+            items = self._shown()
+            sizes = [it.sizeHint() for it in items]
+            widths = [max(it.minimumSize().width(), min(sz.width(), width)) for it, sz in zip(items, sizes)]
+            y = 0
+            for row in flow_rows(widths, width, self._gap):
+                hh = max(sizes[i].height() for i in row)
+                x = 0
+                for i in row:
+                    if apply:
+                        items[i].setGeometry(QtCore.QRect(x0 + x, y0 + y, widths[i], sizes[i].height()))
+                    x += widths[i] + self._gap
+                y += hh + self._gap
+            return max(0, y - self._gap)
 
     class _Bind:
         """One control's widgets: row (shown or hidden), set(value) from the
@@ -173,7 +265,7 @@ if QtWidgets is not None:
             self.head = None
             if s["title"]:
                 self.head = QtWidgets.QToolButton()
-                self.head.setText(s["title"])
+                self.head.setText(title_case(s["title"]))  # a group title: Title Case
                 self.head.setCheckable(True)
                 self.head.setChecked(not s["collapsed"])
                 self.head.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
@@ -215,7 +307,7 @@ if QtWidgets is not None:
             self.list = QtWidgets.QVBoxLayout()
             v.addLayout(self.list)
             c = controls.BY_KEY["addLayer"]
-            self.add = QtWidgets.QPushButton(c["label"])
+            self.add = QtWidgets.QPushButton(title_case(c["label"]))
             self.add.setObjectName("btn_addLayer")
             b = sidebar._register(_Bind(c, self.add))
             b.widgets = [self.add]
@@ -237,8 +329,7 @@ if QtWidgets is not None:
             for i, L in enumerate(d.layers):
                 row = QtWidgets.QWidget()
                 row.setObjectName(f"layer_{i}")
-                h = QtWidgets.QHBoxLayout(row)
-                h.setContentsMargins(0, 0, 0, 0)
+                h = FlowLayout(row)  # wraps in a narrow dock: Remove never under the scrollbar
                 eye = QtWidgets.QToolButton()
                 eye.setCheckable(True)
                 eye.setChecked(L["visible"])
@@ -260,11 +351,10 @@ if QtWidgets is not None:
                 f.setBold(i == d.active)
                 name.setFont(f)
                 name.setToolTip(S("layers.rowTitle", n=i + 1))
-                # The row gives the name what is left; "Layer n" always fits.
-                name.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+                # "Layer n" always fits; the row wraps rather than clip the rest.
                 name.setMinimumWidth(name.fontMetrics().horizontalAdvance(S("layers.name", n=len(d.layers))) + 16)
                 name.clicked.connect(lambda *_, i=i: d.set_active(i))
-                h.addWidget(name, 1)
+                h.addWidget(name)
                 solo = QtWidgets.QToolButton()
                 solo.setText("S")
                 solo.setCheckable(True)
@@ -297,6 +387,8 @@ if QtWidgets is not None:
             full = len(d.layers) >= controls.MAX_LAYERS
             self.add.setEnabled(not full)
             self.add.setToolTip(S("layers.max", n=controls.MAX_LAYERS) if full else S("layers.addTitle"))
+            if getattr(self.sb, "scroll", None) is not None:
+                self.sb.fit_width()
 
     class Sidebar(QtWidgets.QDockWidget):
         def __init__(self, draft, runner=None, list_textures=None, favourites=None, open_gallery=None,
@@ -343,11 +435,24 @@ if QtWidgets is not None:
 
         def fit_width(self):
             """The dock's minimum width: the content's minimum plus the
-            vertical scrollbar and the frame."""
-            bar = self.scroll.verticalScrollBar().sizeHint().width()
+            vertical scrollbar (counted whether shown yet or not, as it
+            appears once the sections outgrow the dock) and the frame.
+            Button rows wrap (FlowLayout), so the content's minimum is its
+            widest single control. Run again once shown: the theme's
+            stylesheet makes buttons wider than they were when built."""
+            sb = self.scroll.verticalScrollBar()
+            bar = sb.sizeHint().width()
+            try:
+                bar = max(bar, sb.style().pixelMetric(QtWidgets.QStyle.PM_ScrollBarExtent, None, sb))
+            except (AttributeError, TypeError):
+                pass
             w = min_dock_width(self.body.minimumSizeHint().width(), bar, self.scroll.frameWidth())
             self.scroll.setMinimumWidth(w)
             return w
+
+        def showEvent(self, ev):  # noqa: N802 (Qt)
+            super().showEvent(ev)
+            self.fit_width()
 
         # -- library -------------------------------------------------------------
         def textures(self):
@@ -423,16 +528,20 @@ if QtWidgets is not None:
             nums = [c for c in cs if c["type"] == "number"]
             others = [c for c in cs if c["type"] != "number"]
             if nums:
-                h = QtWidgets.QHBoxLayout()
+                h = FlowLayout()
                 for c in nums:
                     b = self._number(c, w)
+                    pair = QtWidgets.QWidget()  # a label stays with its box when the row wraps
+                    ph = QtWidgets.QHBoxLayout(pair)
+                    ph.setContentsMargins(0, 0, 0, 0)
                     lab = QtWidgets.QLabel(c["label"] or "")
-                    h.addWidget(lab)
-                    h.addWidget(b.box)
+                    ph.addWidget(lab)
+                    ph.addWidget(b.box)
+                    h.addWidget(pair)
                     b.lab = lab
                 outer.addLayout(h)
             if others:
-                h = QtWidgets.QHBoxLayout()
+                h = FlowLayout()
                 for c in others:
                     b = self._button(c, w) if c["type"] == "button" else self._toggle(c, w)
                     h.addWidget(b.widgets[0])
@@ -564,6 +673,10 @@ if QtWidgets is not None:
             lab = QtWidgets.QLabel(c["label"])
             cb = QtWidgets.QComboBox()
             cb.setObjectName("combo_" + c["key"])
+            # The combo shrinks with the dock (its arrow never under the
+            # scrollbar); the open list still shows each option in full.
+            cb.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(6)
             b.values = []
             for o in c["options"]:
                 if o.get("hidden"):
@@ -593,8 +706,7 @@ if QtWidgets is not None:
         def _buttons(self, c):
             row = self._row(c)
             b = self._register(_Bind(c, row))
-            h = QtWidgets.QHBoxLayout(row)
-            h.setContentsMargins(0, 0, 0, 0)
+            h = FlowLayout(row)
             lab = None
             if c.get("label") and c["type"] == "buttons" and c["key"] != "maskFaces":
                 lab = QtWidgets.QLabel(c["label"])
@@ -603,7 +715,7 @@ if QtWidgets is not None:
                 h.addWidget(lab)
             b.buttons = []
             for o in c["options"]:
-                btn = QtWidgets.QPushButton(o["label"])
+                btn = QtWidgets.QPushButton(title_case(o["label"]))
                 btn.setObjectName(f"opt_{c['key']}_{o['value']}")
                 btn.setCheckable(True)
                 if o.get("tooltip"):
@@ -638,7 +750,7 @@ if QtWidgets is not None:
             if own:
                 row = self._row(c)
             b = self._register(_Bind(c, row))
-            btn = QtWidgets.QPushButton(c["label"] if c.get("label") else "🔒")
+            btn = QtWidgets.QPushButton(title_case(c["label"]) if c.get("label") else "🔒")
             btn.setObjectName("toggle_" + c["key"])
             btn.setCheckable(True)
             if c.get("tooltip"):
@@ -659,7 +771,7 @@ if QtWidgets is not None:
             if own:
                 row = self._row(c)
             b = self._register(_Bind(c, row))
-            btn = QtWidgets.QPushButton(c["label"])
+            btn = QtWidgets.QPushButton(title_case(c["label"]))
             btn.setObjectName("btn_" + c["key"])
             if c.get("tooltip"):
                 btn.setToolTip(c["tooltip"])
@@ -734,13 +846,13 @@ if QtWidgets is not None:
             lst.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
             lst.setMaximumHeight(110)
             v.addWidget(lst)
-            h = QtWidgets.QHBoxLayout()
-            add = QtWidgets.QPushButton("Add selected")
+            h = FlowLayout()
+            add = QtWidgets.QPushButton("Add Selected")
             add.clicked.connect(lambda *_: self.add_selected_faces())
             rm = QtWidgets.QPushButton("Remove")
             rm.clicked.connect(lambda *_: self.draft.mask_remove(faces=[i.text() for i in lst.selectedItems()]))
             by = QtWidgets.QToolButton()
-            by.setText("Add by…")
+            by.setText("Add By…")
             by.setPopupMode(QtWidgets.QToolButton.InstantPopup)
             menu = QtWidgets.QMenu(by)
             for kind, text in ADD_BY:
@@ -762,15 +874,14 @@ if QtWidgets is not None:
 
         def _mask_footer(self, c):
             row = self._row(c)
-            h = QtWidgets.QHBoxLayout(row)
-            h.setContentsMargins(0, 0, 0, 0)
+            h = FlowLayout(row)
             self.mask_count = QtWidgets.QLabel(S("excl.initExcluded"))
             self.mask_count.setObjectName("maskCount")
             hint = controls.BY_KEY["shiftHint"]
             self.shift_hint = QtWidgets.QLabel(hint["label"])
             self._register(_Bind(hint, self.shift_hint)).label = lambda: self.shift_hint.text()
             b = self._button(c, row)
-            h.addWidget(self.mask_count, 1)
+            h.addWidget(self.mask_count)
             h.addWidget(self.shift_hint)
             h.addWidget(b.widgets[0])
             return row
@@ -878,7 +989,7 @@ if QtWidgets is not None:
             self.layers.refresh()
             n = len(self.textures())
             g = self.binds["textureGallery"].widgets[0]
-            g.setText(controls.BY_KEY["textureGallery"]["label"] + (f"  {n}" if n else ""))  # BumpMesh's count
+            g.setText(title_case(controls.BY_KEY["textureGallery"]["label"]) + (f"  {n}" if n else ""))  # BumpMesh's count
 
         def _mask_text(self):
             inc = self.draft.layer()["includeOnly"]

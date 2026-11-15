@@ -9,7 +9,7 @@
 # (Stefan Hermann, CNC Kitchen) in texturizer.engine, run in FreeCAD.
 import os
 
-from . import CREDIT, controls, handlers, panel
+from . import CREDIT, controls, handlers, panel, title_case
 
 PREPARE, CHECK, PANEL = "Texturizer_Prepare", "Texturizer_Check", "Texturizer_Panel"
 TEXTURE, ADD = "Texturizer_Texture", "Texturizer_AddToDocument"
@@ -21,10 +21,12 @@ HEADER = [("Texturizer_Undo", "undo"), ("Texturizer_Redo", "redo"), ("Texturizer
 # FreeCAD's own view commands under BumpMesh's labels (its viewport overlay).
 VIEW = [("Texturizer_Wireframe", "Wireframe", "Show the model as wireframe; press again for its normal look."),
         ("Texturizer_Perspective", "Perspective View", "Switch between perspective and orthographic camera."),
-        ("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane.")]
+        ("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane; press again to close it.")]
 # A toolbar button's tooltip says what it does, then the sidebar's own
-# BumpMesh tooltip (kept word for word), then the credit. Where BumpMesh's
-# tooltip only repeats the name, the first part carries the meaning.
+# BumpMesh tooltip (kept word for word). Where BumpMesh's tooltip only
+# repeats the name, the first part carries the meaning. No credit here:
+# macOS cuts long tooltips short, and the credit is in About, the sidebar's
+# footer and the workbench's own tooltip.
 TIPS = {"undo": "Undo the last change to the texture settings.",
         "redo": "Redo the last undone change to the texture settings.",
         "resetSettings": "Put every texture setting back to its default.",
@@ -50,7 +52,7 @@ def tooltip(key):
         parts.append(own)
     elif not lead:
         parts.append(own)
-    return " ".join(parts + [CREDIT])
+    return " ".join(parts)
 
 
 TOOLBAR = [n for n, _ in HEADER]
@@ -251,7 +253,7 @@ def show_check():
 class _Prepare:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Prepare", "MenuText": "Prepare for Texture",
-                "ToolTip": "Write the body as an STL for BumpMesh with a mask of the selected faces (texture only them, or all but them). " + CREDIT}
+                "ToolTip": "Write the body as an STL for texturing, with a mask of the selected faces (texture only them, or all but them)."}
 
     def IsActive(self):
         import FreeCAD
@@ -265,7 +267,7 @@ class _Prepare:
 class _Check:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Check", "MenuText": "Check Textured Mesh",
-                "ToolTip": "Measure a textured STL against its body face by face: depth on the textured faces, any face it leaked onto, a closed mesh. " + CREDIT}
+                "ToolTip": "Measure a textured STL against its body face by face: depth on the textured faces, any face it leaked onto, a closed mesh."}
 
     def IsActive(self):
         import FreeCAD
@@ -279,7 +281,7 @@ class _Check:
 class _Panel:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Workbench", "MenuText": "Texture Panel",
-                "ToolTip": "The Texture panel: last results, the last check, and the sidebar. " + CREDIT}
+                "ToolTip": "Show the Texture panel: the last result, the last check, and the sidebar."}
 
     def IsActive(self):
         return True
@@ -298,7 +300,7 @@ def open_sidebar(load=False):
 class _Texture:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Workbench", "MenuText": "Settings Sidebar",
-                "ToolTip": "Open Texturizer's settings sidebar and the Texture Gallery, with the selected body loaded. " + CREDIT}
+                "ToolTip": "Open the settings sidebar and the Texture Gallery, with the selected body loaded."}
 
     def IsActive(self):
         return True
@@ -317,9 +319,8 @@ class _Press:
 
     def GetResources(self):
         c = controls.BY_KEY[self.key]
-        # BumpMesh's own labels as they are (the familiarity is part of the
-        # credit); Texturizer's own command in Title Case, as FreeCAD asks.
-        menu = "Add to Document" if self.key == "addToDocument" else c["label"].replace(" ⓘ", "")
+        # Title Case, as FreeCAD's design guide asks of command names.
+        menu = title_case(c["label"].replace(" ⓘ", ""))
         return {"Pixmap": self.name, "MenuText": menu,
                 "ToolTip": tooltip(self.key)}
 
@@ -356,7 +357,61 @@ class _View:
             v = FreeCADGui.ActiveDocument.ActiveView
             v.setCameraType("Orthographic" if v.getCameraType() == "Perspective" else "Perspective")
         else:
-            FreeCADGui.runCommand("Std_ToggleClipPlane", 0)
+            toggle_section(FreeCADGui.getMainWindow(), lambda: FreeCADGui.runCommand("Std_ToggleClipPlane", 0))
+
+
+def _clipping_dock(mw):
+    """FreeCAD's Clipping dock (Std_ToggleClipPlane's), or None. Found by its
+    object name, which FreeCAD's dock manager sets and never translates."""
+    from .qt import QtWidgets
+
+    for d in mw.findChildren(QtWidgets.QDockWidget):
+        if d.objectName() == "Clipping":
+            return d
+    return None
+
+
+def _later(fn):
+    from .qt import QtCore
+
+    QtCore.QTimer.singleShot(0, fn)
+
+
+def toggle_section(mw, run, find=None, later=None):
+    """Section View as a toggle: close FreeCAD's Clipping dock when it is
+    open, else open it with run(). FreeCAD adds that dock to the left area
+    stacked under the Combo View, which on a short screen grew the main
+    window (2082 -> 2256 px on the Mac): it is tabbed with the first other
+    visible dock of that area instead (where FreeCAD puts it, no new
+    height), and the window keeps its size. True when it opened."""
+    find = find or _clipping_dock
+    later = later or _later
+    dock = find(mw)
+    if dock is not None and dock.isVisible():
+        w = dock.widget()
+        # Its own Close: turns the clipping planes off and removes the dock.
+        (getattr(w, "reject", None) or dock.close)()
+        return False
+    size = mw.size()
+    whole = mw.isMaximized() or mw.isFullScreen()
+    run()
+    dock = find(mw)
+    if dock is not None and not dock.isFloating():
+        area = mw.dockWidgetArea(dock)
+        mates = [d for d in mw.findChildren(type(dock)) if d is not dock and d.isVisible() and not d.isFloating()
+                 and mw.dockWidgetArea(d) == area and not d.objectName().startswith("Texturizer")]
+        if mates:
+            mw.tabifyDockWidget(mates[0], dock)
+            dock.show()
+            dock.raise_()
+
+    def keep():
+        if not whole and mw.size() != size:
+            mw.resize(size)
+
+    keep()
+    later(keep)  # the dock's layout settles after this event
+    return True
 
 
 def commands():
