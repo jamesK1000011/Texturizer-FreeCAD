@@ -39,12 +39,12 @@ def hold_events(view, on):
     _held[id(view)] = max(n, 0)
     if (on and n == 1) or (not on and n <= 0):
         for name in ("redirectToSceneGraph", "setRedirectToSceneGraph"):
-            fn = getattr(view, name, None)
-            if fn is not None:
-                try:
+            try:
+                fn = getattr(view, name, None)
+                if fn is not None:
                     fn(bool(on))
-                except Exception:  # noqa: BLE001 - a closed view
-                    pass
+                    return
+            except Exception:  # noqa: BLE001 - a closed view: nothing to give back
                 return
 
 
