@@ -59,7 +59,6 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
         return out.astype(F32)
 
     tn = face_normals_np(C)
-    NX, NY, NZ = (tn[:, k].astype(np.float64).tolist() for k in range(3))
     ON = tn.astype(np.float64)
     ONX, ONY, ONZ = ON[:, 0].tolist(), ON[:, 1].tolist(), ON[:, 2].tolist()
     A0 = V[C[:, 0]]
@@ -99,24 +98,15 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
         cr = nx * nx + ny * ny + nz * nz
         return lmax * lmax / cr if cr > 0 else math.inf
 
-    def recompute(t):
-        a, b, c = corners[t * 3], corners[t * 3 + 1], corners[t * 3 + 2]
-        ax, ay, az = X[a], Y[a], Z[a]
-        e1x, e1y, e1z = X[b] - ax, Y[b] - ay, Z[b] - az
-        e2x, e2y, e2z = X[c] - ax, Y[c] - ay, Z[c] - az
-        nx = e1y * e2z - e1z * e2y
-        ny = e1z * e2x - e1x * e2z
-        nz = e1x * e2y - e1y * e2x
-        ln = math.sqrt(nx * nx + ny * ny + nz * nz)
-        if ln > 0:
-            NX[t], NY[t], NZ[t] = float(F32(nx / ln)), float(F32(ny / ln)), float(F32(nz / ln))
-        else:
-            NX[t] = NY[t] = NZ[t] = 0.0
-
     # Incident corner slots per vertex.
-    vf = [set() for _ in range(nverts)]
-    for s, v in enumerate(corners):
-        vf[v].add(s)
+    # (Each set filled in increasing slot order, as the one-by-one adds did.)
+    slots = np.argsort(ids, kind="stable").tolist()
+    ends = np.cumsum(np.bincount(ids, minlength=nverts)).tolist()
+    vf = []
+    lo = 0
+    for hi in ends:
+        vf.append(set(slots[lo:hi]))
+        lo = hi
 
     # Sharp-edge freeze: every edge's dihedral against the first triangle on it.
     frozen = np.zeros(nverts, bool)
@@ -183,35 +173,45 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
         eff_cos = agg_ncos if both else max_ncos
         nb_v = set()
         for t in tv:
-            for k in range(3):
-                x = corners[t * 3 + k]
+            b3 = t * 3
+            for x in corners[b3:b3 + 3]:
                 if x != v:
                     nb_v.add(x)
         for t in tu:
-            for k in range(3):
-                x = corners[t * 3 + k]
+            b3 = t * 3
+            for x in corners[b3:b3 + 3]:
                 if x != u and x != v and x != w1 and x != w2 and x in nb_v:
                     stats["linkCondition"] += 1
                     return False
         mx, my, mz = (X[u] + X[v]) / 2, (Y[u] + Y[v]) / 2, (Z[u] + Z[v]) / 2
         aff = (tu | tv) - {wings[0], wings[1]}
         for t in aff:
-            if abs(ONX[t] * mx + ONY[t] * my + ONZ[t] * mz - OD[t]) > max_plane:
+            onx, ony, onz = ONX[t], ONY[t], ONZ[t]
+            if abs(onx * mx + ony * my + onz * mz - OD[t]) > max_plane:
                 stats["planeDev"] += 1
                 return False
-            pts = []
-            for k in range(3):
-                x = corners[t * 3 + k]
-                pts.append((mx, my, mz) if x == u or x == v else (X[x], Y[x], Z[x]))
-            (ax, ay, az), (bx, by, bz), (cx, cy, cz) = pts
-            ab2 = (bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az)
-            bc2 = (cx - bx) * (cx - bx) + (cy - by) * (cy - by) + (cz - bz) * (cz - bz)
-            ca2 = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy) + (az - cz) * (az - cz)
-            if ab2 > eff_len or bc2 > eff_len or ca2 > eff_len:
-                stats["edgeCap"] += 1
-                return False
+            b3 = t * 3
+            ca, cb, cc = corners[b3:b3 + 3]
+            if ca == u or ca == v:
+                ax, ay, az = mx, my, mz
+            else:
+                ax, ay, az = X[ca], Y[ca], Z[ca]
+            if cb == u or cb == v:
+                bx, by, bz = mx, my, mz
+            else:
+                bx, by, bz = X[cb], Y[cb], Z[cb]
+            if cc == u or cc == v:
+                cx, cy, cz = mx, my, mz
+            else:
+                cx, cy, cz = X[cc], Y[cc], Z[cc]
             e1x, e1y, e1z = bx - ax, by - ay, bz - az
             e2x, e2y, e2z = cx - ax, cy - ay, cz - az
+            fx, fy, fz = cx - bx, cy - by, cz - bz
+            gx, gy, gz = ax - cx, ay - cy, az - cz
+            if (e1x * e1x + e1y * e1y + e1z * e1z > eff_len or fx * fx + fy * fy + fz * fz > eff_len
+                    or gx * gx + gy * gy + gz * gz > eff_len):
+                stats["edgeCap"] += 1
+                return False
             nx = e1y * e2z - e1z * e2y
             ny = e1z * e2x - e1x * e2z
             nz = e1x * e2y - e1y * e2x
@@ -220,7 +220,7 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
                 stats["degenerate"] += 1
                 return False
             inv = 1 / nl
-            if nx * inv * ONX[t] + ny * inv * ONY[t] + nz * inv * ONZ[t] < eff_cos:
+            if nx * inv * onx + ny * inv * ony + nz * inv * onz < eff_cos:
                 stats["normalChange"] += 1
                 return False
         X[u], Y[u], Z[u] = mx, my, mz
@@ -228,14 +228,13 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
             deleted[w] = True
             for k in range(3):
                 vf[corners[w * 3 + k]].discard(w * 3 + k)
-        for s in list(vf[v]):
-            vf[v].discard(s)
+        # (The JS also recomputes the moved faces' normals here; nothing
+        # reads them before the output's normals are made afresh.)
+        vfu = vf[u]
+        for s in vf[v]:
             corners[s] = u
-            vf[u].add(s)
-            recompute(s // 3)
-        for s in vf[u]:
-            if not deleted[s // 3]:
-                recompute(s // 3)
+            vfu.add(s)
+        vf[v] = set()
         return True
 
     total = 0
