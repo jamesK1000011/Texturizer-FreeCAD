@@ -469,10 +469,15 @@ def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="",
     and the body's fingerprint."""
     import json
 
+    # No document to put it in (a body that belongs to none) or no FreeCAD
+    # Mesh module: no object, the export still made.
+    doc = getattr(s, "doc", None) or getattr(body, "Document", None)
+    if doc is None and target is None:
+        return None
     m = _make_mesh(positions)
     if m is None:
         return None
-    doc = getattr(s, "doc", None) or body.Document
+    doc = doc or target.Document
     obj = target if target is not None else doc.addObject("Mesh::Feature", "Textured")
     obj.Label = name
     obj.Mesh = m

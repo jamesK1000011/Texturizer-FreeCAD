@@ -204,6 +204,8 @@ gui = types.ModuleType("FreeCADGui")
 class Workbench:
     def appendToolbar(self, name, cmds): calls["toolbars"].append([name, cmds])
     def appendMenu(self, name, cmds): calls["menus"].append([name, cmds])
+    def Activated(self): pass
+    def Deactivated(self): pass
 gui.Workbench = Workbench
 gui.addIconPath = lambda p: calls["icons"].append(p)
 gui.addWorkbench = lambda wb: calls["benches"].append(wb)
@@ -211,11 +213,20 @@ gui.addCommand = lambda n, c: calls["commands"].__setitem__(n, c.GetResources())
 fc = types.ModuleType("FreeCAD")
 sys.modules["FreeCADGui"], sys.modules["FreeCAD"] = gui, fc
 src = open(os.path.join(sys.argv[1], "InitGui.py")).read()
-exec(compile(src, "InitGui.py", "exec"), {"__name__": "__main__"})
+# As FreeCAD runs it: its globals hold only FreeCAD, FreeCADGui and the
+# builtins, and InitGui's own names land in a separate locals dict, which a
+# class or method body cannot see (real FreeCAD's "name '_ICONS' is not
+# defined").
+exec(compile(src, "InitGui.py", "exec"), {"__builtins__": __builtins__, "FreeCAD": fc, "FreeCADGui": gui}, {})
 wb = calls["benches"][0]
 wb.Initialize()
+import texturizer.commands as _tc
+_tc.open_sidebar = lambda load=False: calls.setdefault("sidebar", []).append(load)
+wb.Activated()
+calls["about"] = calls["commands"]["Texturizer_About"]["MenuText"]
 print(json.dumps({"class": type(wb).__name__, "menu": wb.MenuText, "icon": wb.Icon, "tip": wb.ToolTip, "kind": wb.GetClassName(),
                   "icons": calls["icons"], "commands": calls["commands"], "toolbars": calls["toolbars"], "menus": calls["menus"],
+                  "sidebar": calls.get("sidebar"), "about": calls["about"],
                   "agentlink": sorted(m for m in sys.modules if m.startswith("agentlink"))}))
 """
 
@@ -246,6 +257,8 @@ class Workbench(unittest.TestCase):
             if name not in [commands.PANEL] + commands.VIEW_TOOLBAR:
                 self.assertIn("Stefan Hermann (CNC Kitchen)", res["ToolTip"], name)
         self.assertEqual(out["agentlink"], [])
+        self.assertEqual((out["sidebar"], out["about"]), ([True], "About Texturizer"))
+        self.assertEqual(out["tip"], "Surface textures for printed parts. " + texturizer.CREDIT)
 
     def test_about_credit(self):
         self.assertIn("Based on BumpMesh by Stefan Hermann (CNC Kitchen)", texturizer.about())
