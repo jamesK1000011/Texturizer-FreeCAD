@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(HERE, "tools"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import gen_controls  # noqa: E402
-from texturizer import controls, draft, qt  # noqa: E402
+from texturizer import controls, draft, qt, title_case  # noqa: E402
 
 SRC = os.environ.get("BUMPMESH_SRC", gen_controls.DEFAULT_SRC)
 HAVE_SRC = os.path.exists(os.path.join(SRC, "js", "i18n", "en.js"))
@@ -304,7 +304,13 @@ class SidebarWidget(unittest.TestCase):
                 continue
             self.assertIn(c["key"], got)
             if c.get("label") is not None:
-                self.assertEqual(got[c["key"]], c["label"], c["key"])
+                # Buttons in Title Case, as FreeCAD's design guide asks; the
+                # rest (labels, checkboxes) in BumpMesh's own words.
+                want = title_case(c["label"]) if c["type"] in ("button", "toggle") else c["label"]
+                self.assertEqual(got[c["key"]], want, c["key"])
+        self.assertEqual(got["resetSettings"], "Reset to Defaults")
+        self.assertEqual(got["addToDocument"], "Add to Document")
+        self.assertEqual(got["addLayer"], "Add Layer")
         mode = sb.binds["mappingMode"]
         self.assertEqual(mode.items()[:3], ["Triplanar", "Cubic (Box)", "Cylindrical"])
         self.assertEqual(sb.binds["boundaryFalloffCurve"].option_labels(), ["Linear", "S-Curve", "Ease-In"])
@@ -414,6 +420,62 @@ class SidebarWidget(unittest.TestCase):
         self.assertEqual(self.sidebar.min_dock_width(300, 15, 1), 317)
         self.assertGreater(sb.fit_width(), 0)
         self.assertTrue(sb.credit.text().startswith(self.gallery.BUMPMESH_CREDIT))
+
+    def _flows(self, sb):
+        """Every FlowLayout in the sidebar, the layer rows' included."""
+        out, seen = [], set()
+
+        def walk(lay):
+            if lay is None or id(lay) in seen:
+                return
+            seen.add(id(lay))
+            if isinstance(lay, self.sidebar.FlowLayout):
+                out.append(lay)
+            for it in lay.items if hasattr(lay, "items") else []:
+                walk(it._l)
+                if it._w is not None:
+                    walk(it._w._layout)
+            for i in range(lay.count()) if isinstance(lay, self.sidebar.FlowLayout) else []:
+                walk(lay.itemAt(i).widget()._layout)
+
+        walk(sb.body._layout)
+        return out
+
+    def test_rows_wrap_inside_the_viewport(self):
+        # Found live: Load Project, a layer row's last button, the Mode
+        # combo's arrow and Add Layer ran under the vertical scrollbar. A
+        # dock 280 px wide with a 15 px scrollbar and a 1 px frame leaves a
+        # 263 px viewport: every row of buttons lays out inside it, the
+        # widest single button (Suggest Values (Change to Taste), 240 px
+        # here) included, where one row of the header alone needs 447 px.
+        d, sb = self.make()
+        d.add_layer()
+        cw = self.sidebar.content_width(280, 15, 1)
+        self.assertEqual(cw, 263)
+        self.assertEqual(self.sidebar.min_dock_width(cw, 15, 1), 280)
+        flows = self._flows(sb)
+        self.assertGreaterEqual(len(flows), 6)  # header, rotate, layer rows, option rows, mask footer
+        for flow in flows:
+            self.assertLessEqual(flow.minimumSize().width(), cw)
+            flow.arrange(0, 0, cw)
+            for w in flow.widgets():
+                if not w.isHidden():
+                    self.assertGreaterEqual(w.geom.x(), 0)
+                    self.assertLessEqual(w.geom.right(), cw - 1, getattr(w, "text", lambda: w)())
+            self.assertGreater(flow.heightForWidth(cw), 0)
+        load, undo = sb.binds["loadProject"].widgets[0], sb.binds["undo"].widgets[0]
+        self.assertGreater(load.geom.y(), undo.geom.y())  # the header row wrapped
+        rm = sb.layers.rows[-1]["remove"]
+        self.assertLessEqual(rm.geom.right(), cw - 1)  # a layer row's last button
+        # The Mode combo can shrink: its minimum is a few characters, not its longest option.
+        self.assertTrue(hasattr(self.sidebar.QtWidgets.QComboBox, "AdjustToMinimumContentsLengthWithIcon"))
+
+    def test_flow_rows(self):
+        f = self.sidebar.flow_rows
+        self.assertEqual(f([50, 50, 50], 200, 6), [[0, 1, 2]])
+        self.assertEqual(f([50, 50, 50], 150, 6), [[0, 1], [2]])
+        self.assertEqual(f([300, 20], 100, 6), [[0], [1]])  # too wide: a row of its own
+        self.assertEqual(f([], 100), [])
 
 
 # -- gallery.py ----------------------------------------------------------------------

@@ -56,7 +56,7 @@ PROJECT_VERSION = 1
 PROJECT_MAX_IMPORT = 500 * 1024 * 1024  # BumpMesh's cap on imports
 EXT = ".bumpmesh"
 SAVE_OPTIONS = (("settings", "Settings", True), ("model", "Model (STL)", True), ("texture", "Custom texture", True))
-LOAD_MODES = (("all", "Model + settings"), ("settings", "Settings only"))
+LOAD_MODES = (("all", "Model + Settings"), ("settings", "Settings Only"))
 LOAD_ALL, LOAD_SETTINGS = "all", "settings"
 MODE_SURFACE_NORMAL, MODE_TRIPLANAR = 7, 5
 

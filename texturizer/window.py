@@ -499,7 +499,7 @@ class Window:
 
     def ask_path(self, kind, save=False, default=""):
         mw = _gui().getMainWindow()
-        title = {"bumpmesh": "Save Project" if save else "Load Project", "image": "Upload custom map",
+        title = {"bumpmesh": "Save Project" if save else "Load Project", "image": "Upload Custom Map",
                  "stl": "Export STL", "3mf": "Export 3MF"}.get(kind, "Texturizer")
         start = default or os.path.expanduser("~")
         fn = QtWidgets.QFileDialog.getSaveFileName if save else QtWidgets.QFileDialog.getOpenFileName
@@ -514,8 +514,8 @@ class Window:
         box = QtWidgets.QMessageBox(_gui().getMainWindow())
         box.setWindowTitle("Load Project")
         box.setText("Load the project's model with its settings, or the settings only?")
-        both = box.addButton("Model + settings", QtWidgets.QMessageBox.AcceptRole)
-        box.addButton("Settings only", QtWidgets.QMessageBox.AcceptRole)
+        both = box.addButton("Model + Settings", QtWidgets.QMessageBox.AcceptRole)
+        box.addButton("Settings Only", QtWidgets.QMessageBox.AcceptRole)
         cancel = box.addButton(QtWidgets.QMessageBox.Cancel)
         box.exec_() if hasattr(box, "exec_") else box.exec()
         if box.clickedButton() is cancel:

@@ -35,7 +35,7 @@ NOOP = {
     "setPopupMode", "setMenu", "setFlat", "setAccessibleName", "setProperty", "setFont", "setPixmap",
     "setExclusive", "raise_", "addStretch", "setParent", "setSpacing", "deleteLater", "splitDockWidget",
     "setSizePolicy", "setMinimumWidth", "setFixedWidth", "updateGeometry", "setHorizontalScrollBarPolicy",
-    "setHeightForWidth",
+    "setHeightForWidth", "setSizeAdjustPolicy", "setMinimumContentsLength",
 }
 
 
@@ -77,6 +77,19 @@ class _Item:
     def widget(self):
         return self._w
 
+    # What a QWidgetItem answers for its widget (FlowLayout reads these).
+    def sizeHint(self):  # noqa: N802
+        return self._w.sizeHint()
+
+    def minimumSize(self):  # noqa: N802
+        return self._w.minimumSizeHint()
+
+    def isEmpty(self):  # noqa: N802
+        return self._w.isHidden()
+
+    def setGeometry(self, r):  # noqa: N802
+        self._w.geom = r
+
 
 class _Layout(_Base):
     def __init__(self, parent=None):
@@ -105,6 +118,20 @@ class _Layout(_Base):
             elif it._l is not None:
                 out.extend(it._l.widgets())
         return out
+
+
+class QLayout(_Layout):
+    """The base a custom layout subclasses: addWidget goes through the
+    subclass's addItem, as in Qt."""
+
+    def addWidget(self, w, *a, **k):  # noqa: N802
+        self.addItem(_Item(w=w))
+
+    def setGeometry(self, r):  # noqa: N802
+        self._geom = r
+
+    def widgets(self):
+        return [self.itemAt(i).widget() for i in range(self.count())]
 
 
 class QVBoxLayout(_Layout):
@@ -245,6 +272,15 @@ class QPushButton(_Button):
     pass
 
 
+def _text_size(self):
+    # A button as wide as its text (7 px a character) plus its padding.
+    return QSize(7 * max(len(x) for x in (self.text() or " ").split("\n")) + 16, 24)
+
+
+_Button.sizeHint = _text_size
+_Button.minimumSizeHint = _text_size
+
+
 class QToolButton(_Button):
     InstantPopup = 2
 
@@ -331,6 +367,8 @@ class QLineEdit(QWidget):
 
 
 class QComboBox(QWidget):
+    AdjustToMinimumContentsLengthWithIcon = 3
+
     SIGNALS = ("currentIndexChanged",)
 
     def __init__(self, parent=None):
@@ -502,6 +540,26 @@ class QDoubleValidator(_Base):
     pass
 
 
+class QRect:
+    def __init__(self, x, y, w, h):
+        self._r = (x, y, w, h)
+
+    def x(self):
+        return self._r[0]
+
+    def y(self):
+        return self._r[1]
+
+    def width(self):
+        return self._r[2]
+
+    def height(self):
+        return self._r[3]
+
+    def right(self):
+        return self._r[0] + self._r[2] - 1
+
+
 class QSize:
     def __init__(self, w, h):
         self.w, self.h = w, h
@@ -531,13 +589,13 @@ class _Qt:
 def modules():
     """(QtCore, QtGui, QtWidgets) as module objects."""
     core = types.ModuleType("QtCore")
-    core.Qt, core.QSize, core.Signal = _Qt, QSize, Signal
+    core.Qt, core.QSize, core.QRect, core.Signal = _Qt, QSize, QRect, Signal
     gui = types.ModuleType("QtGui")
     for c in (QPixmap, QIcon, QDoubleValidator, QFont):
         setattr(gui, c.__name__, c)
     w = types.ModuleType("QtWidgets")
     for c in (QWidget, QLabel, QPushButton, QToolButton, QCheckBox, QSlider, QDoubleSpinBox, QLineEdit, QComboBox,
               QListWidget, QMenu, QProgressBar, QScrollArea, QDockWidget, QMainWindow, QButtonGroup,
-              QAbstractItemView, QMessageBox, QApplication, QVBoxLayout, QSizePolicy, QHBoxLayout, QGridLayout):
+              QAbstractItemView, QMessageBox, QApplication, QVBoxLayout, QSizePolicy, QHBoxLayout, QGridLayout, QLayout):
         setattr(w, c.__name__, c)
     return core, gui, w

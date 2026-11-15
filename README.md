@@ -84,7 +84,7 @@ CNC Kitchen, Yours).
 
 **The toolbars.**
 
-- **Texturizer** is BumpMesh's header row: Undo, Redo, Reset to defaults,
+- **Texturizer** is BumpMesh's header row: Undo, Redo, Reset to Defaults,
   Save Project, Load Project, Texture Gallery, Export STL, Export 3MF. Save
   and Load Project read and write BumpMesh's own `.bumpmesh` files.
 - **View** has FreeCAD's own Wireframe, Perspective View and Section View,
@@ -99,7 +99,7 @@ Where the shader can't run, it falls back to the engine preview.
 
 <!-- screenshot: Quick look on a part, then the same part with 3D Preview on -->
 
-**Textured objects.** Add to document puts a Textured mesh beside your part.
+**Textured objects.** Add to Document puts a Textured mesh beside your part.
 It remembers the settings it was made with. When you change the part, it is
 marked out of date; click **Update** to texture it again. It never reruns on
 its own.
@@ -124,7 +124,7 @@ the agent works. The list is generated from `texturizer/data/tools.json` by
 | `texture_mask` | texture | BumpMesh's Masking, By Surface, for one layer: mode exclude or include, add or remove faces, add_by, fill, triangles, paint, clear. |
 | `texture_layer` | texture | BumpMesh's layer strip: add, remove, move, solo, visible, blend, name, active. |
 | `texture_preview` | texture | Build the CPU preview of the draft with BumpMesh's engine and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and … |
-| `texture_apply` | texture | Add to document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |
+| `texture_apply` | texture | Add to Document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |
 | `texture_export` | texture | Write a file: format stl or 3mf, or bumpmesh. |
 | `texture_prepare` | texture | A body made ready for a surface texture by BumpMesh: an STL written face by face from one mesh of the whole part, and a mask file of the triangles of … |
 | `texture_check` | texture | Check a textured mesh against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep … |
@@ -137,7 +137,7 @@ The texturing in every one of them is BumpMesh's engine, ported to Python.
 | | Alone | With Agent Link |
 |---|---|---|
 | Workbench, sidebar, Texture Gallery, toolbars | Yes | Yes |
-| Quick look, 3D Preview, Add to document, Update, Bake | Yes | Yes |
+| Quick look, 3D Preview, Add to Document, Update, Bake | Yes | Yes |
 | Export STL / 3MF, Save / Load Project | Yes | Yes |
 | Sidebar clicks | Run by Texturizer itself | Run through Agent Link, shown and logged in its Activity |
 | Texture tab in Agent Link's panel (last results, open the sidebar) | No | Yes |
