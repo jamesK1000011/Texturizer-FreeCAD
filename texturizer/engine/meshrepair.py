@@ -7,7 +7,7 @@
 import numpy as np
 
 from ._js import F32, jround
-from .meshindex import weld
+from .meshindex import first_ids, weld
 
 
 def _edge_counts(ids):
@@ -37,6 +37,25 @@ def count_area_slivers(positions):
     return int((a2 < 1e-24).sum())
 
 
+def _open_edges(F):
+    """The open (single-face) edges of faces F (n, 3): (their vertices, each
+    once, in order of first appearance as the face-by-face edge walk meets the
+    edges; an (n, 3) bool of which face edges are open)."""
+    if len(F) == 0:
+        return np.zeros(0, np.int64), np.zeros((0, 3), bool)
+    E = np.stack([F, np.roll(F, -1, axis=1)], 2).reshape(-1, 2)
+    lo, hi = np.minimum(E[:, 0], E[:, 1]), np.maximum(E[:, 0], E[:, 1])
+    ids, firsts = first_ids(np.stack([lo, hi], 1))
+    num = np.bincount(ids, minlength=len(firsts))
+    open_fe = (num[ids] == 1).reshape(-1, 3)
+    op = num == 1
+    seq = np.stack([lo[firsts][op], hi[firsts][op]], 1).reshape(-1)
+    if len(seq) == 0:
+        return seq, open_fe
+    _, sf = first_ids(seq)
+    return seq[sf], open_fe
+
+
 def resolve_t_junctions(positions, weld_quant=1e4, on_seg_tol=0.02, max_iters=16):
     """resolveTJunctions: {"position", "normal"} float32, vertices on the weld grid."""
     Q = weld_quant
@@ -56,32 +75,20 @@ def resolve_t_junctions(positions, weld_quant=1e4, on_seg_tol=0.02, max_iters=16
     vx, vy, vz = V[:, 0].tolist(), V[:, 1].tolist(), V[:, 2].tolist()
 
     for _ in range(max_iters):
-        cnt = {}
-        for f in faces:
-            for e in range(3):
-                x, y = f[e], f[(e + 1) % 3]
-                k = (x, y) if x < y else (y, x)
-                cnt[k] = cnt.get(k, 0) + 1
-        bverts = []
-        seen = set()
-        for (lo, hi), n in cnt.items():
-            if n != 1:
-                continue
-            for v in (lo, hi):
-                if v not in seen:
-                    seen.add(v)
-                    bverts.append(v)
-        if not bverts:
+        bverts, open_fe = _open_edges(np.array(faces, np.int64).reshape(-1, 3))
+        if not len(bverts):
             break
-        bv = np.array(bverts, np.int64)
+        bv = bverts
         BX, BY, BZ = V[bv, 0], V[bv, 1], V[bv, 2]
         splits = {}
-        for fi, f in enumerate(faces):
+        cand = np.nonzero(open_fe.any(axis=1))[0].tolist()
+        open_l = open_fe.tolist()
+        for fi in cand:
+            f = faces[fi]
             for e in range(3):
-                x, y = f[e], f[(e + 1) % 3]
-                k = (x, y) if x < y else (y, x)
-                if cnt.get(k, 0) != 1:
+                if not open_l[fi][e]:
                     continue
+                x, y = f[e], f[(e + 1) % 3]
                 ax, ay, az = vx[x], vy[x], vz[x]
                 ex, ey, ez = vx[y] - ax, vy[y] - ay, vz[y] - az
                 el2 = ex * ex + ey * ey + ez * ez

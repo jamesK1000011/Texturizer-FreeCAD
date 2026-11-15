@@ -33,6 +33,12 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
   mesh keeps the triangles the mask refers to. Textured objects made by a bake
   are marked `Baked` and update the same way.
 - The Bake Textures controls are no longer marked "later" in the sidebar.
+- Faster texture runs, output unchanged to the bit: decimation builds its
+  quadrics, edge list, vertex-face lists and first heap fill with numpy (each
+  vertex's sum still taken in the JS's order) and its heap keeps costs in a
+  flat list; regularize no longer recomputes normals nothing reads; the
+  T-junction repair finds open edges with numpy. Decimation is about 1.7-2x
+  faster, regularize about 1.5x, a whole run about 1.45x.
 
 ## 0.3.0 — 2026-11-14
 

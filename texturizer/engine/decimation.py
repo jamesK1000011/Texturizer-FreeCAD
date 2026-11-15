@@ -15,7 +15,7 @@ import math
 import numpy as np
 
 from ._js import F32
-from .meshindex import weld
+from .meshindex import first_ids, weld
 
 QUANT_DEFAULT = 1e6
 FLIP_DOT = 0.2
@@ -27,54 +27,87 @@ DEFAULT_HARVEST_TOL = 0.005
 
 class _Heap:
     """SoAHeap: entries (cost, v1, v2, ver1, ver2, px, py, pz) in a 1-indexed
-    list, sifted exactly as the JS sifts."""
+    list, sifted exactly as the JS sifts (comparing costs only, so equal costs
+    pop in the JS's order). The costs are kept in a parallel list c."""
 
-    __slots__ = ("a",)
+    __slots__ = ("a", "c")
 
     def __init__(self):
         self.a = [None]
+        self.c = [None]
 
     def __len__(self):
         return len(self.a) - 1
 
+    def extend(self, entries):
+        """push() each entry in turn."""
+        a, c = self.a, self.c
+        for e in entries:
+            cost = e[0]
+            a.append(e)
+            c.append(cost)
+            idx = len(a) - 1
+            while idx > 1:
+                parent = idx >> 1
+                pc = c[parent]
+                if pc <= cost:
+                    break
+                a[idx] = a[parent]
+                c[idx] = pc
+                idx = parent
+            a[idx] = e
+            c[idx] = cost
+
     def push(self, e):
-        a = self.a
-        a.append(e)
-        idx = len(a) - 1
+        a, c = self.a, self.c
         cost = e[0]
+        a.append(e)
+        c.append(cost)
+        idx = len(a) - 1
         while idx > 1:
             parent = idx >> 1
-            if a[parent][0] <= cost:
+            pc = c[parent]
+            if pc <= cost:
                 break
             a[idx] = a[parent]
+            c[idx] = pc
             idx = parent
         a[idx] = e
+        c[idx] = cost
 
     def pop(self):
-        a = self.a
+        a, c = self.a, self.c
         n = len(a) - 1
         if n == 0:
             return None
         top = a[1]
         last = a.pop()
+        cost = c.pop()
         n -= 1
         if n > 0:
-            a[1] = last
             idx = 1
-            cost = last[0]
             while True:
                 l = idx << 1
-                r = l | 1
-                child = -1
-                if l <= n and a[l][0] < cost:
+                if l > n:
+                    break
+                cl = c[l]
+                if l < n:
+                    cr = c[l + 1]
+                    if cl < cost:
+                        child = l + 1 if cr < cl else l
+                    elif cr < cost:
+                        child = l + 1
+                    else:
+                        break
+                elif cl < cost:
                     child = l
-                if r <= n and a[r][0] < (a[child][0] if child >= 0 else cost):
-                    child = r
-                if child < 0:
+                else:
                     break
                 a[idx] = a[child]
+                c[idx] = c[child]
                 idx = child
             a[idx] = last
+            c[idx] = cost
         return top
 
 
@@ -136,31 +169,18 @@ def decimate(positions, target_triangles, on_progress=None, harvest_flat=True, h
         out["userData"]["lockedOverBudget"] = True
         return out
 
-    Q = [0.0] * (vert_count * 10)
-    _init_quadrics(Q, P, faces, face_count)
-    _add_crease_quadrics(Q, P, faces, face_count)
+    F3 = faces_np.reshape(-1, 3)
+    Pn = pos_np.reshape(-1, 3)
+    fn = _face_unit_normals(Pn, F3)
+    edges = _edges(F3)
+    Q = _quadrics(Pn, F3, fn, edges, vert_count).reshape(-1).tolist()
 
-    # Linked vertex-face incidence: slot s = f*3+k.
+    # Linked vertex-face incidence: slot s = f*3+k, each vertex's list newest
+    # slot first (the JS links them in at the head in slot order).
     S = face_count * 3
-    vfHead = [-1] * vert_count
-    slotVert = [0] * S
-    slotNext = [-1] * S
-    slotPrev = [-1] * S
-    slotLive = [0] * S
-    for f in range(face_count):
-        if faces[f * 3] < 0:
-            continue
-        for k in range(3):
-            v = faces[f * 3 + k]
-            s = f * 3 + k
-            slotVert[s] = v
-            h = vfHead[v]
-            slotNext[s] = h
-            slotPrev[s] = -1
-            if h >= 0:
-                slotPrev[h] = s
-            vfHead[v] = s
-            slotLive[s] = 1
+    vfHead, slotNext, slotPrev = _incidence(faces_np.reshape(-1), vert_count)
+    slotVert = faces_np.tolist()
+    slotLive = [1] * S
 
     active = [1] * vert_count
     version = [0] * vert_count
@@ -171,21 +191,11 @@ def decimate(positions, target_triangles, on_progress=None, harvest_flat=True, h
     active_faces = face_count
 
     heap = _Heap()
-    seen = set()
-    for f in range(face_count):
-        if faces[f * 3] < 0:
-            continue
-        for e in range(3):
-            va = faces[f * 3 + e]
-            vb = faces[f * 3 + (e + 1) % 3]
-            if locked_vert is not None and (locked_vert[va] or locked_vert[vb]):
-                continue
-            key = (va, vb) if va < vb else (vb, va)
-            if key in seen:
-                continue
-            seen.add(key)
-            _push_edge(heap, Q, P, version, va, vb)
-    seen = None
+    va, vb = edges["a"], edges["b"]
+    if locked_vert is not None:
+        keep = ~(lv[va] | lv[vb])
+        va, vb = va[keep], vb[keep]
+    heap.extend(_edge_entries(np.asarray(Q).reshape(-1, 10), Pn, va, vb))
 
     init_faces = active_faces
     to_remove = max(1, init_faces - target_triangles)
@@ -392,120 +402,235 @@ def _flipped(P, vfHead, slotNext, faces, vc, vo, npx, npy, npz):
     return False
 
 
-def _add_plane(Q, v, a, b, c, d):
-    o = v * 10
-    Q[o] += a * a
-    Q[o + 1] += a * b
-    Q[o + 2] += a * c
-    Q[o + 3] += a * d
-    Q[o + 4] += b * b
-    Q[o + 5] += b * c
-    Q[o + 6] += b * d
-    Q[o + 7] += c * c
-    Q[o + 8] += c * d
-    Q[o + 9] += d * d
-
-
-def _unit_normal(P, a, b, c):
-    ux, uy, uz = P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]
-    vx, vy, vz = P[c * 3] - P[a * 3], P[c * 3 + 1] - P[a * 3 + 1], P[c * 3 + 2] - P[a * 3 + 2]
+def _face_unit_normals(Pn, F3):
+    """Each face's unit normal, as _unit_normal works it (a zero length stays
+    a zero vector), for all faces at once: (F, 3) doubles."""
+    A, B, C = Pn[F3[:, 0]], Pn[F3[:, 1]], Pn[F3[:, 2]]
+    ux, uy, uz = B[:, 0] - A[:, 0], B[:, 1] - A[:, 1], B[:, 2] - A[:, 2]
+    vx, vy, vz = C[:, 0] - A[:, 0], C[:, 1] - A[:, 1], C[:, 2] - A[:, 2]
     cnx, cny, cnz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
-    ln = math.sqrt(cnx * cnx + cny * cny + cnz * cnz) or 1
-    return cnx / ln, cny / ln, cnz / ln
+    ln = np.sqrt(cnx * cnx + cny * cny + cnz * cnz)
+    ln = np.where(ln == 0, 1.0, ln)
+    return np.stack([cnx / ln, cny / ln, cnz / ln], 1)
 
 
-def _init_quadrics(Q, P, faces, face_count):
-    for f in range(face_count):
-        fa = faces[f * 3]
-        if fa < 0:
-            continue
-        fb, fc = faces[f * 3 + 1], faces[f * 3 + 2]
-        nx, ny, nz = _unit_normal(P, fa, fb, fc)
-        d = -(nx * P[fa * 3] + ny * P[fa * 3 + 1] + nz * P[fa * 3 + 2])
-        _add_plane(Q, fa, nx, ny, nz, d)
-        _add_plane(Q, fb, nx, ny, nz, d)
-        _add_plane(Q, fc, nx, ny, nz, d)
+def _edges(F3):
+    """Undirected edges in order of first occurrence (face, then edge 0-1,
+    1-2, 2-0): {"a", "b"} that occurrence's direction, {"lo", "hi"} the key,
+    {"f0", "f1"} the first two faces on it, {"num"} how many faces."""
+    nf = len(F3)
+    E = np.stack([F3, np.roll(F3, -1, axis=1)], 2).reshape(-1, 2)
+    lo, hi = np.minimum(E[:, 0], E[:, 1]), np.maximum(E[:, 0], E[:, 1])
+    if nf == 0:
+        z = np.zeros(0, np.int64)
+        return {"a": z, "b": z, "lo": z, "hi": z, "f0": z, "f1": z, "num": z}
+    ids, firsts = first_ids(np.stack([lo, hi], 1))
+    num = np.bincount(ids, minlength=len(firsts))
+    occ = np.argsort(ids, kind="stable")
+    starts = np.concatenate([[0], np.cumsum(num)[:-1]])
+    second = occ[np.minimum(starts + 1, len(occ) - 1)]
+    f1 = np.where(num >= 2, second // 3, 0)
+    return {"a": E[firsts, 0], "b": E[firsts, 1], "lo": lo[firsts], "hi": hi[firsts],
+            "f0": firsts // 3, "f1": f1, "num": num}
 
 
-def _add_crease_quadrics(Q, P, faces, face_count):
-    edges = {}  # (lo, hi) -> [f0, f1, num], first-occurrence order
-    for f in range(face_count):
-        if faces[f * 3] < 0:
-            continue
-        for e in range(3):
-            va = faces[f * 3 + e]
-            vb = faces[f * 3 + (e + 1) % 3]
-            key = (va, vb) if va < vb else (vb, va)
-            ent = edges.get(key)
-            if ent is None:
-                edges[key] = [f, 0, 1]
-            elif ent[2] == 1:
-                ent[1] = f
-                ent[2] = 2
-            else:
-                ent[2] = 3
-    sqrtW = math.sqrt(CREASE_WEIGHT)
-    for (va, vb), (f0, f1, num) in edges.items():
-        if num != 2:
-            continue
-        n0x, n0y, n0z = _unit_normal(P, faces[f0 * 3], faces[f0 * 3 + 1], faces[f0 * 3 + 2])
-        n1x, n1y, n1z = _unit_normal(P, faces[f1 * 3], faces[f1 * 3 + 1], faces[f1 * 3 + 2])
-        if n0x * n1x + n0y * n1y + n0z * n1z >= CREASE_COS:
-            continue
-        ex = P[vb * 3] - P[va * 3]
-        ey = P[vb * 3 + 1] - P[va * 3 + 1]
-        ez = P[vb * 3 + 2] - P[va * 3 + 2]
-        el = math.sqrt(ex * ex + ey * ey + ez * ez) or 1
+def _plane_terms(a, b, c, d):
+    return np.stack([a * a, a * b, a * c, a * d, b * b, b * c, b * d, c * c, c * d, d * d], 1)
+
+
+def _quadrics(Pn, F3, fn, edges, vert_count):
+    """The per-vertex quadrics (V, 10): every face's plane added to its three
+    vertices in face order, then the crease penalty planes in edge order, each
+    vertex's sum taken in exactly that order (so the doubles match the JS's
+    one-by-one accumulation)."""
+    nx, ny, nz = fn[:, 0], fn[:, 1], fn[:, 2]
+    A = Pn[F3[:, 0]]
+    d = -(nx * A[:, 0] + ny * A[:, 1] + nz * A[:, 2])
+    T = _plane_terms(nx, ny, nz, d)
+    vids = [F3.reshape(-1)]
+    terms = [np.repeat(T, 3, axis=0)]
+
+    ok = edges["num"] == 2
+    lo, hi, f0, f1 = edges["lo"][ok], edges["hi"][ok], edges["f0"][ok], edges["f1"][ok]
+    n0, n1 = fn[f0], fn[f1]
+    dot = n0[:, 0] * n1[:, 0] + n0[:, 1] * n1[:, 1] + n0[:, 2] * n1[:, 2]
+    cr = ~(dot >= CREASE_COS)
+    lo, hi, n0, n1 = lo[cr], hi[cr], n0[cr], n1[cr]
+    if len(lo):
+        Pa, Pb = Pn[lo], Pn[hi]
+        ex, ey, ez = Pb[:, 0] - Pa[:, 0], Pb[:, 1] - Pa[:, 1], Pb[:, 2] - Pa[:, 2]
+        el = np.sqrt(ex * ex + ey * ey + ez * ez)
+        el = np.where(el == 0, 1.0, el)
         edx, edy, edz = ex / el, ey / el, ez / el
-        for nx, ny, nz in ((n0x, n0y, n0z), (n1x, n1y, n1z)):
-            px = ny * edz - nz * edy
-            py = nz * edx - nx * edz
-            pz = nx * edy - ny * edx
-            pl = math.sqrt(px * px + py * py + pz * pz)
-            if pl < 1e-10:
-                continue
-            px /= pl
-            py /= pl
-            pz /= pl
-            d = -(px * P[va * 3] + py * P[va * 3 + 1] + pz * P[va * 3 + 2])
-            _add_plane(Q, va, px * sqrtW, py * sqrtW, pz * sqrtW, d * sqrtW)
-            _add_plane(Q, vb, px * sqrtW, py * sqrtW, pz * sqrtW, d * sqrtW)
+        sqrtW = math.sqrt(CREASE_WEIGHT)
+        m = len(lo)
+        cv = np.empty((m, 2, 2), np.int64)  # (edge, plane, lo/hi)
+        cv[:, :, 0] = lo[:, None]
+        cv[:, :, 1] = hi[:, None]
+        ct = np.zeros((m, 2, 2, 10))
+        live = np.zeros((m, 2, 2), bool)
+        for j, n in enumerate((n0, n1)):
+            px = n[:, 1] * edz - n[:, 2] * edy
+            py = n[:, 2] * edx - n[:, 0] * edz
+            pz = n[:, 0] * edy - n[:, 1] * edx
+            pl = np.sqrt(px * px + py * py + pz * pz)
+            keep = ~(pl < 1e-10)
+            with np.errstate(all="ignore"):
+                px, py, pz = px / pl, py / pl, pz / pl
+            dd = -(px * Pa[:, 0] + py * Pa[:, 1] + pz * Pa[:, 2])
+            t = _plane_terms(px * sqrtW, py * sqrtW, pz * sqrtW, dd * sqrtW)
+            ct[:, j, 0] = t
+            ct[:, j, 1] = t
+            live[:, j, :] = keep[:, None]
+        live = live.reshape(-1)
+        vids.append(cv.reshape(-1)[live])
+        terms.append(ct.reshape(-1, 10)[live])
+
+    vid = np.concatenate(vids)
+    term = np.concatenate(terms)
+    Q = np.zeros((vert_count, 10))
+    if len(vid) == 0:
+        return Q
+    order = np.argsort(vid, kind="stable")
+    sv = vid[order]
+    cnt = np.bincount(sv, minlength=vert_count)
+    starts = np.concatenate([[0], np.cumsum(cnt)[:-1]])
+    for r in range(int(cnt.max())):
+        has = np.nonzero(cnt > r)[0]
+        Q[has] += term[order[starts[has] + r]]
+    return Q
 
 
-def _eval_q(Q, o, x, y, z):
-    return (Q[o] * x * x + 2 * Q[o + 1] * x * y + 2 * Q[o + 2] * x * z + 2 * Q[o + 3] * x
-            + Q[o + 4] * y * y + 2 * Q[o + 5] * y * z + 2 * Q[o + 6] * y
-            + Q[o + 7] * z * z + 2 * Q[o + 8] * z
-            + Q[o + 9])
+def _incidence(faces_flat, vert_count):
+    """vfHead, slotNext, slotPrev as lists: each vertex's slots linked newest
+    first, as pushing every face's corners at the head in slot order leaves
+    them."""
+    S = len(faces_flat)
+    head = np.full(vert_count, -1, np.int64)
+    nxt = np.full(S, -1, np.int64)
+    prv = np.full(S, -1, np.int64)
+    if S:
+        so = np.argsort(faces_flat, kind="stable")
+        sv = faces_flat[so]
+        same = sv[1:] == sv[:-1]
+        nxt[so[1:]] = np.where(same, so[:-1], -1)
+        prv[so[:-1]] = np.where(same, so[1:], -1)
+        last = np.append(~same, True)
+        head[sv[last]] = so[last]
+    return head.tolist(), nxt.tolist(), prv.tolist()
+
+
+def _pymax(*xs):
+    """Python's max over arrays elementwise (a later value wins only when greater)."""
+    m = xs[0]
+    for x in xs[1:]:
+        m = np.where(x > m, x, m)
+    return m
+
+
+def _pymin(*xs):
+    m = xs[0]
+    for x in xs[1:]:
+        m = np.where(x < m, x, m)
+    return m
+
+
+def _eval_qv(Q, x, y, z):
+    return (Q[:, 0] * x * x + 2 * Q[:, 1] * x * y + 2 * Q[:, 2] * x * z + 2 * Q[:, 3] * x
+            + Q[:, 4] * y * y + 2 * Q[:, 5] * y * z + 2 * Q[:, 6] * y
+            + Q[:, 7] * z * z + 2 * Q[:, 8] * z
+            + Q[:, 9])
+
+
+def _edge_entries(Qv, Pn, v1, v2):
+    """_push_edge for many edges at once (every version 0): the heap entries,
+    in order."""
+    if len(v1) == 0:
+        return []
+    Q1, Q2 = Qv[v1], Qv[v2]
+    a00 = Q1[:, 0] + Q2[:, 0]
+    a01 = Q1[:, 1] + Q2[:, 1]
+    a02 = Q1[:, 2] + Q2[:, 2]
+    a11 = Q1[:, 4] + Q2[:, 4]
+    a12 = Q1[:, 5] + Q2[:, 5]
+    a22 = Q1[:, 7] + Q2[:, 7]
+    b0 = -(Q1[:, 3] + Q2[:, 3])
+    b1 = -(Q1[:, 6] + Q2[:, 6])
+    b2 = -(Q1[:, 8] + Q2[:, 8])
+    det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02)
+    max_el = _pymax(np.abs(a00), np.abs(a01), np.abs(a02), np.abs(a11), np.abs(a12), np.abs(a22))
+    thr = max_el * max_el * max_el * 1e-10
+    solve = ~(np.abs(det) < _pymax(thr, np.full_like(thr, 1e-30)))
+    with np.errstate(all="ignore"):
+        inv = 1 / det
+        sx = inv * (b0 * (a11 * a22 - a12 * a12) - a01 * (b1 * a22 - a12 * b2) + a02 * (b1 * a12 - a11 * b2))
+        sy = inv * (a00 * (b1 * a22 - a12 * b2) - b0 * (a01 * a22 - a12 * a02) + a02 * (a01 * b2 - b1 * a02))
+        sz = inv * (a00 * (a11 * b2 - b1 * a12) - a01 * (a01 * b2 - b1 * a02) + b0 * (a01 * a12 - a11 * a02))
+    P1, P2 = Pn[v1], Pn[v2]
+    x1, y1, z1 = P1[:, 0], P1[:, 1], P1[:, 2]
+    x2, y2, z2 = P2[:, 0], P2[:, 1], P2[:, 2]
+    mx, my, mz = (x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2
+    e1 = _eval_qv(Q1, x1, y1, z1) + _eval_qv(Q2, x1, y1, z1)
+    e2 = _eval_qv(Q1, x2, y2, z2) + _eval_qv(Q2, x2, y2, z2)
+    em = _eval_qv(Q1, mx, my, mz) + _eval_qv(Q2, mx, my, mz)
+    e_min = _pymin(e1, e2, em)
+    tol = e_min * 1e-2 + 1e-12
+    use_m = em <= e_min + tol
+    use_1 = ~use_m & (e1 <= e2)
+    px = np.where(solve, sx, np.where(use_m, mx, np.where(use_1, x1, x2)))
+    py = np.where(solve, sy, np.where(use_m, my, np.where(use_1, y1, y2)))
+    pz = np.where(solve, sz, np.where(use_m, mz, np.where(use_1, z1, z2)))
+    cost = _eval_qv(Q1, px, py, pz) + _eval_qv(Q2, px, py, pz)
+    dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+    cost = cost + (dx * dx + dy * dy + dz * dz) * 1e-8
+    zero = [0] * len(v1)
+    return list(zip(cost.tolist(), v1.tolist(), v2.tolist(), zero, zero, px.tolist(), py.tolist(), pz.tolist()))
 
 
 def _push_edge(heap, Q, P, version, v1, v2):
     o1 = v1 * 10
     o2 = v2 * 10
-    a00 = Q[o1] + Q[o2]
-    a01 = Q[o1 + 1] + Q[o2 + 1]
-    a02 = Q[o1 + 2] + Q[o2 + 2]
-    a11 = Q[o1 + 4] + Q[o2 + 4]
-    a12 = Q[o1 + 5] + Q[o2 + 5]
-    a22 = Q[o1 + 7] + Q[o2 + 7]
-    b0 = -(Q[o1 + 3] + Q[o2 + 3])
-    b1 = -(Q[o1 + 6] + Q[o2 + 6])
-    b2 = -(Q[o1 + 8] + Q[o2 + 8])
+    q0, q1, q2, q3, q4, q5, q6, q7, q8, q9 = Q[o1:o1 + 10]
+    r0, r1, r2, r3, r4, r5, r6, r7, r8, r9 = Q[o2:o2 + 10]
+    a00 = q0 + r0
+    a01 = q1 + r1
+    a02 = q2 + r2
+    a11 = q4 + r4
+    a12 = q5 + r5
+    a22 = q7 + r7
+    b0 = -(q3 + r3)
+    b1 = -(q6 + r6)
+    b2 = -(q8 + r8)
     det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02)
     max_el = max(abs(a00), abs(a01), abs(a02), abs(a11), abs(a12), abs(a22))
     thr = max_el * max_el * max_el * 1e-10
+    i1 = v1 * 3
+    i2 = v2 * 3
+    x1, y1, z1 = P[i1], P[i1 + 1], P[i1 + 2]
+    x2, y2, z2 = P[i2], P[i2 + 1], P[i2 + 2]
     if not (abs(det) < max(thr, 1e-30)):
         inv = 1 / det
         px = inv * (b0 * (a11 * a22 - a12 * a12) - a01 * (b1 * a22 - a12 * b2) + a02 * (b1 * a12 - a11 * b2))
         py = inv * (a00 * (b1 * a22 - a12 * b2) - b0 * (a01 * a22 - a12 * a02) + a02 * (a01 * b2 - b1 * a02))
         pz = inv * (a00 * (a11 * b2 - b1 * a12) - a01 * (a01 * b2 - b1 * a02) + b0 * (a01 * a12 - a11 * a02))
     else:
-        x1, y1, z1 = P[v1 * 3], P[v1 * 3 + 1], P[v1 * 3 + 2]
-        x2, y2, z2 = P[v2 * 3], P[v2 * 3 + 1], P[v2 * 3 + 2]
+        # _eval_q(Q, o1, ..) + _eval_q(Q, o2, ..) at the ends and the midpoint, inlined.
+        x, y, z = x1, y1, z1
+        e1 = ((q0 * x * x + 2 * q1 * x * y + 2 * q2 * x * z + 2 * q3 * x + q4 * y * y + 2 * q5 * y * z
+               + 2 * q6 * y + q7 * z * z + 2 * q8 * z + q9)
+              + (r0 * x * x + 2 * r1 * x * y + 2 * r2 * x * z + 2 * r3 * x + r4 * y * y + 2 * r5 * y * z
+                 + 2 * r6 * y + r7 * z * z + 2 * r8 * z + r9))
+        x, y, z = x2, y2, z2
+        e2 = ((q0 * x * x + 2 * q1 * x * y + 2 * q2 * x * z + 2 * q3 * x + q4 * y * y + 2 * q5 * y * z
+               + 2 * q6 * y + q7 * z * z + 2 * q8 * z + q9)
+              + (r0 * x * x + 2 * r1 * x * y + 2 * r2 * x * z + 2 * r3 * x + r4 * y * y + 2 * r5 * y * z
+                 + 2 * r6 * y + r7 * z * z + 2 * r8 * z + r9))
         mx, my, mz = (x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2
-        e1 = _eval_q(Q, o1, x1, y1, z1) + _eval_q(Q, o2, x1, y1, z1)
-        e2 = _eval_q(Q, o1, x2, y2, z2) + _eval_q(Q, o2, x2, y2, z2)
-        em = _eval_q(Q, o1, mx, my, mz) + _eval_q(Q, o2, mx, my, mz)
+        x, y, z = mx, my, mz
+        em = ((q0 * x * x + 2 * q1 * x * y + 2 * q2 * x * z + 2 * q3 * x + q4 * y * y + 2 * q5 * y * z
+               + 2 * q6 * y + q7 * z * z + 2 * q8 * z + q9)
+              + (r0 * x * x + 2 * r1 * x * y + 2 * r2 * x * z + 2 * r3 * x + r4 * y * y + 2 * r5 * y * z
+                 + 2 * r6 * y + r7 * z * z + 2 * r8 * z + r9))
         e_min = min(e1, e2, em)
         tol = e_min * 1e-2 + 1e-12
         if em <= e_min + tol:
@@ -514,8 +639,12 @@ def _push_edge(heap, Q, P, version, v1, v2):
             px, py, pz = x1, y1, z1
         else:
             px, py, pz = x2, y2, z2
-    cost = _eval_q(Q, o1, px, py, pz) + _eval_q(Q, o2, px, py, pz)
-    dx = P[v2 * 3] - P[v1 * 3]
-    dy = P[v2 * 3 + 1] - P[v1 * 3 + 1]
-    dz = P[v2 * 3 + 2] - P[v1 * 3 + 2]
+    x, y, z = px, py, pz
+    cost = ((q0 * x * x + 2 * q1 * x * y + 2 * q2 * x * z + 2 * q3 * x + q4 * y * y + 2 * q5 * y * z
+             + 2 * q6 * y + q7 * z * z + 2 * q8 * z + q9)
+            + (r0 * x * x + 2 * r1 * x * y + 2 * r2 * x * z + 2 * r3 * x + r4 * y * y + 2 * r5 * y * z
+               + 2 * r6 * y + r7 * z * z + 2 * r8 * z + r9))
+    dx = x2 - x1
+    dy = y2 - y1
+    dz = z2 - z1
     heap.push((cost + (dx * dx + dy * dy + dz * dz) * 1e-8, v1, v2, version[v1], version[v2], px, py, pz))
