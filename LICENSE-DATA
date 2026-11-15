@@ -1,0 +1,9 @@
+The data files of Texturizer for FreeCAD (texturizer/data/*.json and their
+schemas) are licensed under the Creative Commons Attribution 4.0
+International licence (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+You may share and adapt them for any purpose, giving credit ("Texturizer for
+FreeCAD data") and saying what you changed. Entries derived from others'
+work name their source in their own "source" field.
+
+The code is licensed separately, under AGPL-3.0-only (LICENSE).

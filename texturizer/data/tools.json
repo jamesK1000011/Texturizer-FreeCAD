@@ -1,0 +1,80 @@
+{
+ "dataVersion": "1.0.0",
+ "licence": "CC-BY-4.0",
+ "about": "Texturizer's tools for agents (through Agent Link): name, what it does, its arguments as JSON Schema, its group, whether it changes the document.",
+ "entries": {
+  "texture_prepare": {
+   "group": "texture",
+   "description": "A body made ready for a surface texture by BumpMesh: an STL written face by face from one mesh of the whole part, and a mask file of the triangles of faces (names or queries) — mode include (texture only them: a grip) or exclude (all but them: keep a mating face plain). Answers the bumpmesh_texture_file call to make with it, then how to check the result against the body.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string"
+     },
+     "faces": {},
+     "mode": {
+      "type": "string",
+      "enum": [
+       "include",
+       "exclude"
+      ]
+     },
+     "tolerance": {
+      "type": "number"
+     },
+     "path": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "faces"
+    ],
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Written for Agent Link for FreeCAD's draft tools; moved to Texturizer 14 Nov 2026",
+   "date": "2026-11-14",
+   "heavy": true,
+   "writes": true
+  },
+  "texture_check": {
+   "group": "texture",
+   "description": "Check a textured STL against the body it was made from, face by face: on each face the texture was for, the share of points moved and how deep (p95, out, into); leaked — faces meant to stay plain that moved (a mating face, a datum); bare — faces meant for texture that barely moved; and whether the mesh is closed. path: the textured STL; mask: texture_prepare's -mask.json (found beside it by name); tolerance as texture_prepare used. verdict ok or check. Changes nothing.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string"
+     },
+     "path": {
+      "type": "string"
+     },
+     "mask": {
+      "type": "string"
+     },
+     "tolerance": {
+      "type": "number"
+     },
+     "flat": {
+      "type": "number",
+      "description": "mm a point may move and count as unmoved (0.01)."
+     },
+     "reach": {
+      "type": "number"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Written for Agent Link for FreeCAD's draft tools; moved to Texturizer 14 Nov 2026",
+   "date": "2026-11-14"
+  }
+ }
+}

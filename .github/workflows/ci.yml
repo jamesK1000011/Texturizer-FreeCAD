@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Texturizer's tests on the newest FreeCAD conda-forge has and the newest
+# 1.0: alone (its API, no agent), then with Agent Link beside it.
+name: Texturizer tests
+
+on:
+  push:
+    branches: [main, 'test-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ['newest', '1.0']
+    name: freecad-${{ matrix.series }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: jamesK1000011/AgentLink-FreeCAD
+          path: agentlink-addon
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: fc-${{ matrix.series }}
+          create-args: >-
+            -c conda-forge
+            ${{ matrix.series == 'newest' && 'freecad' || format('freecad={0}', matrix.series) }}
+            python=3.11
+            numpy
+          cache-environment: true
+      - name: FreeCAD imports
+        run: |
+          echo "FREECAD_LIB=$CONDA_PREFIX/lib" >> "$GITHUB_ENV"
+          python -c "import sys; sys.path.append('$CONDA_PREFIX/lib'); import FreeCAD, Part; print('FreeCAD', FreeCAD.Version()[:3])"
+      - name: Alone (no Agent Link)
+        # Not exit: a login shell's exit runs ~/.bash_logout.
+        run: |
+          code=0
+          python -X faulthandler -m unittest discover -s tests -v || code=$?
+          test "$code" -eq 0
+      - name: With Agent Link beside it
+        run: |
+          code=0
+          PYTHONPATH="$GITHUB_WORKSPACE/agentlink-addon" python -X faulthandler -m unittest discover -s tests -v || code=$?
+          test "$code" -eq 0
