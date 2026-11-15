@@ -204,6 +204,9 @@ class QWidget(_Base):
     def closeEvent(self, ev):  # noqa: N802
         pass
 
+    def setGeometry(self, r):  # noqa: N802
+        self.geom = r
+
     def width(self):
         return 0
 

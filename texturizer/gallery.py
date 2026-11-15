@@ -246,7 +246,13 @@ if QtWidgets is not None:
     class ReflowGrid(QtWidgets.QWidget):
         """Equal-width cells laid out in as many columns as the width takes
         (columns_for), so a narrow dock shows fewer columns rather than a
-        horizontal scrollbar or clipped tiles. The caller owns the widgets."""
+        horizontal scrollbar or clipped tiles. The caller owns the widgets.
+
+        It places its cells itself and has no QLayout: Qt's QWidgetItem asks a
+        widget that has a layout for that layout's height-for-width (a grid of
+        fixed tiles has none, so 0) and never calls the widget's own
+        heightForWidth. With a QGridLayout here the gallery's column of grids
+        got zero height in the sidebar: headers only, no tiles."""
 
         def __init__(self, most=None, parent=None):
             super().__init__(parent)
@@ -254,17 +260,11 @@ if QtWidgets is not None:
             self.items = []
             self.cell = QtCore.QSize(1, 1)
             self.cols = 0
-            self.grid = QtWidgets.QGridLayout(self)
-            self.grid.setContentsMargins(0, 0, 0, 0)
-            self.grid.setSpacing(SPACING)
-            self.grid.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
             sp = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
             sp.setHeightForWidth(True)
             self.setSizePolicy(sp)
 
         def set_items(self, widgets):
-            while self.grid.count():
-                self.grid.takeAt(0)
             self.items = list(widgets)
             w = h = 1
             for x in self.items:
@@ -272,20 +272,22 @@ if QtWidgets is not None:
                 w, h = max(w, hint.width()), max(h, hint.height())
             self.cell = QtCore.QSize(w, h)
             for x in self.items:
+                if x.parentWidget() is not self:
+                    x.setParent(self)
                 x.setFixedWidth(w)  # equal cells: even gaps between columns
+                x.show()
             self.cols = 0
             self._place(self.width() if self.width() > w else (self.most or COLUMNS) * (w + SPACING))
+            self.updateGeometry()
 
         def _place(self, width):
             n = columns_for(width, self.cell.width(), SPACING, self.most)
-            if n == self.cols:
-                return
-            self.cols = n
-            while self.grid.count():
-                self.grid.takeAt(0)
+            cw, ch = self.cell.width(), self.cell.height()
             for k, x in enumerate(self.items):
-                self.grid.addWidget(x, k // n, k % n)
-            self.updateGeometry()
+                x.setGeometry(QtCore.QRect((k % n) * (cw + SPACING), (k // n) * (ch + SPACING), cw, ch))
+            if n != self.cols:
+                self.cols = n
+                self.updateGeometry()  # the height for this width changed
 
         def resizeEvent(self, ev):  # noqa: N802
             super().resizeEvent(ev)
