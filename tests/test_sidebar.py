@@ -406,6 +406,14 @@ class SidebarWidget(unittest.TestCase):
         sb.favgrid.tiles[0].click()
         self.assertEqual(d.layer()["texture"], "knurling")
         self.assertIn("Knurling", sb.credit_line.text())
+        self.assertEqual(sb.favgrid.flow.items, sb.favgrid.tiles)  # the reflowing grid holds the tiles
+        self.assertLessEqual(sb.favgrid.flow.cols, self.gallery.COLUMNS)
+
+    def test_dock_fits_its_content(self):
+        d, sb = self.make()
+        self.assertEqual(self.sidebar.min_dock_width(300, 15, 1), 317)
+        self.assertGreater(sb.fit_width(), 0)
+        self.assertTrue(sb.credit.text().startswith(self.gallery.BUMPMESH_CREDIT))
 
 
 # -- gallery.py ----------------------------------------------------------------------
@@ -447,6 +455,16 @@ class GalleryFilter(unittest.TestCase):
         f.reset(fake_library())
         self.assertNotIn("bark", self.g.Favourites(path=path).ids)
 
+    def test_columns_follow_width(self):
+        c = self.g.columns_for
+        self.assertEqual(c(0, 80), 1)  # never none, even before the dock is shown
+        self.assertEqual(c(79, 80), 1)
+        self.assertEqual(c(80 * 2 + self.g.SPACING, 80), 2)
+        self.assertEqual(c(80 * 2 + self.g.SPACING - 1, 80), 1)
+        self.assertEqual(c(1000, 80), 11)
+        self.assertEqual(c(1000, 80, most=4), 4)  # the sidebar's favourites stay BumpMesh's 4 at most
+        self.assertEqual([self.g.rows_for(n, 3) for n in (0, 1, 3, 4, 7)], [0, 1, 1, 2, 3])
+
 
 class GalleryDock(unittest.TestCase):
     @classmethod
@@ -484,6 +502,31 @@ class GalleryDock(unittest.TestCase):
         self.assertIn("Stefan Hermann (CNC Kitchen)", g.credits.text())
         g.done.click()
         self.assertTrue(g.isHidden())
+
+    def test_layout_and_turntable(self):
+        spins = []
+        ok = [True]
+
+        def spin(on):
+            spins.append(on)
+            return ok[0]
+
+        fav = self.gallery.Favourites(path=os.path.join(tempfile.mkdtemp(), "f.json"), entries=fake_library())
+        g = self.gallery.GalleryDock(fake_library, fav, draft=draft.Draft(), spin=spin)
+        body = g.widget().children_widgets()
+        # The dock's title bar names it; the body has no second Texture Gallery.
+        self.assertNotIn("Texture Gallery", [w.text() for w in body if isinstance(w, self.gallery.QtWidgets.QLabel)])
+        self.assertIn(g.hint, body)  # the hint has its own row, not squeezed beside the count
+        self.assertIsInstance(g.fav_reset, self.gallery.QtWidgets.QPushButton)
+        self.assertTrue(g.turntable.isEnabled())
+        g.turntable.click()
+        self.assertEqual(spins, [True])
+        self.assertTrue(g.turntable.isChecked())
+        g.close()  # closing the gallery stops the spin
+        self.assertEqual(spins, [True, False])
+        ok[0] = False  # no 3D view: the button does not stay pressed
+        g.turntable.click()
+        self.assertFalse(g.turntable.isChecked())
 
 
 if __name__ == "__main__":

@@ -19,9 +19,9 @@ HEADER = [("Texturizer_Undo", "undo"), ("Texturizer_Redo", "redo"), ("Texturizer
           ("Texturizer_Gallery", "textureGallery"), ("Texturizer_ExportSTL", "exportStl"),
           ("Texturizer_Export3MF", "export3mf")]
 # FreeCAD's own view commands under BumpMesh's labels (its viewport overlay).
-VIEW = [("Texturizer_Wireframe", "Wireframe", "Std_DrawStyle: Wireframe, again for As is."),
-        ("Texturizer_Perspective", "Perspective View", "Perspective or orthographic camera (FreeCAD's own)."),
-        ("Texturizer_Section", "Section View", "FreeCAD's clipping plane (Std_ToggleClipPlane).")]
+VIEW = [("Texturizer_Wireframe", "Wireframe", "Show the model as wireframe; press again for its normal look."),
+        ("Texturizer_Perspective", "Perspective View", "Switch between perspective and orthographic camera."),
+        ("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane.")]
 # A toolbar button's tooltip says what it does, then the sidebar's own
 # BumpMesh tooltip (kept word for word), then the credit. Where BumpMesh's
 # tooltip only repeats the name, the first part carries the meaning.

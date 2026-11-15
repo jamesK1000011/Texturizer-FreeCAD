@@ -28,6 +28,8 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ### Changed
 
+- Settings sidebar and Texture Gallery fit their dock: no horizontal scrollbar, texture tiles reflow to the width (at most BumpMesh's 4 in the sidebar) with even gaps, the layer name gives way before the row's buttons, and the dock's minimum width is the content's. The gallery's hint has its own row, Reset favorites is a button, the body no longer repeats the dock's title, and Turntable works (spins the 3D view while you browse). The view commands' tooltips say what they do.
+
 - `texture_apply` with `layers`: a layer without its own `texture`, `faces` or `mode` takes the top-level one (they were ignored, so the whole body was textured); a layer that gives a different one, or a setting outside `settings`, is refused. Top-level layer settings are every layer's defaults.
 - Bake Textures runs BumpMesh's bake pipeline: no decimation, so the baked
   mesh keeps the triangles the mask refers to. Textured objects made by a bake
