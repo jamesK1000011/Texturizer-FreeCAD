@@ -147,6 +147,11 @@ class QGridLayout(_Layout):
 
 
 class QWidget(_Base):
+    def scroll(self, dx=0, dy=0, *a):
+        """Real QWidget has a scroll() method: an attribute named scroll
+        read before it is set finds this, as it does in FreeCAD."""
+        return None
+
     def __init__(self, parent=None, *a):
         super().__init__()
         self._visible, self._enabled, self._tip, self._layout, self._parent = True, True, "", None, parent

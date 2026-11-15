@@ -440,14 +440,20 @@ if QtWidgets is not None:
             Button rows wrap (FlowLayout), so the content's minimum is its
             widest single control. Run again once shown: the theme's
             stylesheet makes buttons wider than they were when built."""
-            sb = self.scroll.verticalScrollBar()
+            # Called from _fill too, which runs in __init__ before the scroll
+            # area is made: then there is nothing to measure yet (it crashed
+            # every open on the Mac: self.scroll was QWidget.scroll).
+            scroll = self.__dict__.get("scroll")
+            if scroll is None or not hasattr(scroll, "verticalScrollBar"):
+                return 0
+            sb = scroll.verticalScrollBar()
             bar = sb.sizeHint().width()
             try:
                 bar = max(bar, sb.style().pixelMetric(QtWidgets.QStyle.PM_ScrollBarExtent, None, sb))
             except (AttributeError, TypeError):
                 pass
-            w = min_dock_width(self.body.minimumSizeHint().width(), bar, self.scroll.frameWidth())
-            self.scroll.setMinimumWidth(w)
+            w = min_dock_width(self.body.minimumSizeHint().width(), bar, scroll.frameWidth())
+            scroll.setMinimumWidth(w)
             return w
 
         def showEvent(self, ev):  # noqa: N802 (Qt)
