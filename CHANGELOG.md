@@ -11,6 +11,8 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ### Added
 
+- Paint brush, ported from BumpMesh: Single / Circle, Size, Hardness (soft coverage per vertex), Shift to erase, one undo step per stroke; Fill on meshes; `texture_mask { paint, fill }`. Painted masks round-trip `.bumpmesh` projects exactly. Precision mode comes later.
+
 - Bake Textures: Mask just-baked faces, as BumpMesh does it. After a bake,
   the fresh layer on the baked part starts with the faces just textured
   excluded, so the next pass doesn't texture them twice. Turn it off with the

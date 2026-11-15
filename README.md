@@ -121,7 +121,7 @@ the agent works. The list is generated from `texturizer/data/tools.json` by
 | `texture_settings` | texture | BumpMesh's settings: names, defaults, units, mapping modes 0-8, layer and run keys. |
 | `texture_draft` | texture | Start or read the texture draft, the one the Texturizer sidebar shows: part, draft, reset, project. |
 | `texture_set` | texture | Change the draft: texture, settings by BumpMesh's names for the layer and the run, frame, cylinder, stamp, active. |
-| `texture_mask` | texture | BumpMesh's Masking, By Surface, for one layer: mode exclude or include, add or remove faces, add_by, fill, triangles, clear. |
+| `texture_mask` | texture | BumpMesh's Masking, By Surface, for one layer: mode exclude or include, add or remove faces, add_by, fill, triangles, paint, clear. |
 | `texture_layer` | texture | BumpMesh's layer strip: add, remove, move, solo, visible, blend, name, active. |
 | `texture_preview` | texture | Build the CPU preview of the draft with BumpMesh's engine and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and … |
 | `texture_apply` | texture | Add to document / Update / Bake Textures with BumpMesh's engine, ported to Python and run inside FreeCAD; the body is never changed. |

@@ -381,7 +381,17 @@ class SidebarWidget(unittest.TestCase):
         sb.binds["clearAll"].widgets[0].click()
         self.assertEqual(d.mask_count(), 0)
         brush = dict(sb.binds["exclusionTool"].buttons)["brush"]
-        self.assertFalse(brush.isEnabled())  # later (phase P2)
+        self.assertTrue(brush.isEnabled())  # the brush (P2, P3)
+        brush.click()
+        self.assertEqual(d.get("exclusionTool"), "brush")
+        for k in ("brushIsRadius", "brushPrecision", "brushSize", "brushHardness"):
+            self.assertTrue(sb.binds[k].row.isEnabled(), k)
+        modes = dict(sb.binds["brushPrecision"].buttons)
+        self.assertTrue(modes[False].isEnabled())
+        self.assertFalse(modes[True].isEnabled())  # Precision: later (P4)
+        self.assertEqual((d.get("brushPrecision"), d.get("brushSize"), d.get("brushHardness")), (False, 10, 50))
+        self.assertEqual(sb.binds["shiftHint"].label(), "Hold Shift to erase")
+        d.set("exclusionTool", None)
         sb.binds["rotate"].widgets[0].click()
         self.assertFalse(sb.binds["rotateX"].row.isHidden())
         sb.binds["rotateX"].box.setValue(90)

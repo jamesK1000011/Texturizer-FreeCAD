@@ -12,7 +12,8 @@ texture_* tools all edit.
     layers    up to MAX_LAYERS (4) layers, bottom first; each has id, name,
               texture (library id), visible, solo, blendAdd (Cover = False),
               includeOnly (By Surface mode), settings (BumpMesh's LAYER_KEYS)
-              and mask {faces: [face names], triangles: [indices]}
+              and mask {faces: [face names], triangles: [indices]}, plus
+              soft {corners, values} where the brush painted soft coverage
     active    the index of the layer the sidebar edits
     settings  global settings (resolution, triangle limit, angle masks,
               Advanced, preview)
@@ -61,6 +62,8 @@ def _clamp(c, v):
         return bool(v)
     if t in ("combo", "buttons"):
         allowed = [o["value"] for o in c.get("options") or []]
+        if v is None and c.get("default") is None and c["scope"] == "ui":
+            return None  # a tool pressed again: no tool (BumpMesh's Brush / Fill)
         if allowed and v not in allowed:
             raise ValueError(f"{c['key']}: {v!r} is not one of {allowed}")
         return v
@@ -393,10 +396,24 @@ class Draft:
         m["triangles"] = sorted(set(m["triangles"]) - rt)
         self._emit("mask", "remove", i, {"faces": rf, "triangles": sorted(rt)})
 
+    def mask_set(self, mask, layer=None, coalesce=None):
+        """Replace the layer's mask (a brush stroke, paint.py): one undo step;
+        calls with the same coalesce tag in a row (one drag) make one step."""
+        i = self.active if layer is None else layer
+        new = {"faces": list(mask.get("faces", [])), "triangles": sorted(int(t) for t in mask.get("triangles", []))}
+        if mask.get("soft"):
+            new["soft"] = {"corners": [int(c) for c in mask["soft"]["corners"]],
+                           "values": [float(v) for v in mask["soft"]["values"]]}
+        if new == self.layers[i]["mask"]:
+            return
+        self._push(coalesce=coalesce)
+        self.layers[i]["mask"] = new
+        self._emit("mask", "set", i, None)
+
     def mask_clear(self, layer=None):
         i = self.active if layer is None else layer
         m = self.layers[i]["mask"]
-        if not m["faces"] and not m["triangles"]:
+        if not m["faces"] and not m["triangles"] and not m.get("soft"):
             return
         self._push()
         self.layers[i]["mask"] = {"faces": [], "triangles": []}
@@ -454,6 +471,8 @@ class Draft:
             L["settings"] = s
             m = src.get("mask") or {}
             L["mask"] = {"faces": list(m.get("faces", [])), "triangles": sorted(int(t) for t in m.get("triangles", []))}
+            if m.get("soft"):
+                L["mask"]["soft"] = copy.deepcopy(m["soft"])
             self.layers.append(L)
             self._seq = max(self._seq, L["id"])
         self.active = min(max(0, int(data.get("active", 0))), len(self.layers) - 1)
