@@ -28,10 +28,10 @@ ORANGE = (0.85, 0.40, 0.15)
 STALE = (0.55, 0.57, 0.59)
 
 
-def runner(tool, args):
+def runner(tool, args, quiet=False):
     """The sidebar's runner: panel.run picks Agent Link's or the local one at
     call time (the hosted tab may be built after the sidebar)."""
-    return panel.run(tool, args)
+    return panel.run(tool, args, quiet=quiet)
 
 
 def _poster():
@@ -385,9 +385,9 @@ class Window:
     def _load_selection(self):
         d = live.draft()
         if self.selected_object():
-            runner("texture_draft", {"load": "selection"})
+            runner("texture_draft", {"load": "selection"}, quiet=True)  # the window's own, not a click
         elif d.part is None:
-            ok, _out = runner("texture_draft", {})  # the one body shown, if there is one
+            ok, _out = runner("texture_draft", {}, quiet=True)  # the one body shown, if there is one
             if not ok:
                 self.sidebar.say("Select a body, then Load Model…")
 

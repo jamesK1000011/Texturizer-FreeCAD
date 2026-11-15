@@ -71,5 +71,30 @@ class TexturePanel(unittest.TestCase):
             texturizer._hosted = was
 
 
+class QuietLoad(unittest.TestCase):
+    """Loading the selection as the workbench opens is the window's own
+    doing: under Agent Link it goes quiet (nothing shown, nothing in
+    Activity); a click is not quiet."""
+
+    def test_quiet_only_when_asked_and_supported(self):
+        from texturizer import panel
+
+        seen = []
+
+        def caller(tool, args, quiet=False):
+            seen.append((tool, quiet))
+            return True, {}
+
+        caller.quiet_ok = True
+        was = panel.HOST_CALL
+        panel.HOST_CALL = caller
+        try:
+            panel.run("texture_draft", {"load": "selection"}, quiet=True)
+            panel.run("texture_set", {})
+        finally:
+            panel.HOST_CALL = was
+        self.assertEqual(seen, [("texture_draft", True), ("texture_set", False)])
+
+
 if __name__ == "__main__":
     unittest.main()
