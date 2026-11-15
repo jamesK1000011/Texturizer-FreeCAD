@@ -29,7 +29,7 @@ except ImportError:
     AGENTLINK = None
 
 # FreeCAD's own icons the commands name (resolved by FreeCAD at runtime).
-FREECAD_ICONS = {"internet-web-browser"}
+FREECAD_ICONS = set()
 
 
 def tools_json():
@@ -187,8 +187,9 @@ class Echo(unittest.TestCase):
         self.assertEqual(a["WORKBENCHES"], {"texture_": "TexturizerWorkbench"})
         self.assertEqual(a["AREAS"], {"texture_": "Texture"})
         self.assertEqual(a["COMMANDS"], {"texture_prepare": commands.PREPARE, "texture_check": commands.CHECK})
-        for tool in tools_json():
+        for tool in ("texture_prepare", "texture_check"):  # the tools with a button
             self.assertIn(tool, a["COMMANDS"])
+        self.assertTrue(set(a["COMMANDS"]) <= set(tools_json()))
         self.assertTrue(set(a["COMMANDS"].values()) <= set(commands.NAMES))
 
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # The Texture panel: the last prepared files and the last check, with buttons
-# for Prepare, Check and Open BumpMesh. It is written against a runner,
+# for Prepare and Check. It is written against a runner,
 # runner(tool, args) -> (ok, result): under Agent Link the tab is hosted in
 # Agent Link's panel and runs tools through it (shown and logged as the
 # agent's are); alone it is Texturizer's own dock with the local runner
@@ -23,7 +23,6 @@ except ImportError:  # pragma: no cover — no GUI here
 TITLE = "Texture"
 NAME = "TexturizerTexture"
 DOCK = "TexturizerDock"
-BUMPMESH = "https://bumpmesh.com"
 
 # Set by the hosted tab (agentlink_families): Agent Link's panel._call.
 HOST_CALL = None
@@ -66,7 +65,7 @@ def refresh():
 def summary(check):
     """A check answer as short lines for the panel (pure: tested)."""
     if not check:
-        return ["No check yet: texture the prepared STL in BumpMesh, then Check textured mesh."]
+        return ["No check yet: texture the part (texture_apply), export an STL, then Check textured mesh."]
     lines = [f"{check.get('verdict', '?').upper()} — {os.path.basename(check.get('file') or '')} on {check.get('body', '')}, {check.get('depth', 0)} mm deep at most"]
     for face, row in sorted((check.get("texturedFaces") or {}).items()):
         lines.append(f"  {face}: {int(round(row.get('moved', 0) * 100))}% moved" + (f", p95 {row['p95']} mm" if "p95" in row else ""))
@@ -79,12 +78,6 @@ def summary(check):
     if check.get("far"):
         lines.append(f"  {check['far']['points']} points farther than reach {check['far']['reach']} mm")
     return lines
-
-
-def open_bumpmesh():
-    import webbrowser
-
-    webbrowser.open(BUMPMESH)
 
 
 if QtWidgets is not None:
@@ -112,8 +105,7 @@ if QtWidgets is not None:
             lay.addWidget(self.check)
             row = QtWidgets.QHBoxLayout()
             for text, tip, slot in (("Prepare…", "Prepare the selected faces for a texture. " + CREDIT, self._prepare),
-                                    ("Check…", "Check a textured STL against its body. " + CREDIT, self._check),
-                                    ("Open BumpMesh", "Open BumpMesh in the browser (nothing is uploaded). " + CREDIT, open_bumpmesh)):
+                                    ("Check…", "Check a textured STL against its body. " + CREDIT, self._check)):
                 b = QtWidgets.QPushButton(text)
                 b.setToolTip(tip)
                 b.clicked.connect(slot)

@@ -1,8 +1,143 @@
 {
  "dataVersion": "1.0.0",
  "licence": "CC-BY-4.0",
- "about": "Texturizer's tools for agents (through Agent Link): name, what it does, its arguments as JSON Schema, its group, whether it changes the document.",
+ "about": "Texturizer's tools for agents (through Agent Link): name, what it does, its arguments as JSON Schema, its group, whether it changes the document. The texturing is BumpMesh's engine (Stefan Hermann, CNC Kitchen) ported to Python.",
  "entries": {
+  "texture_list": {
+   "group": "texture",
+   "description": "BumpMesh's texture library as Texturizer ships it: id, name, category (geometric, patterns, organic, fabric, natural, grip, mold, tires, custom), credit and licence, and defaults (scaleU in mm). Filter by category or a name search. Changes nothing.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "category": {
+      "type": "string"
+     },
+     "search": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; the library is BumpMesh's (Stefan Hermann, CNC Kitchen)",
+   "date": "2026-11-14"
+  },
+  "texture_settings": {
+   "group": "texture",
+   "description": "BumpMesh's settings: names, defaults, units, mapping modes 0-8, layer and run keys. With a body (and texture, settings): the predicted triangle count and memory at refineLength, BumpMesh's suggested refineLength and maxTriangles for the texture, and a fitted cylinder axis. Changes nothing.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string"
+     },
+     "texture": {
+      "type": "string"
+     },
+     "settings": {
+      "type": "object",
+      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+     },
+     "tolerance": {
+      "type": "number"
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": false,
+   "source": "Texturizer for FreeCAD; settings and estimates ported from BumpMesh (Stefan Hermann, CNC Kitchen)",
+   "date": "2026-11-14"
+  },
+  "texture_apply": {
+   "group": "texture",
+   "description": "Texture a body with BumpMesh's engine, inside FreeCAD: a new Mesh object beside the body (the body is not changed), optionally written as STL or 3MF. One texture (texture, faces, mode) or up to 4 layers, bottom first, each {texture, settings, faces, mode include|exclude, blendAdd}; faces with mode include texture only them, exclude keeps them plain. settings: the run's and layer defaults (BumpMesh names). rotation [x, y, z] degrees: BumpMesh's Rotate, undone on the result. Answers triangles, repair (open and non-manifold edges), warnings and the credit. Refuses a run that would need more than memoryLimitGB (4).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string"
+     },
+     "texture": {
+      "type": "string"
+     },
+     "faces": {
+      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "include",
+       "exclude"
+      ]
+     },
+     "layers": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+       "type": "object",
+       "properties": {
+        "texture": {
+         "type": "string"
+        },
+        "settings": {
+         "type": "object",
+         "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+        },
+        "faces": {
+         "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
+        },
+        "mode": {
+         "type": "string",
+         "enum": [
+          "include",
+          "exclude"
+         ]
+        },
+        "blendAdd": {
+         "type": "boolean"
+        },
+        "visible": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "texture"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "settings": {
+      "type": "object",
+      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+     },
+     "rotation": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+     },
+     "export": {
+      "description": "A path ending .stl or .3mf (relative: the output folder), or {path, format}."
+     },
+     "name": {
+      "type": "string"
+     },
+     "tolerance": {
+      "type": "number"
+     },
+     "memoryLimitGB": {
+      "type": "number"
+     }
+    },
+    "additionalProperties": false
+   },
+   "changes": true,
+   "source": "Texturizer for FreeCAD; the engine is a port of BumpMesh by Stefan Hermann (CNC Kitchen), AGPL-3.0",
+   "date": "2026-11-14",
+   "heavy": true
+  },
   "texture_prepare": {
    "group": "texture",
    "description": "A body made ready for a surface texture by BumpMesh: an STL written face by face from one mesh of the whole part, and a mask file of the triangles of faces (names or queries) — mode include (texture only them: a grip) or exclude (all but them: keep a mating face plain). Answers the bumpmesh_texture_file call to make with it, then how to check the result against the body.",

@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Texturizer's FreeCAD commands, no agent needed: Prepare for texture (the
 # selected faces written as an STL and a mask), Check textured mesh (the
-# textured STL measured against its body), Open BumpMesh (the site, in the
-# browser; nothing is uploaded) and the Texture panel. Each runs the same
-# handler the agent's tool does, through the panel's runner. Based on BumpMesh
-# by Stefan Hermann (CNC Kitchen).
+# textured STL measured against its body) and the Texture panel. Each runs
+# the same handler the agent's tool does, through the panel's runner. The
+# texturing is BumpMesh's engine (Stefan Hermann, CNC Kitchen) in
+# texturizer.engine, run in FreeCAD.
 import os
 
 from . import CREDIT, handlers, panel
 
-PREPARE, CHECK, BUMPMESH, PANEL = "Texturizer_Prepare", "Texturizer_Check", "Texturizer_OpenBumpMesh", "Texturizer_Panel"
-NAMES = [PREPARE, CHECK, BUMPMESH, PANEL]
+PREPARE, CHECK, PANEL = "Texturizer_Prepare", "Texturizer_Check", "Texturizer_Panel"
+NAMES = [PREPARE, CHECK, PANEL]
 
 
 def faces_from_selection(sel):
@@ -24,7 +24,7 @@ def faces_from_selection(sel):
 
 
 def default_check_path():
-    """The textured STL BumpMesh is told to write for the last prepared file."""
+    """The textured STL named for the last prepared file."""
     last = (handlers.LAST["prepared"] or [{}])[0]
     stl = last.get("stl")
     return (os.path.splitext(stl)[0].replace("-for-texture", "") + "-textured.stl") if stl else ""
@@ -230,18 +230,6 @@ class _Check:
         show_check()
 
 
-class _OpenBumpMesh:
-    def GetResources(self):
-        return {"Pixmap": "internet-web-browser", "MenuText": "Open BumpMesh",
-                "ToolTip": f"Open BumpMesh ({panel.BUMPMESH}) in the browser to texture the prepared STL; nothing is uploaded from FreeCAD. " + CREDIT}
-
-    def IsActive(self):
-        return True
-
-    def Activated(self):
-        panel.open_bumpmesh()
-
-
 class _Panel:
     def GetResources(self):
         return {"Pixmap": "Texturizer_Workbench", "MenuText": "Texture panel",
@@ -257,6 +245,6 @@ class _Panel:
 def register():
     import FreeCADGui
 
-    for name, cmd in ((PREPARE, _Prepare()), (CHECK, _Check()), (BUMPMESH, _OpenBumpMesh()), (PANEL, _Panel())):
+    for name, cmd in ((PREPARE, _Prepare()), (CHECK, _Check()), (PANEL, _Panel())):
         FreeCADGui.addCommand(name, cmd)
     return NAMES
