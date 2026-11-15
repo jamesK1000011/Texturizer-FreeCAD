@@ -1,0 +1,344 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 the Texturizer for FreeCAD contributors.
+# Part of Texturizer for FreeCAD, based on BumpMesh by Stefan Hermann
+# (CNC Kitchen), AGPL-3.0, github.com/CNCKitchen/stlTexturizer. The staged
+# preview follows runPreviewPipeline / choosePreviewEdge in
+# js/previewPipeline.js.
+"""The live-preview controller (design 3.2 to 3.6).
+
+PreviewController(engine, draft, view, quicklook_ok=...) follows the draft:
+each change bumps a generation counter, drops the stage cache from the stage
+the change touches (STAGE_OF), and after a 150 ms debounce (commit(): at
+once) runs engine.preview on one worker thread. Results of an older
+generation are dropped. The Quick look (when the shader runs) is updated on
+every change and shown while a CPU job is pending; the CPU node replaces it
+when the latest result arrives (3.4 "When it shows").
+
+The engine is injected:
+
+    engine.preview(stage_inputs, progress, should_abort) -> result or None
+        stage_inputs  {"draft": draft.to_dict(), "rerun_from": stage,
+                       "cache": {stage: result of that stage} for the stages
+                       before rerun_from, "tri_budget": 500 k / 1.5 M,
+                       "memory_limit": bytes}
+        progress(stage, fraction)   from the worker
+        should_abort()              True once the job is stale
+        result        {"stages": {stage: reusable result}, "mesh": what
+                       view.show_cpu draws, "note": optional text (a coarser
+                       edge, say)}; None when aborted
+
+So is everything Qt or Coin, through the view object (all methods optional,
+called on the GUI thread):
+
+    show_cpu(mesh), set_cpu_visible(bool), set_cpu_stale(bool) (grey tint)
+    update_quicklook(stage), set_quicklook_visible(bool)
+    get_body_visible() -> bool, set_body_visible(bool)
+    progress(stage, fraction), note(text), lock_preview(on, text)
+    error(text)
+
+and the threads and timers through run_async(fn) (the worker),
+post(fn) (back to the GUI thread: a Qt signal) and schedule(seconds, fn) ->
+cancel(). The defaults use threading, for headless use and tests.
+"""
+import threading
+
+STAGES = ("subdivide", "map", "displace", "colours")
+TRI_BUDGET = {"draft": 500_000, "fine": 1_500_000}
+MEMORY_LIMIT = 1 << 30
+DEBOUNCE_S = 0.150
+NO_QUICKLOOK = "Quick look not available on this graphics setup"
+
+# Design 3.2: the stage each setting reruns from. Keys not listed (and not
+# ui ones) rerun from subdivide, the safe end.
+STAGE_OF = {
+    # subdivide
+    "part": "subdivide", "refineLength": "subdivide", "previewQuality": "subdivide",
+    "preserveUntextured": "subdivide", "maxTriangles": "subdivide", "harvestFlatFaces": "subdivide",
+    "harvestTol": "subdivide",
+    # map
+    "mappingMode": "map", "cylinderCenterX": "map", "cylinderCenterY": "map", "cylinderRadius": "map",
+    "frame": "map", "rotateX": "map", "rotateY": "map", "rotateZ": "map", "scaleU": "map", "scaleV": "map",
+    "offsetU": "map", "offsetV": "map", "rotation": "map", "rotateAroundZ": "map", "mappingBlend": "map",
+    "seamBandWidth": "map", "capAngle": "map", "snapSeamlessWrap": "map", "stampOnce": "map", "layers": "map",
+    # displace
+    "amplitude": "displace", "invertDisplacement": "displace", "symmetricDisplacement": "displace",
+    "textureSmoothing": "displace", "invertTexture": "displace", "texture": "displace",
+    "boundaryFalloff": "displace", "boundaryFalloffCurve": "displace", "layer": "displace",
+    "bottomAngleLimit": "displace", "topAngleLimit": "displace", "noDownwardZ": "displace",
+    "smoothBottom": "displace", "includeOnly": "displace",
+    # colours
+    "active": "colours",
+}
+NO_RERUN = {"lockScale", "bakeMask", "useDisplacement", "rotate", "exclusionTool", "brushIsRadius",
+            "brushPrecision", "brushSize", "brushHardness", "bucketThreshold"}
+
+
+def stage_for(event, draft=None):
+    """The stage a draft event reruns from, or None (nothing to rerun)."""
+    kind, key = event.get("kind"), event.get("key")
+    if kind == "set":
+        if key in NO_RERUN:
+            return None
+        return STAGE_OF.get(key, "subdivide")
+    if kind == "mask":
+        keep = draft is not None and draft.get("preserveUntextured")
+        return "subdivide" if keep else "displace"  # a new face set with Preserve Untextured
+    if kind in ("frame", "part", "layers", "layer", "texture", "active"):
+        return STAGE_OF[kind]
+    return "subdivide"  # reset, load, undo, redo
+
+
+def _thread(fn):
+    threading.Thread(target=fn, name="TexturizerPreview", daemon=True).start()
+
+
+def _timer(seconds, fn):
+    t = threading.Timer(seconds, fn)
+    t.daemon = True
+    t.start()
+    return t.cancel
+
+
+class _NullView:
+    def __getattr__(self, name):
+        if name == "get_body_visible":
+            return lambda: True
+        return lambda *a, **k: None
+
+
+class PreviewController:
+    def __init__(self, engine, draft, view=None, quicklook_ok=False, run_async=None, post=None,
+                 schedule=None, debounce=DEBOUNCE_S):
+        self.engine, self.draft = engine, draft
+        self.view = view or _NullView()
+        self.quicklook_ok = bool(quicklook_ok)
+        self.run_async = run_async or _thread
+        self.post = post or (lambda fn: fn())
+        self.schedule = schedule or _timer
+        self.debounce = debounce
+        self.gen = 0
+        self.cache = {}          # stage -> the engine's reusable result
+        self.dirty = "subdivide"  # the earliest stage changed since the last result
+        self.dropped = 0         # stale or aborted results dropped
+        self.running = None      # the generation the worker is on, or None
+        self.has_cpu = False     # the CPU node holds a mesh
+        self._pending = False    # a job waits for the worker
+        self._cancel_timer = None
+        self._body = None
+        self._unsub = None
+        self.showing = None      # "quicklook", "cpu", "body" or None (closed)
+
+    # -- state ---------------------------------------------------------------
+    def _v(self, name, *a):
+        fn = getattr(self.view, name, None)
+        return fn(*a) if fn else None
+
+    @property
+    def cpu_mode(self):
+        """3D Preview on, or no shader (3.5: the CPU preview carries both)."""
+        return bool(self.draft.get("useDisplacement")) or not self.quicklook_ok
+
+    @property
+    def current(self):
+        """The CPU node shows the latest settings."""
+        return self.has_cpu and self.dirty is None and self.running is None
+
+    def _show(self, what):
+        self.showing = what
+        self._v("set_quicklook_visible", what == "quicklook")
+        self._v("set_cpu_visible", what == "cpu")
+        self._v("set_body_visible", what == "body" or (what is None and bool(self._body)))
+
+    # -- open / close ----------------------------------------------------------
+    def open(self):
+        """Records the body's visibility (3.6); Quick look at once, or the
+        plain body with mask colours while the first CPU job runs."""
+        self._body = self._v("get_body_visible")
+        self._unsub = self.draft.subscribe(self.on_draft)
+        if self.quicklook_ok:
+            self._v("update_quicklook", "subdivide")
+        else:
+            self._v("lock_preview", True, NO_QUICKLOOK)
+        self._resume()
+        if self.cpu_mode:
+            self._start()
+
+    def _resume(self):
+        if self.quicklook_ok:
+            self._show("quicklook")
+        elif self.has_cpu:
+            self._show("cpu")
+            self._v("set_cpu_stale", True)
+        else:
+            self._show("body")
+
+    def close(self):
+        self._stop()
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        self._show(None)
+
+    def cancel(self):
+        """Cancel: the job stops and the body comes back (3.6)."""
+        self._stop()
+        self._v("progress", None, 0.0)
+        self._show(None)
+
+    def _stop(self):
+        self.gen += 1
+        self._pending = False
+        self._cancel_pending_timer()
+
+    def _cancel_pending_timer(self):
+        if self._cancel_timer:
+            self._cancel_timer()
+            self._cancel_timer = None
+
+    # -- changes -----------------------------------------------------------------
+    def on_draft(self, event):
+        if event.get("kind") == "set" and event.get("key") == "useDisplacement":
+            return self._toggle_3d()
+        stage = stage_for(event, self.draft)
+        if stage is None:
+            return
+        if self.quicklook_ok:
+            self._v("update_quicklook", stage)  # uniforms only: < 16 ms a frame
+        self.request(stage)
+
+    def _toggle_3d(self):
+        if not self.cpu_mode:  # off, with the shader: the Quick look only
+            self._stop()
+            self._show("quicklook")
+        elif self.current:
+            self._show("cpu")
+        else:
+            self._start()
+
+    def request(self, stage, immediate=False):
+        """A change touching stage: bumps the generation (a running job goes
+        stale), drops the cache from stage on, and in CPU mode runs after the
+        debounce (immediate: at once)."""
+        self.gen += 1
+        i = STAGES.index(stage)
+        for s in STAGES[i:]:
+            self.cache.pop(s, None)
+        if self.dirty is None or i < STAGES.index(self.dirty):
+            self.dirty = stage
+        if self.showing is None:  # after Cancel or an error, a change resumes
+            if not self._unsub:
+                return
+            self._resume()
+        if not self.cpu_mode:
+            return
+        if stage != "colours" and self.showing == "cpu":
+            if self.quicklook_ok:
+                self._show("quicklook")  # the stale CPU node hides while dragging
+            else:
+                self._v("set_cpu_stale", True)  # 3.5: the last preview stays, grey
+        self._cancel_pending_timer()
+        if immediate:
+            self._start()
+        else:
+            self._cancel_timer = self.schedule(self.debounce, lambda: self.post(self._start))
+
+    def commit(self):
+        """Enter in a box: what waits for the debounce runs now."""
+        if self._cancel_timer:
+            self._cancel_pending_timer()
+            self._start()
+
+    # -- the worker ------------------------------------------------------------------
+    def rerun_from(self):
+        """The first stage to run: the first one missing from the cache, or
+        the earliest changed one; None when the CPU result is current."""
+        for s in STAGES:
+            if s not in self.cache:
+                return s
+        return self.dirty
+
+    def _start(self):
+        self._cancel_timer = None
+        if not self.cpu_mode or self.showing is None:
+            return
+        if self.running is not None:
+            self._pending = True  # one worker: this runs when the stale job stops
+            return
+        start = self.rerun_from()
+        if start is None:
+            return self._swap()
+        gen = self.gen
+        quality = self.draft.get("previewQuality") or "draft"
+        inputs = {"draft": self.draft.to_dict(), "rerun_from": start,
+                  "cache": {s: self.cache[s] for s in STAGES[:STAGES.index(start)]},
+                  "tri_budget": TRI_BUDGET.get(quality, TRI_BUDGET["draft"]), "memory_limit": MEMORY_LIMIT}
+        self.running = gen
+
+        def should_abort():
+            return gen != self.gen
+
+        def progress(stage, fraction):
+            self.post(lambda: self._progress(gen, stage, fraction))
+
+        def work():
+            try:
+                res, err = self.engine.preview(inputs, progress, should_abort), None
+            except Exception as e:  # reported on the GUI thread
+                res, err = None, e
+            self.post(lambda: self._done(gen, res, err))
+
+        self.run_async(work)
+
+    def _progress(self, gen, stage, fraction):
+        if gen == self.gen:
+            self._v("progress", stage, fraction)
+
+    def _done(self, gen, result, err):
+        self.running = None
+        if gen != self.gen or (result is None and err is None):
+            self.dropped += 1  # stale or aborted
+            if self._pending:
+                self._pending = False
+                self._start()
+            return
+        self._pending = False
+        if err is not None:
+            self._v("error", f"Preview failed: {err}")
+            self._v("progress", None, 0.0)
+            self._show(None)
+            return
+        self.cache.update({s: v for s, v in (result.get("stages") or {}).items() if s in STAGES})
+        self.dirty = None
+        self.has_cpu = True
+        if result.get("note"):
+            self._v("note", result["note"])
+        self._v("show_cpu", result.get("mesh"))
+        self._v("progress", None, 1.0)
+        self._swap()
+
+    def _swap(self):
+        self._v("set_cpu_stale", False)
+        if self.cpu_mode and self.has_cpu:
+            self._show("cpu")
+
+    # -- the shader at run time --------------------------------------------------------
+    def quicklook_failed(self, reason=""):
+        """The shader stopped working (a Coin error later on): the CPU
+        preview from now on, 3D Preview locked on (3.5)."""
+        if not self.quicklook_ok:
+            return
+        self.quicklook_ok = False
+        self._v("lock_preview", True, NO_QUICKLOOK)
+        if reason:
+            self._v("note", reason)
+        if self.showing is None:
+            return
+        if self.current:
+            self._show("cpu")
+            return
+        if self.has_cpu:
+            self._show("cpu")
+            self._v("set_cpu_stale", True)
+        else:
+            self._show("body")
+        self._start()
