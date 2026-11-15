@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# The Texturizer workbench: Prepare for texture, Check textured mesh, Open
-# BumpMesh and the Texture panel. Based on BumpMesh by Stefan Hermann (CNC
-# Kitchen). Needs no other add-on and no agent; never imports Agent Link.
+# The Texturizer workbench: Prepare for texture, Check textured mesh and the
+# Texture panel; the texturing is BumpMesh's engine by Stefan Hermann (CNC
+# Kitchen), ported to Python (texturizer.engine). Needs no other add-on and no
+# agent; never imports Agent Link.
 
 import os
 
