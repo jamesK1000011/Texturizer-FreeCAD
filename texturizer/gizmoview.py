@@ -11,7 +11,7 @@ sees the wheel before the scene graph does). The left button is taken only
 on a ring, the stamp's patch or an armed placement; everything else,
 middle and right always, navigates as usual. GUI thread only."""
 from . import gizmo, live
-from .paintview import hold_events
+from .paintview import _told, hold_events
 from .qt import QtCore
 
 RING_WIDTH = 3
@@ -43,7 +43,7 @@ class GizmoView:
 
         self.view = v
         for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
-            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), fn)))
+            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn))))
         hold_events(v, True)
         try:
             vp = v.graphicsView().viewport()

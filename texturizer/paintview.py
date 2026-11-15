@@ -9,11 +9,12 @@ view while Brush or Fill is on. The left button paints through
 paint.PaintTool; middle and right are never taken, so FreeCAD keeps
 navigating, and a press off the model navigates too.
 
-Picking: an SoRayPickAction hit on the CPU preview node, its SoFaceDetail
-face mapped to the source triangle through the preview's face_parent;
-with no CPU preview shown, the camera ray against the body's tessellation
-(paint.ray_hit). The brush circle and, while the CPU preview is not shown,
-the active layer's paint are drawn as Coin nodes. GUI thread only."""
+Picking: the camera ray against the body's tessellation (paint.ray_hit),
+the triangles the brush paints; never a pick on the preview, whose dense
+mesh made each move cost a ray pick through every preview triangle. The
+brush circle and the active layer's paint (overlay_shown says when) are
+drawn as Coin nodes; the paint as orange with its coverage as alpha, so the
+preview under it stays in view. GUI thread only."""
 import math
 
 import numpy as np
@@ -23,10 +24,27 @@ from . import live, paint
 PAINT = (0.85, 0.40, 0.15)   # BumpMesh's user-mask orange
 ERASE = (0.60, 0.60, 0.60)   # BumpMesh's erase hover grey (0x999999)
 HOVER = (1.0, 0.933, 0.0)    # BumpMesh's hover preview yellow (0xffee00), at 45 % opacity
-BODY = (0.80, 0.80, 0.80)
 RING = 64
 
 _held = {}
+
+
+def overlay_shown(stroke, showing, cpu_mode, stale):
+    """Whether the paint overlay draws: while a stroke is on (its paint
+    reaches the draft on release), and after it while no preview draws the
+    paint itself: the body alone, or a CPU preview (or the Quick look standing
+    in for it) not rebuilt since the paint changed. The Quick look and a
+    current CPU preview tint the paint themselves."""
+    if stroke or showing in (None, "body"):
+        return True
+    return bool(cpu_mode and stale)
+
+
+def overlay_rgba(a):
+    """Packed RGBA per corner: BumpMesh's orange with the paint (0..1) as alpha."""
+    r, g, b = (int(round(c * 255)) for c in PAINT)
+    alpha = np.clip(np.round(np.asarray(a, float) * 255), 0, 255).astype(np.int64)
+    return ((r << 24) | (g << 16) | (b << 8) | alpha).tolist()
 
 
 def hold_events(view, on):
@@ -44,6 +62,26 @@ def hold_events(view, on):
             pass
 
 
+def _told(fn):
+    """An event callback whose errors reach the Report view whole: pivy
+    prints only the exception's class ("<class 'TypeError'>")."""
+
+    def call(node):
+        try:
+            fn(node)
+        except Exception:  # noqa: BLE001 - one bad event never stops the view
+            import traceback
+
+            try:
+                import FreeCAD
+
+                FreeCAD.Console.PrintError("Texturizer: " + traceback.format_exc())
+            except Exception:  # noqa: BLE001
+                pass
+
+    return call
+
+
 class PaintView:
     def __init__(self, window):
         self.w = window
@@ -52,6 +90,7 @@ class PaintView:
         self.ring = None
         self.overlay = None
         self.hover = None
+        self.stale = False   # the paint changed and the CPU preview has not caught up (Window.mesh_shown)
         self.tool = paint.PaintTool(live.draft(), self._surface, self._pick, self._cursor, self._hover,
                                     self._draw_overlay)
 
@@ -73,7 +112,7 @@ class PaintView:
 
         self.view = v
         for kind, fn in ((coin.SoMouseButtonEvent, self._button), (coin.SoLocation2Event, self._move)):
-            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), fn)))
+            self._cbs.append((kind.getClassTypeId(), v.addEventCallbackPivy(kind.getClassTypeId(), _told(fn))))
         hold_events(v, True)
 
     def _detach(self):
@@ -98,6 +137,8 @@ class PaintView:
 
     def on_draft(self, ev):
         k = ev.get("kind")
+        if k in ("mask", "layers", "load", "reset", "undo", "redo"):
+            self.stale = True
         if k == "set" and ev.get("key") == "exclusionTool" or k in ("part", "load", "reset", "undo", "redo"):
             self.sync()
         elif k in ("mask", "active", "layers"):
@@ -136,33 +177,12 @@ class PaintView:
         return coin, rm, rm.getCamera(), rm.getViewportRegion()
 
     def _pick(self, x, y):
-        coin, rm, cam, vp = self._camera()
+        coin, _rm, cam, vp = self._camera()
         snap = self.w.snapshot()
         if snap is None or cam is None:
             return None
-        n_src = len(snap[1]) // 9
-        hit = None
-        cv = self.w.view
-        c = self.w.controller
-        fp = getattr(cv, "face_parent", None)
-        if c is not None and c.showing == "cpu" and cv is not None and cv.cpu is not None and fp is not None:
-            rp = coin.SoRayPickAction(vp)
-            rp.setPoint(coin.SbVec2s(int(x), int(y)))
-            rp.setRadius(2)
-            rp.setPickAll(True)
-            rp.apply(rm.getSceneGraph())
-            for pp in rp.getPickedPointList():
-                if not pp.getPath().containsNode(cv.faces):
-                    continue
-                d = pp.getDetail()
-                if d is None or not d.isOfType(coin.SoFaceDetail.getClassTypeId()):
-                    continue
-                d = coin.cast(d, "SoFaceDetail")
-                hit = paint.pick_hit(d.getFaceIndex(), pp.getPoint().getValue(), pp.getNormal().getValue(), fp, n_src)
-                break
-        else:
-            org, dirn = self._ray(coin, cam, vp, x, y)
-            hit = paint.ray_hit(snap[1], org, dirn)
+        org, dirn = self._ray(coin, cam, vp, x, y)
+        hit = paint.ray_hit(snap[1], org, dirn)
         if hit is None:
             return None
         ortho = cam.isOfType(coin.SoOrthographicCamera.getClassTypeId())
@@ -257,13 +277,13 @@ class PaintView:
         self.hover.whichChild = 0
 
     def _draw_overlay(self):
-        """The active layer's paint on the body's tessellation, while the CPU
-        preview is not shown or a stroke is on (the preview catches up on release)."""
+        """The active layer's paint on the body's tessellation (overlay_shown)."""
         g = self._graph()
         snap = self.w.snapshot()
         c = self.w.controller
         k = self.tool.stroke
-        show = g is not None and snap is not None and (k is not None or not (c is not None and c.showing == "cpu"))
+        show = g is not None and snap is not None and overlay_shown(
+            k is not None, c and c.showing, c is not None and c.cpu_mode, self.stale)
         if not show:
             if self.overlay is not None:
                 self.overlay.whichChild = -1
@@ -277,7 +297,7 @@ class PaintView:
             po.factor, po.units = -1.0, -1.0
             mb = coin.SoMaterialBinding()
             mb.value = coin.SoMaterialBinding.PER_VERTEX
-            self._oc, self._om, self._of = coin.SoCoordinate3(), coin.SoMaterial(), coin.SoFaceSet()
+            self._oc, self._om, self._of = coin.SoCoordinate3(), coin.SoPackedColor(), coin.SoFaceSet()
             for n in (po, mb, self._oc, self._om, self._of):
                 sep.addChild(n)
             self.overlay.addChild(sep)
@@ -290,12 +310,11 @@ class PaintView:
         if not on:
             self.overlay.whichChild = -1
             return
-        a = a.reshape(-1, 1)
-        col = np.asarray(BODY) * (1 - a) + np.asarray(PAINT) * a
+        col = overlay_rgba(a)
         self._oc.point.setValues(0, len(P), P.tolist())
         self._oc.point.setNum(len(P))
-        self._om.diffuseColor.setValues(0, len(col), col.tolist())
-        self._om.diffuseColor.setNum(len(col))
+        self._om.orderedRGBA.setValues(0, len(col), col)
+        self._om.orderedRGBA.setNum(len(col))
         self._of.numVertices.setValues(0, on, [3] * on)
         self._of.numVertices.setNum(on)
         self.overlay.whichChild = 0
