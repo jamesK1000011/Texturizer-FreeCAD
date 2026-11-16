@@ -26,6 +26,7 @@ layer; "frame": {"rotation": [x, y, z]} degrees, applied as BumpMesh's
 Rotate (three.js Euler 'XYZ') and undone on the result. No FreeCAD import.
 """
 import math
+import threading
 
 import numpy as np
 
@@ -424,7 +425,9 @@ def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_ab
     if s.get("regularizeEnabled", DEFAULTS["regularizeEnabled"]):
         g = {**DEFAULTS, **s}
         from .index import regularize_opts
-        reg = regularize_mesh(sub["position"], parents, edge, regularize_opts(g))
+        reg = regularize_mesh(sub["position"], parents, edge, regularize_opts(g), should_abort=should_abort)
+        if reg is None:
+            raise Aborted()
         _check(should_abort)
         weights = None
         if g.get("preserveUntextured"):
@@ -453,17 +456,67 @@ _SUBDIVIDED = {}
 _SUBDIVIDE_KEYS = ("refineLength", "preserveUntextured", "previewQuality", "maxTriangles", "harvestFlatFaces", "harvestTol")
 
 
+_SUB_LOCK = threading.Lock()
+_SUB_BUSY = {}   # key -> Event: a subdivide of that key running on another thread
+LAST_SUBDIVIDE = {}   # the probe's: key hash, hit / miss / waited, the parts of the key
+
+
+def _subdivided(key, make):
+    """The kept subdivision for key; else made once: a second thread asking
+    for the same key while it is made waits for it instead of making it
+    again beside it (two at once split the CPU and both take twice as long)."""
+    while True:
+        with _SUB_LOCK:
+            hit = _SUBDIVIDED.get(key)
+            if hit is not None:
+                _SUBDIVIDED[key] = _SUBDIVIDED.pop(key)   # most recent last
+                LAST_SUBDIVIDE.update(how="hit")
+                return hit
+            busy = _SUB_BUSY.get(key)
+            if busy is None:
+                busy = _SUB_BUSY[key] = threading.Event()
+                mine = True
+            else:
+                mine = False
+        if not mine:
+            busy.wait()
+            LAST_SUBDIVIDE.update(how="waited")
+            continue
+        try:
+            hit = make()
+            with _SUB_LOCK:
+                _SUBDIVIDED[key] = hit
+                while len(_SUBDIVIDED) > SUBDIVIDED_KEEP:
+                    _SUBDIVIDED.pop(next(iter(_SUBDIVIDED)))
+            LAST_SUBDIVIDE.update(how="miss")
+            return hit
+        finally:
+            with _SUB_LOCK:
+                _SUB_BUSY.pop(key, None)
+            busy.set()
+
+
 def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit):
     import hashlib
 
     g = {**DEFAULTS, **s}
-    keep = tuple((k, repr(g.get(k))) for k in sorted(g) if k in _SUBDIVIDE_KEYS or k.startswith("regularize"))
+    def norm(v):   # 1 and 1.0 are one setting (a slider's float, the JSON's int after an Undo)
+        return repr(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else repr(v)
+
+    keep = tuple((k, norm(g.get(k))) for k in sorted(g) if k in _SUBDIVIDE_KEYS or k.startswith("regularize"))
     hard = _excluded_faces(specs, n) if g.get("preserveUntextured") else None
     h = hashlib.blake2b(np.ascontiguousarray(pos, F32).tobytes(), digest_size=16)
     if hard is not None:
         h.update(b"hard")
         h.update(np.ascontiguousarray(hard).tobytes())
-    return (h.hexdigest(), len(pos), keep, int(tri_budget), int(memory_limit))
+    key = (h.hexdigest(), len(pos), keep, int(tri_budget), int(memory_limit))
+    import hashlib as _h
+
+    LAST_SUBDIVIDE.clear()
+    LAST_SUBDIVIDE.update(key=_h.blake2b(repr(key).encode(), digest_size=4).hexdigest(), mesh=key[0][:8],
+                          settings=_h.blake2b(repr(keep).encode(), digest_size=4).hexdigest(),
+                          hard=hard is not None and int(hard.sum()), budget=int(tri_budget))
+    return key
 
 
 def _excluded_faces(layers, n):
@@ -521,14 +574,8 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
         _check(should_abort)
         tb, ml = si.get("tri_budget") or 500_000, si.get("memory_limit") or (1 << 30)
         key = _subdivide_key(pos, s, specs, n, tb, ml)
-        hit = _SUBDIVIDED.get(key)
-        if hit is None:
-            hit = _preview_subdivide(pos, s, specs, tb, ml, prog, should_abort)
-            _SUBDIVIDED[key] = hit
-            while len(_SUBDIVIDED) > SUBDIVIDED_KEEP:
-                _SUBDIVIDED.pop(next(iter(_SUBDIVIDED)))
-        else:
-            _SUBDIVIDED[key] = _SUBDIVIDED.pop(key)   # most recent last
+        hit = _subdivided(key, lambda: _preview_subdivide(pos, s, specs, tb, ml, prog, should_abort))
+        if hit is not None:
             prog("subdivide", 1.0)
         ran["subdivide"] = dict(hit)
         first = 0

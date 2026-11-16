@@ -21,8 +21,10 @@ from .meshindex import weld
 QUANTISE = 1e5
 
 
-def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weight=None):
-    """regularizeMesh: {"position", "normal", "excludeWeight", "faceParentId", "collapseCount", "rejectStats"}."""
+def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weight=None, should_abort=None):
+    """regularizeMesh: {"position", "normal", "excludeWeight", "faceParentId", "collapseCount", "rejectStats"};
+    None when should_abort() turned true (checked every 1024 candidates: a
+    stale preview's clean-up stops, not seconds later)."""
     o = opts or {}
     aspect_th = o.get("aspectThreshold", 5)
     slack = o.get("slack", 3.0)
@@ -255,7 +257,9 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
         ca = asp[cand]
         order = np.argsort(-ca, kind="stable")
         n_round = 0
-        for t in ct[order].tolist():
+        for k_, t in enumerate(ct[order].tolist()):
+            if should_abort is not None and not (k_ & 1023) and should_abort():
+                return None
             if deleted[t]:
                 continue
             a, b, c = corners[t * 3], corners[t * 3 + 1], corners[t * 3 + 2]

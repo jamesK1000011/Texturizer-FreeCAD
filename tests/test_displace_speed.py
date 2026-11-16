@@ -176,6 +176,10 @@ class SubdivideKept(unittest.TestCase):
                 got.setdefault(tex, []).append(engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX},
                                                                "face_triangles": BOX_FT})["mesh"])
             self.assertEqual(len(calls), 1)
+            d.settings["previewQuality"] = d.settings.get("previewQuality")
+            d.settings["refineLength"] = float(d.settings["refineLength"])   # 1 and 1.0: the same key (an Undo's JSON int)
+            engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})
+            self.assertEqual(len(calls), 1)
             d.set("refineLength", 2.0)   # its own setting: subdivided again
             engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})
             self.assertEqual(len(calls), 2)
@@ -190,6 +194,72 @@ class SubdivideKept(unittest.TestCase):
         fresh = engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})["mesh"]
         for k in ("vertices", "normals", "faces", "weights"):
             np.testing.assert_array_equal(fresh[k], got["Knurling"][1][k])
+
+
+class SubdivideOnce(unittest.TestCase):
+    """Live, an Undo's map request ran from subdivide for 25 s: the probe now
+    names the start stage's reason and the cache key; two runs of one key
+    never subdivide side by side; a stale clean-up stops."""
+
+    def test_two_threads_one_subdivide(self):
+        import threading
+
+        engine._SUBDIVIDED.clear()
+        calls = []
+        real = engine._preview_subdivide
+
+        def slow(*a, **k):
+            calls.append(1)
+            time.sleep(0.2)
+            return real(*a, **k)
+        engine._preview_subdivide = slow
+        try:
+            d = draft.Draft(part="Body")
+            d.set_texture("Knurling")
+            si = {"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT}
+            out = []
+            ts = [threading.Thread(target=lambda: out.append(engine.preview(si))) for _ in range(2)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+        finally:
+            engine._preview_subdivide = real
+        self.assertEqual(len(calls), 1)
+        np.testing.assert_array_equal(out[0]["mesh"]["vertices"], out[1]["mesh"]["vertices"])
+        self.assertIn(engine.LAST_SUBDIVIDE["how"], ("hit", "waited"))
+        self.assertEqual(len(engine.LAST_SUBDIVIDE["key"]), 8)
+
+    def test_a_stale_cleanup_stops(self):
+        from texturizer.engine.regularize import regularize_mesh
+
+        # Two slivers on one edge: candidates for the clean-up.
+        pos = np.asarray([[0, 0, 0], [10, 0, 0], [5, 0.05, 0], [0, 0, 0], [5, -0.05, 0], [10, 0, 0]], np.float32).reshape(-1)
+        self.assertIsNotNone(regularize_mesh(pos, np.arange(2), 5.0, {}))
+        self.assertIsNone(regularize_mesh(pos, np.arange(2), 5.0, {}, should_abort=lambda: True))
+
+    def test_probe_names_the_start_and_why(self):
+        from texturizer import preview, timing
+        from test_preview import make
+
+        lines = []
+        saved = timing.FORCE, timing.SINK
+        timing.FORCE, timing.SINK = True, lines.append
+        try:
+            c, d, clock, worker, view, eng = make()
+            c.open()
+            clock.advance(1.0)
+            worker.run()
+            c.cache.pop("subdivide")          # something dropped it (live: a part change during Undo)
+            c.request("map")
+            clock.advance(1.0)
+        finally:
+            timing.FORCE, timing.SINK = saved
+        start = [x for x in lines if "preview start" in x]
+        self.assertTrue(start, lines)
+        self.assertIn("preview start subdivide (missing subdivide,map,displace,colours;", start[-1])
+        self.assertIn("last request map by test_probe_names_the_start_and_why", start[-1])
+        self.assertTrue(preview.STAGES)
 
 
 @unittest.skipUnless(os.environ.get("TEXTURIZER_BENCH"), "set TEXTURIZER_BENCH=1 to time the displace stage")
