@@ -1410,9 +1410,10 @@ def _fill_triangles(d, i, o, f):
 
 
 def _paint_strokes(d, i, o, pa):
-    """paint: {strokes, size, hardness, type, mode, erase}: BumpMesh's brush
-    (paint.py; mode precision refines under the stroke, standard paints whole
-    triangles), each stroke one undo step. Checked whole before any paints."""
+    """paint: {strokes, size, hardness, type, mode, snap, erase}: BumpMesh's
+    brush (paint.py; mode precision refines under the stroke, standard paints
+    whole triangles; snap faces paints whole CAD faces, kept by name), each
+    stroke one undo step. Checked whole before any paints."""
     from . import paint
 
     if not isinstance(pa, dict) or not isinstance(pa.get("strokes"), list) or not pa["strokes"]:
@@ -1425,10 +1426,16 @@ def _paint_strokes(d, i, o, pa):
         raise ToolError("invalid_input", "paint.type: circle or single.")
     size = num(pa.get("size", d.get("brushSize")), "paint.size")
     hard = num(pa.get("hardness", d.get("brushHardness")), "paint.hardness")
+    snap = pa.get("snap", "faces" if d.get("brushFaceSnap") else "off")
+    if snap not in ("faces", "off", None):
+        raise ToolError("invalid_input", "paint.snap: faces (every CAD face the brush touches, whole) or off.")
+    snap = "faces" if snap == "faces" else None
     pos, ft = live.mesh_for(o)
+    if snap and not ft:
+        raise ToolError("invalid_input", "paint.snap faces needs a part with faces; this one is a mesh (use the brush without snap).")
     srf = paint.surface_for(pos)
     try:
-        brush = paint.Brush(kind == "circle", size, hard, mode)
+        brush = paint.Brush(kind == "circle", size, hard, mode, snap)
         strokes = []
         for st in pa["strokes"]:
             if not isinstance(st, list) or not st:
@@ -1438,7 +1445,7 @@ def _paint_strokes(d, i, o, pa):
         raise ToolError("invalid_input", f"paint: {e}.")
     erase = bool(pa.get("erase"))
     for st in strokes:
-        paint.commit(d, srf, i, lambda state, st=st: paint.apply_stroke(state, st, brush, erase), ft)
+        paint.commit(d, srf, i, lambda state, st=st: paint.apply_stroke(state, st, brush, erase, ft), ft)
     return len(strokes)
 
 

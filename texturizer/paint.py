@@ -103,6 +103,7 @@ class State:
             if cov is not None:
                 L.cov = np.asarray(cov, F32).tolist()   # float32 values, as Float32Array holds them
         self.tree = tree
+        self.snapped = set()   # CAD faces a face-snap brush painted whole (kept by name in the mask)
 
     def copy(self):
         return State(self.s, tree=painttree.single(self.tree, 0))
@@ -159,22 +160,34 @@ def paint_stroke(state, seed, frm, to, radius, view, hardness, erase=False, whol
 class Brush:
     """The sidebar's Brush rows: circle (Type), size (diameter, mm), hardness
     (%) and mode: BumpMesh's Standard (whole triangles, Hardness ignored) or
-    Precision (refines under the stroke, with Hardness)."""
+    Precision (refines under the stroke, with Hardness; at a small Size and
+    Hardness 100 a hard-edged brush that paints by surface position). snap
+    "faces" (Texturizer's Snap: Whole Faces) paints every CAD face the brush
+    touches in full instead, kept in the mask by the face's name, so it
+    follows the part through CAD changes."""
 
     MODES = ("standard", "precision")
+    SNAPS = (None, "faces")
 
-    def __init__(self, circle=True, size=10.0, hardness=50.0, mode="precision"):
+    def __init__(self, circle=True, size=10.0, hardness=50.0, mode="precision", snap=None):
         if mode not in self.MODES:
             raise ValueError("Mode: standard or precision.")
+        if snap not in self.SNAPS:
+            raise ValueError("Snap: faces or none.")
         self.circle = bool(circle)
         self.size = max(MIN_SIZE, min(MAX_SIZE, float(size)))
         self.hardness = max(0.0, min(100.0, float(hardness)))
         self.mode = mode
+        self.snap = snap
 
     @classmethod
     def from_draft(cls, d):
+        try:
+            snap = "faces" if d.get("brushFaceSnap") else None
+        except KeyError:
+            snap = None
         return cls(d.get("brushIsRadius"), d.get("brushSize"), d.get("brushHardness"),
-                   "precision" if d.get("brushPrecision") else "standard")
+                   "precision" if d.get("brushPrecision") else "standard", snap)
 
     @property
     def precision(self):
@@ -245,10 +258,47 @@ def parse_hit(s, h):
     return out
 
 
-def paint_hit(state, hit, brush, erase, prev=None):
-    """_paintSingleHit: Circle sweeps from the previous point of the stroke; Single paints the triangle."""
+def face_of_triangles(face_triangles):
+    """{triangle: CAD face name} from {face name: [triangles]}."""
+    out = {}
+    for f, ts in (face_triangles or {}).items():
+        for t in ts:
+            out[int(t)] = f
+    return out
+
+
+def snap_faces(state, hit, brush, face_triangles):
+    """The CAD faces a face-snap dab touches: the face under the hit, and
+    with Circle every face with a triangle under the brush (as the Standard
+    brush finds them). [] when the part has no faces (a mesh)."""
+    if not face_triangles:
+        return []
+    owner = getattr(state, "_owner", None)
+    if owner is None or owner[0] is not face_triangles:
+        owner = (face_triangles, face_of_triangles(face_triangles))
+        state._owner = owner
+    t = int(hit["triangle"])
+    tris = [t]
+    if brush.circle:
+        tris += state.tree.faces_under_brush(t, hit["point"], brush.radius, hit_view(hit, state.s))
+    return sorted({owner[1][x] for x in tris if x in owner[1]})
+
+
+def paint_hit(state, hit, brush, erase, prev=None, face_triangles=None):
+    """_paintSingleHit: Circle sweeps from the previous point of the stroke;
+    Single paints the triangle. With brush.snap "faces" (and the part's
+    faces) every CAD face the dab touches is painted whole instead."""
     s = state.s
     t = int(hit["triangle"])
+    if brush.snap == "faces" and face_triangles:
+        names = snap_faces(state, hit, brush, face_triangles)
+        tris = [x for f in names for x in face_triangles[f]]
+        paint_faces(state, tris, erase)
+        if erase:
+            state.snapped.difference_update(names)
+        else:
+            state.snapped.update(names)
+        return
     if brush.circle:
         paint_stroke(state, t, prev, hit["point"], brush.radius, hit_view(hit, s), brush.hardness / 100.0, erase,
                      whole=not brush.precision, edge=edge_limit(brush.radius, brush.h))
@@ -256,14 +306,14 @@ def paint_hit(state, hit, brush, erase, prev=None):
         paint_faces(state, [t], erase)
 
 
-def apply_stroke(state, hits, brush, erase=False):
+def apply_stroke(state, hits, brush, erase=False, face_triangles=None):
     """One stroke (paintAt over a drag): None breaks the sweep."""
     prev = None
     for h in hits:
         if h is None:
             prev = None
             continue
-        paint_hit(state, h, brush, erase, prev)
+        paint_hit(state, h, brush, erase, prev, face_triangles)
         prev = h["point"]
     return state
 
@@ -387,7 +437,9 @@ def mask_from_state(state, mask, face_triangles=None):
     cut = {r[0] for r in split}
     hard = set(np.nonzero(state.hard)[0].tolist()) - cut
     faces = []
-    for f in mask.get("faces") or []:
+    had = list(mask.get("faces") or [])
+    snapped = [f for f in sorted(getattr(state, "snapped", ()) or ()) if f not in had]
+    for f in had + snapped:
         ts = [int(t) for t in (face_triangles or {}).get(f, [])]
         if ts and all(t in hard for t in ts):
             faces.append(f)
@@ -670,9 +722,9 @@ class PaintTool:
             self._hover_key = key
             self.on_hover(None if faces is None else list(faces), bool(erase))
 
-    def hover_faces(self, hit, s, erase=False):
+    def hover_faces(self, hit, s, erase=False, face_triangles=None):
         """The source triangles a click at hit would mark (updateBrushHover,
-        updateBucketHover), or None."""
+        updateBucketHover; with Snap: Whole Faces, the CAD faces' triangles), or None."""
         tool = self.tool()
         if hit is None or tool not in ("brush", "bucket"):
             return None
@@ -684,12 +736,18 @@ class PaintTool:
                 self._fill = (key, sorted(m.triangles.tolist()))
             return self._fill[1]
         b = Brush.from_draft(self.d)
+        tree = painttree.PaintTree(s) if getattr(self, "_hover_tree", (None,))[0] is not s else self._hover_tree[1]
+        self._hover_tree = (s, tree)
+        if b.snap == "faces" and face_triangles:
+            probe = getattr(self, "_snap_probe", None)
+            if probe is None or probe.s is not s:
+                probe = self._snap_probe = State(s, tree=tree)
+            names = snap_faces(probe, hit, b, face_triangles)
+            return sorted(x for f in names for x in face_triangles[f])
         if not b.circle:
             return [t]
         if b.precision:
             return None
-        tree = painttree.PaintTree(s) if getattr(self, "_hover_tree", (None,))[0] is not s else self._hover_tree[1]
-        self._hover_tree = (s, tree)
         return sorted(tree.faces_under_brush(t, hit["point"], b.radius, hit_view(hit, s)))
 
     def tool(self):
@@ -726,7 +784,7 @@ class PaintTool:
 
     def _dab(self, hit):
         k = self.stroke
-        paint_hit(k["state"], hit, k["brush"], k["erase"], k["prev"])
+        paint_hit(k["state"], hit, k["brush"], k["erase"], k["prev"], k["ft"])
         k["prev"] = hit["point"]
         self.on_cursor(hit, k["brush"], k["erase"])
         self.on_paint()
@@ -745,7 +803,7 @@ class PaintTool:
             hit = self.pick(x, y) if got else None
             if tool == "brush":
                 self.on_cursor(hit, Brush.from_draft(self.d), bool(shift))
-            self._hover(self.hover_faces(hit, got[0], shift) if got else None, shift)
+            self._hover(self.hover_faces(hit, got[0], shift, got[1]) if got else None, shift)
             return False
         if tool != "brush":
             return False

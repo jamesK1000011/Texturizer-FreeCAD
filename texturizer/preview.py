@@ -96,7 +96,7 @@ STAGE_OF = {
     # colours
     "active": "colours",
 }
-NO_RERUN = {"lockScale", "bakeMask", "useDisplacement", "rotate", "exclusionTool", "brushIsRadius",
+NO_RERUN = {"lockScale", "bakeMask", "useDisplacement", "rotate", "exclusionTool", "brushIsRadius", "brushFaceSnap",
             "brushPrecision", "brushSize", "brushHardness", "bucketThreshold"}
 
 
