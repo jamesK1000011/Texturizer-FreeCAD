@@ -102,6 +102,15 @@ class Handlers(unittest.TestCase):
         with self.assertRaises(handlers.Refusal):
             handlers.face_names(FakeShape(3), {"normal": "+z"})
 
+    def test_local_paths(self):
+        """A relative path is in the output folder, ~ is the home folder, an
+        absolute one stays (hardening 16 Nov)."""
+        ctx = FakeCtx()
+        self.assertEqual(handlers._local(ctx, "a/b.stl"), os.path.join(ctx.out_dir, "a", "b.stl"))
+        self.assertEqual(handlers._local(ctx, "~/b.stl"), os.path.expanduser("~/b.stl"))
+        self.assertEqual(handlers._local(ctx, os.path.join(ctx.out_dir, "c.stl")), os.path.join(ctx.out_dir, "c.stl"))
+        self.assertIsNone(handlers._local(ctx, None))
+
     def test_face_names(self):
         self.assertEqual(handlers.face_names(FakeShape(4), "Face2"), {"Face2"})
         self.assertEqual(handlers.face_names(FakeShape(4), ["Face1", {"faces": ["Face4"]}]), {"Face1", "Face4"})

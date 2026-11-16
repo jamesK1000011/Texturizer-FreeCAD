@@ -56,6 +56,16 @@ def face_names(shape, q):
 
 pick_faces = face_names  # lent by the family layer (Agent Link's face queries)
 
+
+def _local(s, p):
+    """A path as the agent gave it: ~ expanded, a relative one in the output
+    folder (where Agent Link's path check judges it, and where the other
+    tools write)."""
+    if not isinstance(p, str) or not p.strip():
+        return p
+    p = os.path.expanduser(p.strip())
+    return p if os.path.isabs(p) else os.path.join(s.out_dir, p)
+
 # The last answers, whoever asked (the agent, a command, the panel): read by
 # the Texture panel. Newest first; a few prepared files kept.
 LAST = {"prepared": [], "check": None, "applied": None}
@@ -77,7 +87,8 @@ def texture_prepare(s, a):
     want = pick_faces(o.Shape, a.get("faces"))
     tol = num(a.get("tolerance", 0.02), "tolerance")
     stem = (a.get("name") or o.Label).replace(" ", "_")
-    stl = a.get("path") or os.path.join(s.out_dir, stem + "-for-texture.stl")
+    stl = _local(s, a.get("path")) or os.path.join(s.out_dir, stem + "-for-texture.stl")
+    os.makedirs(os.path.dirname(stl) or ".", exist_ok=True)
     out = mesh.prepare(o.Shape, want, a.get("mode", "include"), tol, stl, o.Label)
     mode = out["mode"]
     out_path = os.path.splitext(stl)[0].replace("-for-texture", "") + "-textured.stl"
@@ -95,21 +106,25 @@ def texture_check(s, a):
     texture_apply made: its stored draft or arguments, its body), mask
     (texture_prepare's -mask.json), the -mask.json beside path by name, or
     the Textured object path was exported from."""
-    path = a.get("path")
+    path = _local(s, a.get("path"))
     tol = num(a.get("tolerance", 0.02), "tolerance")
     doc = _doc(s)
     obj = None
+    if a.get("mask"):
+        a = dict(a, mask=_local(s, a["mask"]))
     if a.get("object") is not None:
         if a.get("mask"):
             raise ToolError("invalid_input", "object or mask, not both: a Textured object carries its own mask.")
         obj = live.find(doc, a["object"])
         if obj is None or "SourceBody" not in getattr(obj, "PropertiesList", []):
             raise ToolError("not_found", f"object {a['object']!r}: not a Textured object in this document "
-                            f"({', '.join(o.Label for o in textured_objects(doc)) or 'none'}).")
+                            f"(it has: {', '.join(o.Label for o in textured_objects(doc)) or 'none; texture_apply makes one'}). "
+                            "For an STL textured outside FreeCAD give body, path and mask instead.")
     mask = a.get("mask")
     if obj is None and not mask:
         if not path:
-            raise ToolError("invalid_input", "object: the Textured object texture_apply made (or path: its STL).")
+            raise ToolError("invalid_input", "object: the Textured object texture_apply made (or path: its STL; "
+                            "for an STL textured outside FreeCAD: body, path and texture_prepare's mask).")
         beside = os.path.splitext(path)[0].replace("-textured", "") + "-for-texture-mask.json"
         if os.path.isfile(beside):
             mask = beside
@@ -207,7 +222,8 @@ def _object_mask(obj, body):
             listed = pick_faces(body.Shape, L["faces"])
             textured |= set(listed) if (L.get("mode") or "exclude") == "include" else set(names) - set(listed)
     else:
-        raise ToolError("invalid_state", f"{obj.Label}: made without stored settings; texture its body again.")
+        raise ToolError("invalid_state", f"{obj.Label}: made without stored settings, so its mask is not known; texture its body "
+                        "again with texture_apply, or check it with body, path (its texture_export STL) and a mask.")
     run = json.loads(getattr(obj, "TextureSettings", "") or "{}")
     g = {k: run.get(k, engine.DEFAULTS[k]) for k in ("bottomAngleLimit", "topAngleLimit")}
     return {"textured": sorted(textured), "angles": {"bottom": g["bottomAngleLimit"], "top": g["topAngleLimit"]}}
@@ -231,7 +247,8 @@ def texture_list(s, a):
             continue
         out.append({k: e[k] for k in LIST_KEYS})
     if cat and not out and cat not in engine.library.CATEGORIES + [engine.library.CUSTOM]:
-        raise ToolError("invalid_input", f"category: one of {', '.join(engine.library.CATEGORIES + [engine.library.CUSTOM])}.")
+        raise ToolError("invalid_input", f"category {cat!r}: one of {', '.join(engine.library.CATEGORIES + [engine.library.CUSTOM])} "
+                        "(or leave it out and use search).")
     return {"count": len(out), "textures": out, "categories": engine.library.CATEGORIES,
             "credit": "BumpMesh's texture library (Stefan Hermann, CNC Kitchen); Hero Patterns by Steve Schoger (CC BY 4.0); "
                       "ambientCG and Poly Haven (CC0). Filter Forge textures are not included.",
@@ -301,7 +318,8 @@ def _texture_id(t):
     try:
         return engine.library.get(t)["id"]
     except KeyError:
-        raise ToolError("not_found", f"texture {t!r}: not in the library (texture_list).") from None
+        raise ToolError("not_found", f"texture {t!r}: not in the library; texture_list gives the ids (texture_list {{ search }} "
+                        "finds one by name), or texture_set { texture: { file } } brings in your own PNG.") from None
 
 
 def _positions(tris):
@@ -380,12 +398,13 @@ def _layers_from_args(s, a, o, per_face, n, settings):
     layers, masked = [], []
     for i, L in enumerate(specs):
         if not L.get("texture"):
-            raise ToolError("invalid_input", f"layers.{i}.texture: a library id (texture_list).")
+            raise ToolError("invalid_input", f"layers.{i}.texture: a library id (texture_list gives them), here or once at the top level.")
         mask, names = None, []
         if L.get("faces") is not None:
             mask, names = _mask_from(o.Shape, per_face, n, L["faces"], L.get("mode") or "exclude")
         elif L.get("mode") == "include":
-            raise ToolError("invalid_input", f"layers.{i}.faces: include needs the faces to texture.")
+            raise ToolError("invalid_input", f"layers.{i}.faces: mode include needs the faces to texture (names such as Face3, or a "
+                            "query); leave mode out, or use exclude, to texture every face.")
         masked.append({"layer": i + 1, "mode": (L.get("mode") or "exclude") if names else None, "faces": names})
         ls = {**shared, **_numbers(L.get("settings"), f"layers.{i}.settings")}
         layers.append({"texture": _texture_id(L["texture"]), "settings": ls, "mask": mask,
@@ -399,7 +418,9 @@ def _run_engine(s, a, pos, run, mode="export"):
     est = engine.estimate(pos, run)
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
         raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
-                        f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB): raise settings.refineLength (texture_settings suggests one).")
+                        f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB, over memoryLimitGB {a.get('memoryLimitGB', 4)}): raise "
+                        "settings.refineLength (texture_settings { body, texture } answers suggest.refineLength; "
+                        "texture_preview { suggest: true } sets it in the draft), or texture fewer faces with a mask.")
     import json
     import time
 
@@ -423,7 +444,8 @@ def _run_engine(s, a, pos, run, mode="export"):
     t1 = time.perf_counter()
     res = engine.printable(res)
     if res is None:
-        raise ToolError("failed", "Stopped before it finished.")
+        raise ToolError("failed", "The engine stopped before it finished (cancelled, or a newer run took its place): "
+                        "nothing was changed; call it again.")
     stages = sorted(marks.items(), key=lambda kv: kv[1])
     ms = {st: round(((stages[k + 1][1] if k + 1 < len(stages) else t1) - t) * 1000)
           for k, (st, t) in enumerate(stages)}
@@ -448,9 +470,8 @@ def _export_with(s, a, pos, run, res, out):
         return
     path = exp if isinstance(exp, str) else exp.get("path")
     if not path:
-        raise ToolError("invalid_input", "export: a path ending .stl or .3mf.")
-    if not os.path.isabs(path):
-        path = os.path.join(s.out_dir, path)
+        raise ToolError("invalid_input", "export: a path ending .stl or .3mf (relative: the output folder), or {path, format}.")
+    path = _local(s, path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
         e = engine.export(pos, run, None, path, None if isinstance(exp, str) else exp.get("format"), result=res)
@@ -471,7 +492,7 @@ def _apply_args(s, a, target=None):
     n = len(pos) // 9
     settings = _numbers(a.get("settings"), "settings")
     if a.get("layers") is None and not a.get("texture"):
-        raise ToolError("invalid_input", "texture: a library id (texture_list), or layers.")
+        raise ToolError("invalid_input", "texture: a library id (texture_list gives them), or layers: [{texture, faces, mode, settings}].")
     layers, masked = _layers_from_args(s, a, o, per_face, n, settings)
     glob = {k: v for k, v in settings.items() if k in engine.GLOBAL_KEYS}
     run = {**glob, "layers": layers}
@@ -513,7 +534,8 @@ def _apply_draft(s, a, d, target=None, name=None, bake=False):
     pos, ft = live.mesh_for(o)
     run = run_settings(d, ft)
     if not any(L.get("visible", True) is not False for L in run["layers"]):
-        raise ToolError("invalid_state", "Every layer is hidden: show one (texture_layer).")
+        raise ToolError("invalid_state", "Every layer is hidden, so nothing would be textured: show one with "
+                        "texture_layer { action: \"visible\", layer: 0, value: true }.")
     bake = bake or bool(getattr(target, "Baked", False))
     res = _run_engine(s, a, pos, run, "bake" if bake else "export")
     name = name or (target.Label if target is not None else f"{o.Label}_textured")
@@ -585,7 +607,8 @@ def texture_apply(s, a):
     if a.get("update"):
         target = live.find(doc, a["update"])
         if target is None or "SourceBody" not in getattr(target, "PropertiesList", []):
-            raise ToolError("not_found", f"update {a['update']!r}: not a Textured object in this document.")
+            raise ToolError("not_found", f"update {a['update']!r}: not a Textured object in this document (it has: "
+                            f"{', '.join(o.Label for o in textured_objects(doc)) or 'none'}); leave update out to make one.")
         stored = getattr(target, "TextureDraft", "") or ""
         if stored:
             from . import linked
@@ -602,7 +625,8 @@ def texture_apply(s, a):
 
             args = json.loads(getattr(target, "TextureArgs", "") or "{}")
             if not args:
-                raise ToolError("invalid_state", f"{target.Label}: made without stored settings; texture its body again.")
+                raise ToolError("invalid_state", f"{target.Label}: made without stored settings, so there is nothing to run again; "
+                                "texture its body afresh (texture_apply with body and texture, or the draft).")
             args["body"] = target.SourceBody
             out = _apply_args(s, args, target=target)
             out["updated"] = True
@@ -668,10 +692,12 @@ def _update_linked(s, a, target):
     linked.ensure_props(target)   # an older object's Source becomes a PropertyLinkGlobal
     src = linked.source_of(target)
     if src is None:
-        raise ToolError("not_found", f"{target.Label}: its body is gone.")
+        raise ToolError("not_found", f"{target.Label}: the body it textures is gone from the document, so it cannot be updated; "
+                        "texture another body with texture_draft { part } then texture_apply { new: true }.")
     job = linked.prepare(target, src)
     if not any(L.get("visible", True) is not False for L in job.run_settings["layers"]):
-        raise ToolError("invalid_state", "Every layer is hidden: show one (texture_layer).")
+        raise ToolError("invalid_state", "Every layer is hidden, so nothing would be textured: show one with "
+                        "texture_layer { action: \"visible\", layer: 0, value: true }.")
     res = _run_engine(s, a, job.pos, job.run_settings, job.mode)
     linked.write(target, job, res)
     out = {"body": src.Label, "object": target.Name, "label": target.Label, "updated": True,
@@ -913,8 +939,10 @@ def _part(s, ref, d=None):
         return o
     cs = live.candidates(doc)
     if not cs:
-        raise ToolError("not_found", "No visible body in the document: show or make one, or select it, then Load Model.")
-    raise ToolError("invalid_input", f"body: say which, or select it — {', '.join(o.Label for o in cs)}.")
+        raise ToolError("not_found", "No visible solid or mesh in the document to texture: show or make one, then name it "
+                        "(texture_draft { part }, or body in texture_apply).")
+    raise ToolError("invalid_input", f"part / body: more than one could be meant; name one of {', '.join(o.Label for o in cs)} "
+                    "(texture_draft { part }).")
 
 
 def _watch():
@@ -936,14 +964,16 @@ def _layer(d, a):
     if i is None:
         return d.active
     if isinstance(i, bool) or not isinstance(i, int) or not 0 <= i < len(d.layers):
-        raise ToolError("invalid_input", f"layer: 0 to {len(d.layers) - 1} (the draft has {len(d.layers)}).")
+        raise ToolError("invalid_input", f"layer {i!r}: 0 to {len(d.layers) - 1}, bottom first (the draft has {len(d.layers)}; "
+                        "texture_layer { action: \"add\" } adds one, up to 4).")
     return i
 
 
 def _gui(what):
     """The window side, or a refusal saying what was needed."""
     if live.GUI is None:
-        raise ToolError("invalid_input", f"{what}: needs FreeCAD's window; name it in the arguments instead.")
+        raise ToolError("invalid_input", f"{what}: needs FreeCAD's window, and there is none; give the name, path or point "
+                        "in the arguments instead.")
     return live.GUI
 
 
@@ -1045,7 +1075,8 @@ def texture_draft(s, a):
         if ref is None:
             o = live.choose_part(_doc(s))
             if o is None:
-                raise ToolError("invalid_input", "Select a solid to texture (import an STL with File > Import first).")
+                raise ToolError("invalid_input", "load: selection: nothing is selected and no one visible solid to take; "
+                                "give part (an object's name or label; an STL is imported with File > Import first).")
             ref = o.Name
     if ref is not None or (d.part is None and not a.get("project")):
         o = _part(s, ref, None)
@@ -1077,7 +1108,7 @@ def texture_draft(s, a):
             if not pj or not mode:
                 return {"cancelled": True, "draft": summary(d, s)}
             a = dict(a, mode=mode)
-        out["project"] = _load_project(s, d, pj, a.get("mode", "all"))
+        out["project"] = _load_project(s, d, _local(s, pj), a.get("mode", "all"))
     _watch()
     if d.part:
         pos, ft = live.mesh_for(_part(s, None, d))
@@ -1095,7 +1126,7 @@ def _pick_face(s, a, what):
     if name is None:
         sel = _gui(what).selected_faces()
         if not sel or not sel[1]:
-            raise ToolError("invalid_input", f"{what}: pick a face in the 3D view first, or give face.")
+            raise ToolError("invalid_input", f"{what}: no face is picked in the 3D view; give face (a name such as Face3).")
         ref, faces = sel
         o = _part(s, ref, d)
         name = faces[0]
@@ -1105,7 +1136,7 @@ def _pick_face(s, a, what):
     names = face_names(shape, name) if shape is not None else set()
     n = sorted(names)[0] if names else None
     if n is None:
-        raise ToolError("not_found", f"{what}: no face {name!r}.")
+        raise ToolError("not_found", f"{what}: no face {name!r} on {o.Label} (a face name such as Face3; a Mesh part has none).")
     return o, n, shape.Faces[int(n[4:]) - 1]
 
 
@@ -1130,7 +1161,7 @@ def _custom_texture(path):
     from .engine import library
 
     if not os.path.isfile(path):
-        raise ToolError("not_found", f"texture file {path!r}: not found.")
+        raise ToolError("not_found", f"texture file {path!r}: not found; give the full path of a PNG heightmap (or a library id from texture_list).")
     d = live.custom_dir()
     if d:
         os.makedirs(d, exist_ok=True)
@@ -1162,7 +1193,7 @@ def texture_set(s, a):
             path = tex.get("file") or (tex.get("upload") and _gui("texture: upload").ask_path("image", save=False))
             if not path:
                 return {"cancelled": True, "draft": summary(d, s)}
-            tex = _custom_texture(path)
+            tex = _custom_texture(_local(s, path))
         if tex:
             e = library.get(_texture_id(tex))
             defs = dict(e.get("defaults") or {})
@@ -1238,7 +1269,9 @@ def texture_set(s, a):
                 p = (np.asarray(pos, float).reshape(-1, 3) @ R.T).reshape(-1, 9)
                 up = projection_extras.auto_fit(p)
                 if up is None:
-                    raise ToolError("failed", "Auto-fit: no cylinder found in the side faces.")
+                    raise ToolError("failed", "cylinder: autofit found no cylinder in the part's side faces; use cylinder: "
+                                    "\"from_face\" with face (a cylindrical face's name), or set cylinderCenterX, "
+                                    "cylinderCenterY and cylinderRadius in settings.")
             elif cyl == "from_face":
                 o, n, f = _pick_face(s, a, "cylinder: from_face")
                 R = frame_matrix(d.frame.get("rotation"))
@@ -1253,7 +1286,7 @@ def texture_set(s, a):
                 except (AttributeError, ValueError) as e:
                     raise ToolError("invalid_input", f"cylinder: from_face: {e}") from None
             else:
-                raise ToolError("invalid_input", "cylinder: autofit, reset or from_face.")
+                raise ToolError("invalid_input", f"cylinder {cyl!r}: autofit, reset or from_face (with face).")
             done["cylinder"] = projection_extras.apply(d, up, layer=i)
         st = a.get("stamp")
         if st is not None:
@@ -1266,10 +1299,11 @@ def texture_set(s, a):
                 if pt is None:
                     pick = _gui("stamp: place").picked_point()
                     if not pick:
-                        raise ToolError("invalid_input", "stamp: click the spot on the part first, or give point and normal.")
+                        raise ToolError("invalid_input", "stamp: place: no spot was clicked on the part; give "
+                                        "stamp: {point: [x, y, z], normal: [x, y, z]} instead.")
                     pt, nr = pick
                 if nr is None:
-                    raise ToolError("invalid_input", "stamp.normal: [x, y, z].")
+                    raise ToolError("invalid_input", "stamp.normal: [x, y, z], the surface's outward direction at point.")
                 if not L.get("stampOnce"):
                     projection_extras.apply(d, projection_extras.stamp_mode(L, True), layer=i)
                 pos, _ft = live.mesh_for(_part(s, None, d))
@@ -1292,7 +1326,7 @@ def _faces_by(shape, how, ref_faces, a):
     out = set()
     refs = [shape.Faces[int(n[4:]) - 1] for n in ref_faces]
     if not refs:
-        raise ToolError("invalid_input", f"add_by {how}: pick a face first, or give faces.")
+        raise ToolError("invalid_input", f"add_by {how}: needs the faces to start from; give faces (names such as Face3).")
     if how == "direction":
         lim = math.cos(math.radians(num(a.get("angle", 10), "angle")))
         dirs = [_face_normal(f) for f in refs]
@@ -1388,18 +1422,29 @@ def texture_mask(s, a):
                 sel = _gui("add: selected").selected_faces()
                 faces = set((sel or (None, []))[1])
                 if not faces:
-                    raise ToolError("invalid_input", "add: selected: pick faces in the 3D view first, or name them.")
+                    raise ToolError("invalid_input", "add: selected: no faces are picked in the 3D view; name them instead "
+                                    "(add: [\"Face3\"]).")
             else:
                 if shape is None:
-                    raise ToolError("invalid_input", "add: a Mesh part has no faces to name; use triangles.")
+                    raise ToolError("invalid_input", "add: a Mesh part has no faces to name; use triangles, "
+                                    "fill { triangles, maxAngle } or paint.")
                 faces = pick_faces(shape, add)
             d.mask_add(faces=sorted(faces), layer=i)
         if a.get("triangles") is not None:
-            d.mask_add(triangles=[int(t) for t in a["triangles"]], layer=i)
+            tl = a["triangles"]
+            n = len(live.mesh_for(o)[0]) // 9
+            if not isinstance(tl, list) or any(isinstance(t, bool) or not isinstance(t, int) or not 0 <= t < n for t in tl):
+                raise ToolError("invalid_input", f"triangles: a list of indices 0 to {n - 1} of the part's tessellation "
+                                "(texture_draft answers mesh.triangles; a paint hit's triangle is one).")
+            d.mask_add(triangles=tl, layer=i)
         if a.get("remove") is not None:
-            faces = pick_faces(shape, a["remove"]) if shape is not None else set()
-            d.mask_remove(faces=sorted(faces), layer=i)
+            if not getattr(shape, "Faces", None):
+                raise ToolError("invalid_input", "remove: a Mesh part has no faces to name; use paint { erase: true }, "
+                                "fill { triangles, erase: true } or clear.")
+            d.mask_remove(faces=sorted(pick_faces(shape, a["remove"])), layer=i)
         if a.get("add_by") is not None:
+            if not getattr(shape, "Faces", None):
+                raise ToolError("invalid_input", "add_by: a Mesh part has no faces; use fill { triangles, maxAngle } or paint.")
             ref = a.get("faces")
             ref = sorted(face_names(shape, ref)) if ref is not None else list(((live.GUI and live.GUI.selected_faces()) or (None, []))[1])
             d.mask_add(faces=sorted(_faces_by(shape, a["add_by"], ref, a)), layer=i)
@@ -1412,7 +1457,7 @@ def texture_mask(s, a):
             seeds = f.get("faces")
             seeds = sorted(face_names(shape, seeds)) if seeds is not None else list(((live.GUI and live.GUI.selected_faces()) or (None, []))[1])
             if not seeds:
-                raise ToolError("invalid_input", "fill: a seed face (faces), or pick one.")
+                raise ToolError("invalid_input", "fill: needs a seed face; give fill: {faces: [\"Face3\"], maxAngle: 20}.")
             ang = num(f.get("maxAngle", d.get("bucketThreshold") if "bucketThreshold" in d.ui else 20), "fill.maxAngle")
             d.mask_add(faces=sorted(_flood(shape, seeds, ang)), layer=i)
     strokes = _paint_strokes(d, i, o, a["paint"]) if a.get("paint") is not None else 0
@@ -1432,7 +1477,8 @@ def _fill_triangles(d, i, o, f):
 
     seeds = f.get("triangles")
     if not seeds:
-        raise ToolError("invalid_input", "fill: seed triangles on a Mesh part ({triangles: [i], maxAngle}).")
+        raise ToolError("invalid_input", "fill: a Mesh part is filled from seed triangles: fill: {triangles: [index], maxAngle: 20} "
+                        "(texture_draft answers mesh.triangles, the count).")
     pos, ft = live.mesh_for(o)
     srf = paint.surface_for(pos)
     seeds = seeds if isinstance(seeds, list) else [seeds]
@@ -1451,7 +1497,8 @@ def _paint_strokes(d, i, o, pa):
     from . import paint
 
     if not isinstance(pa, dict) or not isinstance(pa.get("strokes"), list) or not pa["strokes"]:
-        raise ToolError("invalid_input", "paint: {strokes: [[hit, ...], ...]}, a hit {point, normal, triangle}.")
+        raise ToolError("invalid_input", "paint: {strokes: [[hit, ...], ...]}; a hit is {point: [x, y, z], normal, triangle} "
+                        "or [x, y, z] on the part's surface, in mm.")
     mode = pa.get("mode", "precision" if d.get("brushPrecision") else "standard")
     if mode not in paint.Brush.MODES:
         raise ToolError("invalid_input", "paint.mode: precision or standard.")
@@ -1492,23 +1539,27 @@ def texture_layer(s, a):
     if act == "add":
         j = d.add_layer()
         if j is None:
-            raise ToolError("invalid_state", "At most 4 layers (BumpMesh's limit).")
+            raise ToolError("invalid_state", "The draft already has 4 layers (BumpMesh's limit): texture_layer { action: "
+                            "\"remove\", layer } first, or texture_apply { bake: true } to bake what is there and start fresh.")
     else:
         i = _layer(d, a)
         v = a.get("value")
         if act == "remove":
             if not d.remove_layer(i):
-                raise ToolError("invalid_state", "The last layer stays.")
+                raise ToolError("invalid_state", "The last layer stays (a draft has at least one); texture_draft { reset: true } "
+                                "puts it back to BumpMesh's defaults.")
         elif act == "move":
             if not d.move_layer(i, int(num(a.get("delta", v if v is not None else -1), "delta"))):
-                raise ToolError("invalid_input", "move: no layer there.")
+                raise ToolError("invalid_input", f"move: layer {i} cannot go there; delta -1 moves it up the strip, +1 down, "
+                                f"within 0 to {len(d.layers) - 1}.")
         elif act in ("solo", "visible"):
             d.set_layer(i, **{act: bool(True if v is None else v)})
         elif act == "blend":
             if v not in ("cover", "add"):
-                raise ToolError("invalid_input", "blend: cover or add.")
+                raise ToolError("invalid_input", "blend: value \"cover\" (replaces the layers below where it applies) or \"add\" (adds to them).")
             if i == 0 and v == "add":
-                raise ToolError("invalid_input", "blend: the bottom layer covers (BumpMesh).")
+                raise ToolError("invalid_input", "blend: layer 0 is the bottom layer and always covers (BumpMesh); "
+                                "set add on a layer above it.")
             d.set_layer(i, blendAdd=v == "add")
         elif act == "name":
             d.set_layer(i, name=str(v or ""))
@@ -1546,12 +1597,12 @@ def texture_preview(s, a):
                             "pixelsPerEdge": sug["diagnostics"].get("pixelsPerEdge")}, "draft": summary(d, s)}
     q = a.get("quality") or d.settings.get("previewQuality") or "draft"
     if q not in preview.TRI_BUDGET:
-        raise ToolError("invalid_input", "quality: draft (500 k) or fine (1.5 M).")
+        raise ToolError("invalid_input", f"quality {q!r}: draft (up to 500 000 triangles) or fine (up to 1 500 000).")
     t0 = time.time()
     res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT,
                           "cache_dir": live.cache_dir()}, mesh=pos, face_triangles=ft)
     if res is None:
-        raise ToolError("failed", "Stopped before it finished.")
+        raise ToolError("failed", "The preview stopped before it finished (cancelled, or the draft changed under it): call texture_preview again.")
     ms = int((time.time() - t0) * 1000)
     for name, t in res.get("timings") or ():
         timing.report(f"texture_preview {name} (engine)", t)
@@ -1584,13 +1635,13 @@ def _turntable(v):
             tt.stop()
             return {"turntable": {"spinning": False}}
         if not tt.start():
-            raise ToolError("invalid_state", "turntable: no 3D view to spin (open the document in the window).")
+            raise ToolError("invalid_state", "turntable: no 3D view to spin; it needs FreeCAD's window with the document's 3D view open.")
         return {"turntable": {"spinning": True, "degreesPerSecond": 15},
                 "next": "Any click, wheel or SpaceMouse move in the view stops it; turntable false stops it."}
     if isinstance(v, (int, float)) and math.isfinite(float(v)):
         tt.stop()
         if not turntable.turn(float(v)):
-            raise ToolError("invalid_state", "turntable: no 3D view to turn (open the document in the window).")
+            raise ToolError("invalid_state", "turntable: no 3D view to turn; it needs FreeCAD's window with the document's 3D view open.")
         return {"turntable": {"spinning": False, "turned": float(v)},
                 "next": "Agent Link's view_snapshot or view_render shows the view; turn again for the next frame."}
     raise ToolError("invalid_input", "turntable: true (spin), false (stop) or degrees to turn the view once.")
@@ -1599,7 +1650,7 @@ def _turntable(v):
 def _ask_or_default(s, a, kind, default_name):
     path = a.get("path")
     if path:
-        return path if os.path.isabs(path) else os.path.join(s.out_dir, path)
+        return _local(s, path)
     if live.GUI is not None and a.get("ask", True):
         return live.GUI.ask_path(kind, save=True, default=os.path.join(s.out_dir, default_name))
     return os.path.join(s.out_dir, default_name)
@@ -1612,7 +1663,7 @@ def texture_export(s, a):
 
     fmt = str(a.get("format") or "").lower()
     if fmt not in ("stl", "3mf", "bumpmesh"):
-        raise ToolError("invalid_input", "format: stl, 3mf or bumpmesh.")
+        raise ToolError("invalid_input", "format: stl or 3mf (the textured mesh), or bumpmesh (the draft as a BumpMesh project).")
     d = live.draft()
     doc = _doc(s)
     if fmt == "bumpmesh":
@@ -1648,7 +1699,11 @@ def texture_export(s, a):
                 "note": "BumpMesh's Save Project format: Load Project opens it here or in BumpMesh."}
     obj = live.find(doc, a["object"]) if a.get("object") else None
     if a.get("object") and obj is None:
-        raise ToolError("not_found", f"object {a['object']!r}: not in this document.")
+        raise ToolError("not_found", f"object {a['object']!r}: not in this document (Textured objects here: "
+                        f"{', '.join(o.Label for o in textured_objects(doc)) or 'none; texture_apply makes one'}).")
+    if obj is not None and getattr(obj, "Mesh", None) is None:
+        raise ToolError("invalid_input", f"object {a['object']!r}: not a mesh; give a Textured object (texture_apply makes one), "
+                        "or leave object out to export the draft's part textured.")
     base = (obj.Label if obj is not None else (_part(s, None, d).Label + "_textured"))
     path = _ask_or_default(s, a, fmt, f"{base}.{fmt}")
     if not path:
@@ -1675,10 +1730,12 @@ def texture_export(s, a):
     run = run_settings(d, ft)
     est = engine.estimate(pos, run)
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
-        raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles: raise it (texture_preview suggest).")
+        raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
+                        f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB, over memoryLimitGB {a.get('memoryLimitGB', 4)}): raise it with "
+                        "texture_preview { suggest: true } or texture_set { settings: { refineLength } }.")
     e = engine.export(pos, run, None, path, fmt)
     if e is None:
-        raise ToolError("failed", "Stopped before it finished.")
+        raise ToolError("failed", "The engine stopped before it finished (cancelled): no file was written; call texture_export again.")
     return {"path": e["path"], "format": fmt, "triangles": e["triangles"], "warnings": e["warnings"], "credit": e["credit"]}
 
 HANDLERS = {

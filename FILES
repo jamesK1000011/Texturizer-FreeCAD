@@ -11,6 +11,8 @@ LICENSES/LGPL-2.1-or-later.txt
 LICENSES/MIT.txt
 README.md
 REUSE.toml
+docs/hardening/texturizer-findings.md
+docs/hardening/texturizer-model.json
 docs/linked-texture.md
 package.xml
 tests/_fakeqt.py
@@ -41,6 +43,7 @@ tests/test_projection_gizmo.py
 tests/test_quicklook.py
 tests/test_regularize_batched.py
 tests/test_release.py
+tests/test_shared.py
 tests/test_sidebar.py
 tests/test_texture.py
 tests/test_theme_loop.py

@@ -52,6 +52,39 @@ class Texture(unittest.TestCase):
             self.assertGreater(out, 0, k)
         self.assertEqual(t["next"]["tool"], "bumpmesh_texture_file")
 
+    def test_1b_relative_path_and_refusals(self):
+        """Hardening 16 Nov: a relative path is written in the output folder
+        (where Agent Link's path check judged it), not FreeCAD's working
+        folder; a triangle index off the tessellation, and an export of an
+        object that is no mesh, are refused with what to do."""
+        import os
+
+        import Part
+
+        from _fc import add_body
+
+        if self.session.doc.getObject("Grip") is None and not [o for o in self.session.doc.Objects if o.Label == "Grip"]:
+            add_body(self.session, "Grip", Part.makeBox(30, 20, 10))
+        err, t = self.call("texture_prepare", {"body": "Grip", "faces": ["Face1"], "path": "sub/grip-for-texture.stl"})
+        self.assertFalse(err, t)
+        want = os.path.join(self.session.out_dir, "sub", "grip-for-texture.stl")
+        self.assertEqual(os.path.realpath(t["stl"]), os.path.realpath(want))
+        self.assertTrue(os.path.isfile(want))
+        err, t = self.call("texture_draft", {"part": "Grip", "reset": True})
+        self.assertFalse(err, t)
+        n = t["mesh"]["triangles"]
+        err, t = self.call("texture_mask", {"triangles": [n]})
+        self.assertTrue(err, t)
+        self.assertIn(f"0 to {n - 1}", json.dumps(t))
+        err, t = self.call("texture_mask", {"triangles": [0, n - 1]})
+        self.assertFalse(err, t)
+        self.assertEqual(t["triangles"], 2)
+        err, t = self.call("texture_mask", {"clear": True})
+        self.assertFalse(err, t)
+        err, t = self.call("texture_export", {"format": "stl", "object": "Grip", "path": "no.stl"})
+        self.assertTrue(err, t)
+        self.assertIn("texture_apply", json.dumps(t))
+
     def test_2_texture_check(self):
         """BumpMesh stood in for: the prepared STL split finely and a pattern
         raised on the masked faces only. The check reads the top textured,
