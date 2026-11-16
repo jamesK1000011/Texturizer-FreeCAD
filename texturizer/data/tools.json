@@ -161,7 +161,7 @@
   },
   "texture_mask": {
    "group": "texture",
-   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces, or seed triangles on a Mesh part, across edges under maxAngle degrees), triangles (a Mesh part), paint (BumpMesh's Brush: strokes of hits on the part, Circle or Single, Size, Hardness, erase; each stroke one undo step), clear (Clear All). The sidebar's face list lights as it runs. The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
+   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces, or seed triangles on a Mesh part, across edges under maxAngle degrees), triangles (a Mesh part), paint (BumpMesh's Brush: strokes of hits on the part, Circle or Single, Size, Hardness, Precision or Standard, Snap to whole faces, erase; each stroke one undo step), clear (Clear All). The sidebar's face list lights as it runs. The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -210,7 +210,7 @@
      },
      "paint": {
       "type": "object",
-      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface). Mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle, and Hardness under 100 fades it to the rim; standard paints every touched triangle whole. Each stroke is one undo step.",
+      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface). Mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle, and Hardness under 100 fades it to the rim; standard paints every touched triangle whole. For a fine hard edge by surface position: mode precision, a small size (down to 0.2 mm) and hardness 100. Snap faces paints whole CAD faces instead (by name). Each stroke is one undo step.",
       "properties": {
        "strokes": {
         "type": "array",
@@ -245,6 +245,14 @@
          "standard"
         ],
         "description": "The sidebar's Mode when left out (Precision)."
+       },
+       "snap": {
+        "type": "string",
+        "enum": [
+         "faces",
+         "off"
+        ],
+        "description": "faces: every CAD face the brush touches is painted whole and kept by its name (it follows the part through CAD changes); off paints by surface position. The sidebar's Snap when left out (Off). Needs a part with faces."
        },
        "erase": {
         "type": "boolean",

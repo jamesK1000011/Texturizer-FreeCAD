@@ -164,6 +164,11 @@ SPEC = [
                (True, "brushMode.precision", "excl-brush-precision", "brushMode.precisionTitle")]),
     dict(s="masking", k="brushSize", show={"exclusionTool": ["brush"], "brushIsRadius": [True]}, t="slider", id="excl-brush-radius-slider", box="excl-brush-radius-val", l="labels.size", sc="ui", group="brush"),
     dict(s="masking", k="brushHardness", show={"exclusionTool": ["brush"], "brushIsRadius": [True], "brushPrecision": [True]}, t="slider", id="excl-brush-hardness-slider", box="excl-brush-hardness-val", l="labels.hardness", tip="tooltips.hardness", sc="ui", group="brush"),
+    # Texturizer's own: the brush snapped to the part's CAD faces (masks kept by stable face names).
+    dict(s="masking", k="brushFaceSnap", show={"exclusionTool": ["brush"]}, t="buttons", sc="ui", group="brush", added="Snap", d=False,
+         added_opts=[(False, "Off"), (True, "Whole Faces")],
+         added_tip="Whole Faces: every CAD face the brush touches is painted in full and kept by its name, so the mask "
+                   "follows the part through CAD changes. Off: the brush paints by surface position."),
     dict(s="masking", k="bucketThreshold", show={"exclusionTool": ["bucket"]}, t="slider", id="excl-threshold-slider", box="excl-threshold-val", l="labels.maxAngle", tip="tooltips.maxAngle", sc="ui", group="bucket"),
     dict(s="masking", k="shiftHint", t="note", id="excl-shift-hint", l="excl.shiftHint", sc="ui"),
     dict(s="masking", k="clearAll", t="button", id="excl-clear-btn", l="ui.clearAll", sc="action"),
