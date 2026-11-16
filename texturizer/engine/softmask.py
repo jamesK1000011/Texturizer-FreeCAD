@@ -51,12 +51,20 @@ def soft_painted_faces(vert_id, values):
 
 def interpolate_from_parents(child_pos, parent_id, parent_pos, parent_vals):
     """interpolateFromParents: per child corner, the parent face's corner values
-    interpolated at the corner (float32)."""
+    interpolated at the corner (float32). Child triangles whose parent has
+    one value at all corners take it as is; only the others are interpolated
+    (the same values as interpolating every one, in a fraction of the time)."""
     pid = np.asarray(parent_id, np.int64)
     pv = np.asarray(parent_vals, F32).astype(np.float64).reshape(-1, 3)[pid]
     va, vb, vc = pv[:, 0], pv[:, 1], pv[:, 2]
     same = (va == vb) & (va == vc)
-    pp = np.asarray(parent_pos, F32).astype(np.float64).reshape(-1, 9)[pid]
+    out = np.empty((len(pid), 3))
+    out[same] = va[same][:, None]
+    rows = np.nonzero(~same)[0]
+    if not len(rows):
+        return out.astype(F32).reshape(-1)
+    va, vb, vc = va[rows], vb[rows], vc[rows]
+    pp = np.asarray(parent_pos, F32).reshape(-1, 9)[pid[rows]].astype(np.float64)
     A = pp[:, 0:3]
     e0 = pp[:, 3:6] - A
     e1 = pp[:, 6:9] - A
@@ -65,8 +73,7 @@ def interpolate_from_parents(child_pos, parent_id, parent_pos, parent_vals):
     d11 = (e1[:, 0] * e1[:, 0] + e1[:, 1] * e1[:, 1]) + e1[:, 2] * e1[:, 2]
     den = d00 * d11 - d01 * d01
     degen = ~(den > 1e-12 * d00 * d11)
-    cp = np.asarray(child_pos, F32).astype(np.float64).reshape(-1, 3, 3)
-    out = np.empty((len(pid), 3))
+    cp = np.asarray(child_pos, F32).reshape(-1, 3, 3)[rows].astype(np.float64)
     with np.errstate(all="ignore"):
         for k in range(3):
             p = cp[:, k] - A
@@ -87,6 +94,5 @@ def interpolate_from_parents(child_pos, parent_id, parent_pos, parent_vals):
             v = np.where(degen, 1 / 3, v)
             w = np.where(degen, 1 / 3, w)
             val = (u * va + v * vb) + w * vc
-            out[:, k] = np.clip(val, 0, 1)
-    out[same] = va[same][:, None]
+            out[rows, k] = np.clip(val, 0, 1)
     return out.astype(F32).reshape(-1)
