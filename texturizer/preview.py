@@ -36,6 +36,15 @@ called on the GUI thread):
     progress(stage, fraction), note(text), lock_preview(on, text)
     error(text)
 
+Progressive first look (roadmap v19 item 5): a run from subdivide on a part
+whose subdivision is not kept (engine.kept(stage_inputs) false: a new part,
+a new refine length) first runs a coarse preview (inputs["coarse"]: longer
+edges, about 20 k triangles, no sliver clean-up) and shows it, then the full
+one in the same job, which replaces it. A change drops both (the generation);
+one that reruns from a later stage lets the cold subdivide finish and keep
+its mesh (inputs["subdivide_abort"] follows only subdivide changes), so the
+rerun after it is warm. An engine without kept() gets no coarse pass.
+
 and the threads and timers through run_async(fn) (the worker),
 post(fn) (back to the GUI thread: a Qt signal) and schedule(seconds, fn) ->
 cancel(). The defaults use threading, for headless use and tests.
@@ -51,6 +60,7 @@ MEMORY_LIMIT = 1 << 30
 DEBOUNCE_S = 0.150
 DRAG_DEBOUNCE_S = 0.120   # held (a ring, stamp or brush drag) with no Quick look to carry it
 NO_QUICKLOOK = "Quick look not available on this graphics setup"
+COARSE_NOTE = "First look (coarse): refining…"
 
 # Design 3.2: the stage each setting reruns from. Keys not listed (and not
 # ui ones) rerun from subdivide, the safe end.
@@ -160,6 +170,8 @@ class PreviewController:
         self.showing = None      # "quicklook", "cpu", "body" or None (closed)
         self.held = False        # a drag in the view: the CPU rebuild waits (hold)
         self._deferred = False   # a change came while held: one rebuild on release
+        self.sub_gen = 0         # bumped by subdivide changes (and stop): a cold subdivide's own abort
+        self.coarse_shown = 0    # coarse first looks shown (tests, the probe)
 
     # -- state ---------------------------------------------------------------
     def _v(self, name, *a):
@@ -220,6 +232,7 @@ class PreviewController:
 
     def _stop(self):
         self.gen += 1
+        self.sub_gen += 1
         self._pending = False
         self._cancel_pending_timer()
 
@@ -261,6 +274,8 @@ class PreviewController:
         stale), drops the cache from stage on, and in CPU mode runs after the
         debounce (immediate: at once)."""
         self.gen += 1
+        if stage == "subdivide":
+            self.sub_gen += 1
         i = STAGES.index(stage)
         for s in STAGES[i:]:
             self.cache.pop(s, None)
@@ -345,8 +360,11 @@ class PreviewController:
         inputs = {"draft": self.draft.to_dict(), "rerun_from": start,
                   "cache": {s: self.cache[s] for s in STAGES[:STAGES.index(start)]},
                   "tri_budget": TRI_BUDGET.get(quality, TRI_BUDGET["draft"]), "memory_limit": MEMORY_LIMIT}
+        sg = self.sub_gen
+        inputs["subdivide_abort"] = lambda: sg != self.sub_gen
         self.running = gen
         marks = []   # (stage, perf_counter) as the worker reaches each stage: the timing probe
+        kept = getattr(self.engine, "kept", None) if start == "subdivide" else None
 
         def should_abort():
             return gen != self.gen
@@ -356,13 +374,30 @@ class PreviewController:
                 marks.append((stage, time.perf_counter()))
             self.post(lambda: self._progress(gen, stage, fraction))
 
+        def first_look():
+            """The coarse preview, when the full one would be slow; posted to the GUI thread."""
+            try:
+                if kept is None or kept(inputs):
+                    return
+                tc = time.perf_counter()
+                res = self.engine.preview(dict(inputs, coarse=True), lambda *a: None, should_abort)
+            except Exception:  # noqa: BLE001 - the full run reports its own failure
+                return
+            ms = (time.perf_counter() - tc) * 1000.0
+            if res is not None:
+                self.post(lambda: self._engine_timings("preview coarse", res, ms))
+                self.post(lambda: self._coarse(gen, res))
+
         def work():
+            first_look()
             t0 = time.perf_counter()
             try:
                 res, err = self.engine.preview(inputs, progress, should_abort), None
             except Exception as e:  # reported on the GUI thread
                 res, err = None, e
             t1 = time.perf_counter()
+            if res is not None:
+                self.post(lambda: self._engine_timings("preview", res, None))
             import sys
 
             sub = dict(getattr(sys.modules.get(__package__ + ".engine"), "LAST_SUBDIVIDE", None) or {}) \
@@ -383,6 +418,32 @@ class PreviewController:
             end = marks[k + 1][1] if k + 1 < len(marks) else t1
             timing.report(f"preview {st} (worker)", (end - t) * 1000.0)
         timing.report(f"preview from {start} (worker, total)", (t1 - t0) * 1000.0)
+
+    @staticmethod
+    def _engine_timings(prefix, res, total):
+        """The engine's own stages (subdivide1, regularize, subdivide2, map,
+        displace, ...: engine.preview's "timings"), printed on the GUI thread."""
+        if not timing.enabled() or not isinstance(res, dict):
+            return
+        for name, ms in res.get("timings") or ():
+            timing.report(f"{prefix} {name} (engine)", ms)
+        if total is not None:
+            m = res.get("mesh") or {}
+            n = len(m.get("faces", ())) if isinstance(m, dict) else 0
+            timing.report(f"{prefix} (worker, total, {n} triangles)", total)
+
+    def _coarse(self, gen, result):
+        """The coarse first look, shown while the full preview runs; a change
+        since (another generation) drops it, and the full result replaces it."""
+        if gen != self.gen or self.showing is None or not self.cpu_mode:
+            return
+        self.has_cpu = True
+        self.coarse_shown += 1
+        with timing.stage("preview show_cpu coarse (Coin mesh rebuild)"):
+            self._v("show_cpu", result.get("mesh"))
+        self._v("note", COARSE_NOTE)
+        self._v("set_cpu_stale", False)
+        self._show("cpu")
 
     def _progress(self, gen, stage, fraction):
         if gen == self.gen:
