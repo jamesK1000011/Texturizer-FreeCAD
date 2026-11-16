@@ -121,16 +121,11 @@ def rows_for(count, columns):
 def _spin(on, on_stop=None):
     """Turntable (turntable.py): spin FreeCAD's active view slowly about Z
     (True), or stop (False). False when there is no 3D view to spin."""
-    global _TURNTABLE
-    if _TURNTABLE is None:
-        _TURNTABLE = turntable.freecad()
+    tt = turntable.shared()
     if on:
-        return _TURNTABLE.start(on_stop)
-    _TURNTABLE.stop()
+        return tt.start(on_stop)
+    tt.stop()
     return True
-
-
-_TURNTABLE = None
 
 
 def empty_note(flt, query):

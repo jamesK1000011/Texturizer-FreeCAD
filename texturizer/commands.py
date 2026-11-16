@@ -23,7 +23,9 @@ HEADER = [("Texturizer_Reset", "resetSettings"),
 # Section runs FreeCAD's Std_ToggleClipPlane (toggle_section only tabs its
 # dock so the window keeps its size). Wireframe and Perspective are FreeCAD's
 # Draw Style and Std_PerspectiveCamera / Std_OrthographicCamera.
-VIEW = [("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane; press again to close it.")]
+VIEW = [("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane; press again to close it."),
+        ("Texturizer_Turntable", "Turntable",
+         "Spin the 3D view slowly about the part's vertical axis; press again, or click, wheel or move the SpaceMouse in the view, to stop.")]
 # A toolbar button's tooltip says what it does, then the sidebar's own
 # BumpMesh tooltip (kept word for word). Where BumpMesh's tooltip only
 # repeats the name, the first part carries the meaning. No credit here:
@@ -353,7 +355,21 @@ class _View:
     def Activated(self):
         import FreeCADGui
 
+        if self.name == "Texturizer_Turntable":
+            return toggle_turntable()
         toggle_section(FreeCADGui.getMainWindow(), lambda: FreeCADGui.runCommand("Std_ToggleClipPlane", 0))
+
+
+def toggle_turntable(tt=None):
+    """The View toolbar's Turntable (BumpMesh's, turntable.py): spin the view
+    about the part's vertical axis, or stop it. True when it spins."""
+    from . import turntable
+
+    tt = tt or turntable.shared()
+    if tt.spinning:
+        tt.stop()
+        return False
+    return tt.start()
 
 
 def _clipping_dock(mw):

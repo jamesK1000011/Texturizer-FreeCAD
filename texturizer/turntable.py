@@ -4,7 +4,8 @@
 # AGPL-3.0, github.com/CNCKitchen/stlTexturizer: js/viewer.js (setTurntable,
 # _stepTurntable, the stop on pointerdown / wheel / SpaceMouse) and
 # js/textureGallery.js (turntableWanted, the choice that sticks).
-"""The Texture Gallery's Turntable: FreeCAD's 3D view spins slowly about the
+"""The Turntable (the Texture Gallery's button, the View toolbar's command
+and texture_preview { turntable }): FreeCAD's 3D view spins slowly about the
 vertical (Z) axis through the model's centre while the person browses, one
 revolution every 24 s, as BumpMesh's camera auto-orbit. The model spins in
 place on screen however the view was panned or zoomed. Any press of a mouse
@@ -241,10 +242,40 @@ def _qt_timer(ms, fn):
     return t.stop
 
 
+def _adapter():
+    v = _active_view()
+    return CoinAdapter(v, _model_centre) if v is not None else None
+
+
 def freecad():
     """The Turntable on FreeCAD's active view."""
-    def adapter():
-        v = _active_view()
-        return CoinAdapter(v, _model_centre) if v is not None else None
+    return Turntable(lambda: _adapter(), _qt_timer)
 
-    return Turntable(adapter, _qt_timer)
+
+_SHARED = None
+
+
+def shared():
+    """The one Turntable of the window: the gallery's button, the View
+    toolbar's Turntable and the agent's texture_preview { turntable } drive
+    the same spin."""
+    global _SHARED
+    if _SHARED is None:
+        _SHARED = freecad()
+    return _SHARED
+
+
+def turn(degrees, adapter=None):
+    """Turn the view once by degrees about the vertical (Z) axis through the
+    part's centre, as the spin does (step): a render series of a textured
+    part without the timer (texture_preview { turntable: 45 }, then a
+    snapshot). False when there is no 3D view."""
+    v = (adapter or _adapter)()
+    if v is None:
+        return False
+    pose = v.pose()
+    piv = v.pivot() if pose is not None else None
+    if pose is None or piv is None:
+        return False
+    v.set_pose(*step(pose[0], pose[1], piv, math.radians(float(degrees))))
+    return True

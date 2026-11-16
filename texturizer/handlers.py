@@ -1498,6 +1498,8 @@ def texture_preview(s, a):
         if live.GUI is not None:
             live.GUI.cancel_preview()
         return {"cancelled": True}
+    if "turntable" in a:
+        return _turntable(a["turntable"])
     o = _part(s, None, d)
     with timing.stage("texture_preview mesh_for (tessellation, cached by shape)"):
         pos, ft = live.mesh_for(o)
@@ -1533,6 +1535,31 @@ def texture_preview(s, a):
     out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
                    else "texture_apply adds it to the document.")
     return out
+
+
+def _turntable(v):
+    """texture_preview { turntable }: true spins the 3D view about the part's
+    vertical axis (the gallery's and the View toolbar's Turntable), false
+    stops it; a number of degrees turns the view once by that much, for a
+    series of renders (turn, snapshot, turn, ...)."""
+    from . import turntable
+
+    tt = turntable.shared()
+    if isinstance(v, bool):
+        if not v:
+            tt.stop()
+            return {"turntable": {"spinning": False}}
+        if not tt.start():
+            raise ToolError("invalid_state", "turntable: no 3D view to spin (open the document in the window).")
+        return {"turntable": {"spinning": True, "degreesPerSecond": 15},
+                "next": "Any click, wheel or SpaceMouse move in the view stops it; turntable false stops it."}
+    if isinstance(v, (int, float)) and math.isfinite(float(v)):
+        tt.stop()
+        if not turntable.turn(float(v)):
+            raise ToolError("invalid_state", "turntable: no 3D view to turn (open the document in the window).")
+        return {"turntable": {"spinning": False, "turned": float(v)},
+                "next": "Agent Link's view_snapshot or view_render shows the view; turn again for the next frame."}
+    raise ToolError("invalid_input", "turntable: true (spin), false (stop) or degrees to turn the view once.")
 
 
 def _ask_or_default(s, a, kind, default_name):
