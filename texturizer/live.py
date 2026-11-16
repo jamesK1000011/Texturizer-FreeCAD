@@ -41,6 +41,9 @@ def draft():
         from . import docdraft
 
         docdraft.attach(_DRAFT, _doc)   # in FreeCAD: the draft in the document, Edit > Undo undoes it
+        from . import linked
+
+        linked.DraftFollower(_DRAFT)   # its masks follow its body's changes
     return _DRAFT
 
 
@@ -49,7 +52,13 @@ def reset():
     global _DRAFT
     if _DRAFT is not None and getattr(_DRAFT, "sync", None) is not None:
         _DRAFT.sync.detach()
+    from . import linked
+
+    f = linked.DraftFollower.current()
+    if f is not None:
+        f.detach()
     _DRAFT = None
+    LAST_DOC["doc"] = None
     _CACHE.clear()
     TARGET["object"] = None
 
@@ -104,6 +113,9 @@ def find(doc, ref):
         if o.Label.lower() == low:
             return o
     return None
+
+
+LAST_DOC = {"doc": None}   # the document the tools last worked in (without FreeCAD's ActiveDocument)
 
 
 def _doc():

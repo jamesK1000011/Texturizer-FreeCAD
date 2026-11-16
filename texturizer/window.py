@@ -475,6 +475,7 @@ class Window:
             self.gizmo = gizmoview.GizmoView(self)
             self.sidebar.stamp_place = self.gizmo.arm_place
             self.sidebar.on_include_new = self._include_new
+            self.sidebar.on_draft_include = self._draft_include
         self.textured_changed()
         # Where the panel layout setting puts it (layout.py): right by
         # default, at most 360 px, the window kept at its size; the gallery
@@ -580,6 +581,23 @@ class Window:
             self.sidebar.show_textured(None)
         else:
             self.sidebar.show_textured(linked.state(o) or linked.UP_TO_DATE, linked.new_faces(o), o.Label)
+
+    def draft_follow_changed(self):
+        """linked.DraftFollower moved the draft's masks: what it could not
+        move and the faces left smooth, in the sidebar."""
+        from . import linked
+
+        f = linked.DraftFollower.current()
+        if self._alive() and f is not None:
+            self.sidebar.show_draft_follow([r["message"] for r in f.report], f.new_faces)
+
+    def _draft_include(self):
+        from . import linked
+
+        f = linked.DraftFollower.current()
+        if f is not None:
+            f.include_new()
+            self.draft_follow_changed()
 
     def _include_new(self):
         from . import linked

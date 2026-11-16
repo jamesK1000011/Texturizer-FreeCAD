@@ -330,5 +330,102 @@ class Linked(unittest.TestCase):
         self.assertFalse(getattr(obj, "touched", False))
 
 
+def pad40(hole=False):
+    """The Mac's case: a 40 x 30 x 20 Pad, its top Face6; a PartDesign Hole
+    (here a 4 x 4 square through the top, 6 deep) renumbers it to Face5 and
+    adds the hole's walls and floor."""
+    X, Y, H = 40.0, 30.0, 20.0
+    g = {"bottom": quad([0, 0, 0], [0, Y, 0], [X, Y, 0], [X, 0, 0]),
+         "-y": quad([0, 0, 0], [X, 0, 0], [X, 0, H], [0, 0, H]),
+         "+x": quad([X, 0, 0], [X, Y, 0], [X, Y, H], [X, 0, H]),
+         "+y": quad([X, Y, 0], [0, Y, 0], [0, Y, H], [X, Y, H]),
+         "-x": quad([0, Y, 0], [0, 0, 0], [0, 0, H], [0, Y, H])}
+    if not hole:
+        g["top"] = quad([0, 0, H], [X, 0, H], [X, Y, H], [0, Y, H])
+        order = ["-x", "+x", "-y", "+y", "bottom", "top"]                 # top = Face6
+    else:
+        g["top"] = ring(H, (0, 0, X, Y), (18, 13, 22, 17))
+        b = H - 6
+        g["w1"] = quad([18, 13, b], [18, 13, H], [22, 13, H], [22, 13, b])
+        g["w2"] = quad([22, 13, b], [22, 13, H], [22, 17, H], [22, 17, b])
+        g["w3"] = quad([22, 17, b], [22, 17, H], [18, 17, H], [18, 17, b])
+        g["w4"] = quad([18, 17, b], [18, 17, H], [18, 13, H], [18, 13, b])
+        g["floor"] = quad([18, 13, b], [22, 13, b], [22, 17, b], [18, 17, b])
+        order = ["-x", "+x", "-y", "bottom", "top", "w1", "w2", "w3", "w4", "floor", "+y"]   # top = Face5
+    tris, ft = [], {}
+    for k, key in enumerate(order):
+        ft[f"Face{k + 1}"] = list(range(len(tris), len(tris) + len(g[key])))
+        tris += g[key]
+    sh = Shape()
+    sh.pos, sh.ft = np.asarray(tris, np.float32).reshape(-1), ft
+    sh.Faces = [object()] * len(ft)
+    sh.Volume = 24000.0 - (96.0 if hole else 0)
+    sh.BoundBox = Box(XMin=0, YMin=0, ZMin=0, XMax=X, YMax=Y, ZMax=H, DiagonalLength=55.7)
+    return sh
+
+
+class DraftFollows(Linked):
+    """The sidebar's draft follows its body too (linked.DraftFollower)."""
+
+    def test_hole_renumbers_the_top_and_the_draft_follows(self):
+        self.body.Shape = pad40()
+        self.ok("texture_draft", {})
+        d = live.draft()
+        d.set("includeOnly", True, layer=0)
+        d.mask_add(faces=["Face6"], layer=0)         # the top
+        self.body.Shape = pad40(hole=True)           # PartDesign Hole: the top is Face5 now
+        obs = handlers.Observer()
+        obs.slotRecomputedObject(self.body)
+        obs.slotRecomputedDocument(self.doc)
+        self.assertEqual(d.layer(0)["mask"]["faces"], ["Face5"])
+        f = linked.DraftFollower.current()
+        self.assertEqual(f.new_faces, ["Face6", "Face7", "Face8", "Face9", "Face10"])   # the hole's, smooth
+        self.assertEqual(f.report, [])
+        # Add to Document now textures the new top, not Face6 (a hole wall).
+        out = self.ok("texture_apply", {})
+        self.assertEqual(out["layers"][0]["faces"], ["Face5"])
+        # Include Them: the hole's faces join the include layer.
+        f.include_new()
+        self.assertEqual(d.layer(0)["mask"]["faces"], ["Face5", "Face6", "Face7", "Face8", "Face9", "Face10"])
+        self.assertEqual(f.new_faces, [])
+
+    def test_exclude_layer_keeps_new_faces_smooth_and_a_gone_face_is_flagged(self):
+        self.body.Shape = pad40()
+        self.ok("texture_draft", {})
+        d = live.draft()
+        d.mask_add(faces=["Face6", "Face2"], layer=0)    # exclude the top and +x
+        sh = pad40(hole=True)
+        # +x is cut away (its surface gone): a stand-in for a step that removes a face.
+        keep = {f: t for f, t in sh.ft.items() if f != "Face2"}
+        tris = sh.pos.reshape(-1, 9)
+        idx = sorted(t for ts in keep.values() for t in ts)
+        sh.ft = {}
+        renum = {old: new for new, old in enumerate(idx)}
+        for k, (name, ts) in enumerate(sorted(keep.items(), key=lambda kv: kv[1][0])):
+            sh.ft[f"Face{k + 1}"] = [renum[t] for t in ts]
+        sh.pos = tris[idx].reshape(-1)
+        sh.Faces = [object()] * len(sh.ft)
+        sh.Volume = 1.0
+        self.body.Shape = sh
+        res = linked.follow_draft()                    # a tool's call catches it too
+        self.assertIsNotNone(res)
+        report, new = res
+        self.assertEqual([r["message"] for r in report], ["Layer 1: 1 of 2 masked faces no longer exist; re-pick them."])
+        top = [f for f, ts in sh.ft.items() if np.allclose(sh.pos.reshape(-1, 3, 3)[ts[0]][:, 2], 20) and len(ts) == 8]
+        self.assertEqual(len(top), 1)
+        faces = d.layer(0)["mask"]["faces"]
+        self.assertIn(top[0], faces)                   # the top, renumbered
+        self.assertTrue(set(new) <= set(faces))        # new faces excluded: smooth
+        self.assertEqual(len(new), 5)
+        self.assertTrue(any("1 of 2 masked faces no longer exist" in w for w in self.warned))
+
+    def test_nothing_changes_nothing(self):
+        self.body.Shape = pad40()
+        self.ok("texture_draft", {})
+        live.draft().mask_add(faces=["Face6"], layer=0)
+        self.assertIsNone(linked.follow_draft())
+        self.assertEqual(live.draft().layer(0)["mask"]["faces"], ["Face6"])
+
+
 if __name__ == "__main__":
     unittest.main()

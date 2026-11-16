@@ -81,6 +81,18 @@ and the known set (`texture_apply {update, include_new}` for the agent). The
 sidebar also says in one line that the texture applies to the finished part,
 so later CAD steps don't build on it.
 
+## The sidebar's draft follows too
+
+`linked.DraftFollower` keeps a snapshot of the draft's part: its
+tessellation and mapped names, the geometry the masks were made on. After a
+recompute of that part (`slotRecomputedObject`, then `slotRecomputedDocument`,
+still inside the CAD step's transaction, so its Undo undoes both), and before
+any `texture_*` tool reads the draft, a changed signature moves the draft's
+masks. It uses the same anchors and rules as above: flagged, never guessed;
+new faces excluded and listed with Include Them. So Add to Document never
+applies old face names to renumbered faces (live on the Mac: a Hole turned
+the Pad's top from Face6 into Face5).
+
 ## When a mask can't be mapped
 
 That part is left out, the layer is flagged, and the message goes to the
@@ -110,7 +122,7 @@ ones). Today the texture applies to the finished part only.
 - `obj.purgeTouched()`;
 - `doc.HasPendingTransaction`;
 - `Shape.ElementMap` and `Shape.ElementReverseMap` on PartDesign bodies;
-- `DocumentObserver.slotFinishRestoreDocument`;
+- `DocumentObserver.slotFinishRestoreDocument`, `slotRecomputedObject`, `slotRecomputedDocument`;
 - `FreeCAD.Console.PrintWarning`;
 - `doc.removeObject`;
 - setting `obj.Mesh` outside `execute()`.
