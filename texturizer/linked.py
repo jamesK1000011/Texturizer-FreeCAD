@@ -493,7 +493,7 @@ class Job:
     def run(self, should_abort):
         from . import engine
 
-        return engine.texture(self.pos, self.run_settings, mode=self.mode, should_abort=should_abort)
+        return engine.printable(engine.texture(self.pos, self.run_settings, mode=self.mode, should_abort=should_abort))
 
 
 def prepare(obj, src, sig=None):

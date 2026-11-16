@@ -549,12 +549,13 @@ def _smoothed(node, node_count, ix, iy, iz, iters, graph, R):
     return out[:, 0], out[:, 1], out[:, 2]
 
 
-def apply_displacement(geom, image, settings, bounds, on_progress=None, collect=None):
+def apply_displacement(geom, image, settings, bounds, on_progress=None, collect=None, untangled=True):
     """applyDisplacement: one layer read off the geometry's excludeWeight / softExclude."""
-    return apply_displacement_layers(geom, [{"image": image, "settings": settings, "legacy": True}], settings, bounds, on_progress, collect)
+    return apply_displacement_layers(geom, [{"image": image, "settings": settings, "legacy": True}], settings, bounds,
+                                     on_progress, collect, untangled)
 
 
-def apply_displacement_layers(geom, layers, settings, bounds, on_progress=None, collect=None):
+def apply_displacement_layers(geom, layers, settings, bounds, on_progress=None, collect=None, untangled=True):
     """applyDisplacementLayers. geom: {"position", "normal", "excludeWeight", "softExclude"}
     (float32 arrays); layers: [{"image", "settings", "exclude", "hardFaces", "blendAdd",
     "stampDepth", "legacy"}]. Returns {"position", "normal"} (float32). With collect (a
@@ -869,6 +870,16 @@ def apply_displacement_layers(geom, layers, settings, bounds, on_progress=None, 
         nz = np.where(nz < oz, oz, nz)
         nz = np.where(oz <= bounds["min"][2] + 1e-5, oz, nz)
     new[:, 2] = nz
+    # Concave regions (a hole, a pocket's inner corner): walls that the
+    # displacement makes cross are pulled back (untangle.py; not in BumpMesh).
+    from .untangle import untangle
+
+    Vw = P[firsts]
+    k = np.ones(len(Vw)) if not untangled else untangle(Vw, new[firsts] - Vw, vid.reshape(-1, 3), np.stack([smx, smy, smz], 1), also=crease_slot >= 0)
+    if (k < 1).any():
+        new = P + (new - P) * k[vid][:, None]
+        if collect is not None:
+            collect["untangled"] = int((k < 1).sum())
     new32 = new.astype(F32)
     Q = new32.astype(np.float64).reshape(-1, 9)
     ea, eb = Q[:, 3:6] - Q[:, 0:3], Q[:, 6:9] - Q[:, 0:3]
