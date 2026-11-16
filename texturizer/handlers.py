@@ -394,7 +394,7 @@ def _run_engine(s, a, pos, run, mode="export"):
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
         raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
                         f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB): raise settings.refineLength (texture_settings suggests one).")
-    res = engine.texture(pos, run, mode=mode)
+    res = engine.printable(engine.texture(pos, run, mode=mode))
     if res is None:
         raise ToolError("failed", "Stopped before it finished.")
     return res

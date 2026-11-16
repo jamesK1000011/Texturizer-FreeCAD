@@ -52,7 +52,7 @@ MASK_COLOUR = np.array([0.85, 0.40, 0.15], F32)
 GREY = np.array([0.55, 0.57, 0.59], F32)
 
 __all__ = ["library", "Mask", "from_triangles", "flood", "by_normal", "by_box", "build_adjacency", "estimate",
-           "smart_resolution", "fit_cylinder", "texture", "export", "Pipeline", "preview", "Engine", "DEFAULTS",
+           "smart_resolution", "fit_cylinder", "texture", "printable", "export", "Pipeline", "preview", "Engine", "DEFAULTS",
            "LAYER_KEYS", "GLOBAL_KEYS", "MAPPING_MODES", "MAX_LAYERS", "ENGINE_VERSION", "CREDIT", "STAGES"]
 
 
@@ -344,13 +344,35 @@ def credit_of(settings):
     return "; ".join(parts)
 
 
+def printable(res):
+    """The textured mesh as Texturizer hands it to FreeCAD and to files: the
+    engine's (BumpMesh's) result with its cap triangles taken out (a corner
+    on the opposite edge: FreeCAD's "points on edges"; BumpMesh's own output
+    has them too, so texture() keeps them and stays bit-identical to it).
+    In place, once; returns res."""
+    if res is None or res.get("capsFixed") is not None:
+        return res
+    from .meshrepair import fix_caps
+
+    pa, n = fix_caps(res["positions"])
+    res["capsFixed"] = n
+    if n:
+        T = np.asarray(pa, np.float64).reshape(-1, 3, 3)
+        fn = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+        ln = np.linalg.norm(fn, axis=1)
+        fn /= np.where(ln > 0, ln, 1)[:, None]
+        res["positions"] = pa
+        res["normals"] = np.repeat(fn.astype(F32), 3, axis=0).reshape(-1)
+    return res
+
+
 def export(mesh, settings, mask, path, fmt=None, progress=None, should_abort=None, result=None):
     """Texture and write STL or 3MF (fmt from the extension when None):
     {"path", "format", "triangles", "warnings", "repair"}; None when aborted."""
     fmt = (fmt or path.rsplit(".", 1)[-1]).lower()
     if fmt not in ("stl", "3mf"):
         raise ValueError("Export writes stl or 3mf.")
-    res = result or texture(mesh, settings, mask, progress, should_abort)
+    res = printable(result or texture(mesh, settings, mask, progress, should_abort))
     if res is None:
         return None
     credit = credit_of(settings)
@@ -651,9 +673,10 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
                         hf[rows] = hf[rows] | sh
                 refined.append({"image": L["image"], "settings": L["settings"], "blendAdd": L["blendAdd"],
                                 "hardFaces": hf, "stampDepth": L.get("stampDepth"), "exclude": ex})
-            out = apply_displacement_layers(geom, refined, st, bounds, cb, collect)
+            # The preview skips the untangling (export only): it keeps the live bar.
+            out = apply_displacement_layers(geom, refined, st, bounds, cb, collect, untangled=False)
         else:
-            out = apply_displacement(geom, pin["image"], st, bounds, cb, collect)
+            out = apply_displacement(geom, pin["image"], st, bounds, cb, collect, untangled=False)
         _check(should_abort)
         pa = np.asarray(out["position"], F32).copy()
         na = np.asarray(out["normal"], F32).copy()

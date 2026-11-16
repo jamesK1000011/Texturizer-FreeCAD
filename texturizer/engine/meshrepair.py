@@ -129,3 +129,53 @@ def resolve_t_junctions(positions, weld_quant=1e4, on_seg_tol=0.02, max_iters=16
     n = n / np.where(ln == 0, 1.0, ln)[:, None]
     return {"position": tri.astype(F32).reshape(-1),
             "normal": np.repeat(n.astype(F32), 3, axis=0).reshape(-1)}
+
+
+def fix_caps(positions, tol=1e-4, Q=1e4):
+    """Cap triangles (a corner within tol mm of the opposite edge, inside
+    it: FreeCAD's Mesh evaluation calls them points on edges) taken out by
+    splitting the neighbour across that edge at the corner: the cap and its
+    neighbour become two triangles, the same edges seen from outside, so
+    the mesh stays closed. Not in BumpMesh. Returns (positions, how many)."""
+    p = np.asarray(positions, F32).reshape(-1, 3).astype(np.float64)
+    vid, _, firsts = weld(p, Q)
+    V = p[firsts]
+    F = vid.reshape(-1, 3).copy()
+    A, B, C = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    caps = []
+    for k, (x, y, z) in enumerate(((A, B, C), (B, C, A), (C, A, B))):
+        e = y - x
+        L2 = (e * e).sum(1)
+        cr = np.cross(e, z - x)
+        h = np.sqrt((cr * cr).sum(1) / np.maximum(L2, 1e-300))
+        t = ((z - x) * e).sum(1) / np.maximum(L2, 1e-300)
+        for i in np.nonzero((h < tol) & (t > 1e-6) & (t < 1 - 1e-6) & (L2 > tol * tol))[0].tolist():
+            caps.append((i, k))
+    if not caps:
+        return np.asarray(positions, F32), 0
+    owner = {}
+    for i, f in enumerate(F.tolist()):
+        for j in range(3):
+            owner[(f[j], f[(j + 1) % 3])] = i
+    done, fixed = set(), 0
+    for i, k in caps:
+        if i in done:
+            continue
+        f = F[i].tolist()
+        pq, r = (f[k], f[(k + 1) % 3]), f[(k + 2) % 3]
+        u = owner.get((pq[1], pq[0]))
+        if u is None or u in done or u == i:
+            continue
+        s = next(x for x in F[u].tolist() if x not in pq)
+        a, b = pq
+        # The neighbour (b, a, s) split at r; the cap gone. In their places,
+        # so every other triangle keeps its index.
+        F[i], F[u] = [r, a, s], [b, r, s]
+        done.update((i, u))
+        fixed += 1
+    if not fixed:
+        return np.asarray(positions, F32), 0
+    out = np.asarray(positions, F32).reshape(-1, 9).copy()
+    for i in done:
+        out[i] = V[F[i]].astype(F32).reshape(-1)
+    return out.reshape(-1), fixed
