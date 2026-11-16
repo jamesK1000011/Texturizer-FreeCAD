@@ -98,7 +98,7 @@
   },
   "texture_set": {
    "group": "texture",
-   "description": "Change the draft (a partial update, one undo step; the sidebar's sliders move as it runs): texture (a library id, or {file} for your own heightmap), settings by BumpMesh's names for the layer and the run (texture_settings lists them, e.g. scaleU mm per tile, textureHeight mm, mappingMode), frame (rotation [x, y, z] degrees as BumpMesh's Rotate, or face: Place on Face), cylinder (autofit, reset, from_face with face), stamp (on, off, or {point, normal} for Position on model), active (the layer the sidebar edits). The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
+   "description": "Change the draft (a partial update, one undo step; the sidebar's sliders move as it runs): texture (a library id, or {file} for your own heightmap), settings by BumpMesh's names for the layer and the run (texture_settings lists them, e.g. scaleU mm per tile, textureHeight mm, mappingMode), frame (rotation [x, y, z] degrees as BumpMesh's Rotate, direction [x, y, z] to point a planar projection, or face: Place on Face), cylinder (autofit, reset, from_face with face), stamp (on, off, or {point, normal} for Position on model), active (the layer the sidebar edits). The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -130,6 +130,15 @@
         },
         "minItems": 3,
         "maxItems": 3
+       },
+       "direction": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3,
+        "description": "The way the projection looks along (document frame): the planar mode's axis, or the frame's Z for Triplanar and Cubic, turned there by the least frame rotation (the 3D view's projection arrow). With rotation (the layer's in-plane Rotation setting) and scaleU / scaleV (mm per tile) in settings, what the projection gizmo sets."
        },
        "face": {
         "type": "string",

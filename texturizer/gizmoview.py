@@ -7,8 +7,11 @@
 on the active view while the sidebar has a part, the Rotate rings as Coin
 lines drawn over the model, and a Qt event filter on the view's viewport
 that takes the wheel only while the stamp is armed (FreeCAD's navigation
-sees the wheel before the scene graph does). The left button is taken only
-on a ring, the stamp's patch or an armed placement; everything else,
+sees the wheel before the scene graph does). With Rotate on, on a Planar,
+Triplanar or Cubic layer, the projection gizmo is drawn with the rings: an
+arrow along the projection, a dial for Rotation and a knob for Size (Coin
+lines and markers, gizmo.projection_widget). The left button is taken only
+on a ring, a projection knob, the stamp's patch or an armed placement; everything else,
 middle and right always, navigates as usual. GUI thread only."""
 from . import gizmo, live, timing
 from .paintview import _drag, _frozen, _told, hold_events
@@ -25,7 +28,9 @@ class GizmoView:
         self.rings = None
         self._filter = None
         lo, hi = _scale_range()
-        self.tool = gizmo.GizmoTool(live.draft(), self._positions, self._ray, self._draw, self._armed, (lo, hi))
+        self.proj = None
+        self.tool = gizmo.GizmoTool(live.draft(), self._positions, self._ray, self._draw, self._armed, (lo, hi),
+                                    on_projection=self._draw_projection)
 
     # -- on and off -------------------------------------------------------------------------
     def sync(self):
@@ -72,12 +77,14 @@ class GizmoView:
             except Exception:  # noqa: BLE001
                 pass
             self._filter = None
-        if self.rings is not None:
-            try:
-                v.getSceneGraph().removeChild(self.rings)
-            except Exception:  # noqa: BLE001
-                pass
-            self.rings = None
+        for attr in ("rings", "proj"):
+            node = getattr(self, attr)
+            if node is not None:
+                try:
+                    v.getSceneGraph().removeChild(node)
+                except Exception:  # noqa: BLE001
+                    pass
+                setattr(self, attr, None)
 
     def on_draft(self, ev):
         k = ev.get("kind")
@@ -88,7 +95,9 @@ class GizmoView:
             if ev.get("key") == "exclusionTool" and ev.get("value"):
                 self.tool.cancel()   # BumpMesh: a tool ends placement
             self.sync()
-        elif k in ("undo", "redo"):
+        elif k in ("undo", "redo", "frame", "layer", "active"):
+            self.tool.draw()   # the projection gizmo follows the frame, mode, rotation and size
+        elif k == "set" and ev.get("key") in ("mappingMode", "rotation", "scaleU", "scaleV", "stampOnce"):
             self.tool.draw()
 
     def arm_place(self):
@@ -167,6 +176,65 @@ class GizmoView:
             lit = axis in (g.get("hover"), g.get("drag"))
             col.rgb.setValue(*(gizmo.HOVER_COLOURS if lit else gizmo.COLOURS)[axis])
         self.rings.whichChild = 0
+
+    @timing.timed("gizmo projection draw")
+    def _draw_projection(self, w):
+        """The projection gizmo (gizmo.projection_widget) as Coin lines and
+        knobs over the model, as the rings: the arrow, the dial, the size
+        line and one tile, each knob lit while hovered or dragged."""
+        if self.view is None:
+            return
+        from pivy import coin
+
+        if self.proj is None:
+            self.proj = coin.SoSwitch()
+            ann = coin.SoAnnotation()
+            ds = coin.SoDrawStyle()
+            ds.lineWidth = RING_WIDTH
+            ds.pointSize = 9
+            ann.addChild(ds)
+            self._parts = {}
+            for name in ("direction", "rotation", "scale", "tile"):
+                sep = coin.SoSeparator()
+                col, pts, ls = coin.SoBaseColor(), coin.SoCoordinate3(), coin.SoLineSet()
+                for n in (col, pts, ls):
+                    sep.addChild(n)
+                knob = None
+                if name != "tile":
+                    kc = coin.SoCoordinate3()
+                    knob = coin.SoMarkerSet()
+                    knob.markerIndex = coin.SoMarkerSet.CIRCLE_FILLED_9_9
+                    sep.addChild(kc)
+                    sep.addChild(knob)
+                    knob = (kc, knob)
+                ann.addChild(sep)
+                self._parts[name] = (sep, col, pts, ls, knob)
+            self.proj.addChild(ann)
+            self.view.getSceneGraph().addChild(self.proj)
+        if w is None:
+            self.proj.whichChild = -1
+            return
+        c = w["centre"]
+        lines = {"direction": [c, w["arrow"]] if w["arrow"] is not None else [],
+                 "rotation": gizmo.dial_points(w).tolist(),
+                 "scale": [c, w["scale"]],
+                 "tile": (w["tile"] + [w["tile"][0]]) if w["tile"] is not None else []}
+        knobs = {"direction": w["arrow"], "rotation": w["dial"], "scale": w["scale"]}
+        for name, (sep, col, pts, ls, knob) in self._parts.items():
+            P = [list(map(float, p)) for p in lines[name]]
+            pts.point.setValues(0, len(P), P)
+            pts.point.setNum(len(P))
+            ls.numVertices.setValue(len(P))
+            lit = name in (w.get("hover"), w.get("drag"))
+            rgb = (gizmo.PROJ_HOVER if lit else gizmo.PROJ_COLOURS).get(name, gizmo.PROJ_COLOURS["scale"])
+            col.rgb.setValue(*rgb)
+            if knob is not None:
+                k = knobs[name]
+                kp = [] if k is None else [list(map(float, k))]
+                knob[0].point.setValues(0, len(kp), kp)
+                knob[0].point.setNum(len(kp))
+                knob[1].numPoints.setValue(len(kp))
+        self.proj.whichChild = 0
 
     def _armed(self, on):
         sb = self.w.sidebar
