@@ -317,7 +317,7 @@
   },
   "texture_preview": {
    "group": "texture",
-   "description": "Build the CPU preview of the draft with BumpMesh's engine (the same code as the export, so what shows is what prints) and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and the export's edge, triangles and memory. quality draft (500 k triangles) or fine (1.5 M). suggest: BumpMesh's Suggest values (resolution and triangle limit, set in the draft). cancel stops a running preview. Look at it with view_snapshot.",
+   "description": "Build the CPU preview of the draft with BumpMesh's engine (the same code as the export, so what shows is what prints) and wait for it: shown in the 3D view, answered with the preview edge, triangles, time, and the export's edge, triangles and memory. quality draft (500 k triangles) or fine (1.5 M). suggest: BumpMesh's Suggest values (resolution and triangle limit, set in the draft). cancel stops a running preview. turntable spins the view about the part's vertical axis (true / false), or turns it once by a number of degrees for renders. Look at it with view_snapshot.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -339,6 +339,13 @@
      },
      "cancel": {
       "type": "boolean"
+     },
+     "turntable": {
+      "description": "true spins the 3D view slowly about the part's vertical axis (the Turntable: 15 degrees a second, until false or a click in the view), false stops it; a number turns the view once by that many degrees, for a series of renders (turn, view_snapshot, turn, ...). Builds nothing.",
+      "type": [
+       "boolean",
+       "number"
+      ]
      }
     },
     "additionalProperties": false

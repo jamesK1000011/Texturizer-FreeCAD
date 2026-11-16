@@ -18,3 +18,4 @@ Each icon here is hand-drawn on a 64×64 canvas in FreeCAD's Artwork Guidelines 
 | Texturizer_Export3MF.svg | Tabler `download` | Chocolate arrow into a tray, the format named |
 | Texturizer_AddToDocument.svg | Tabler `box` with `circle-plus` | Chocolate box with a Sky blue plus |
 | Texturizer_Section.svg | Tabler `box` with a plane | Chocolate box cut by a Sky blue plane |
+| Texturizer_Turntable.svg | Tabler `rotate-360` with `box` | Chocolate box over a Sky blue turn with its arrowhead |

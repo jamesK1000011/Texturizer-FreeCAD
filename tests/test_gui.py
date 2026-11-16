@@ -249,7 +249,7 @@ class Workbench(unittest.TestCase):
                                            ["Texturizer Panel", [commands.TEXTURE]]])
         self.assertEqual([out["commands"][n]["MenuText"] for n in header],
                          ["Reset to Defaults", "Export BumpMesh Project…", "Import BumpMesh Project…", "Texture Gallery", "Export 3MF"])
-        self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Section View"])
+        self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Section View", "Turntable"])
         self.assertIn("Texturizer_About", out["menus"][0][1])
         self.assertEqual(out["menus"][0][1][0], commands.TEXTURE)
         self.assertEqual(sorted(out["commands"]), sorted(commands.NAMES + ["Texturizer_About"]))

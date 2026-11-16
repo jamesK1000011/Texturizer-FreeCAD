@@ -209,5 +209,52 @@ class Gallery(unittest.TestCase):
         self.assertEqual(spins, [True])
 
 
+class Controls(unittest.TestCase):
+    """The View toolbar's Turntable and the agent's texture_preview { turntable }
+    drive the gallery's one spin; a number of degrees turns the view once
+    (a render series)."""
+
+    def setUp(self):
+        self.t, self.v, self.clock, self.timer = rig()
+        self.saved = (turntable._SHARED, turntable._adapter)
+        turntable._SHARED = self.t
+        turntable._adapter = lambda: self.v
+
+    def tearDown(self):
+        turntable._SHARED, turntable._adapter = self.saved
+
+    def test_turn_once_about_z_through_the_pivot(self):
+        self.assertTrue(turntable.turn(90))
+        for a, b in zip(self.v.p, (2.0, 8.0, 5.0)):
+            self.assertAlmostEqual(a, b)
+        self.assertFalse(turntable.turn(10, adapter=lambda: None))
+
+    def test_toolbar_command_toggles_the_shared_spin(self):
+        from texturizer import commands
+
+        self.assertIs(turntable.shared(), self.t)
+        self.assertTrue(commands.toggle_turntable())
+        self.assertTrue(self.t.spinning)
+        self.assertFalse(commands.toggle_turntable())
+        self.assertFalse(self.t.spinning)
+
+    def test_texture_preview_turntable(self):
+        from texturizer import handlers
+
+        out = handlers._turntable(True)
+        self.assertTrue(out["turntable"]["spinning"] and self.t.spinning)
+        out = handlers._turntable(30)
+        self.assertEqual(out["turntable"], {"spinning": False, "turned": 30.0})
+        self.assertFalse(self.t.spinning)          # a turn stops the spin: the frame stays put for the render
+        self.assertAlmostEqual(math.degrees(math.atan2(self.v.p[1], self.v.p[0] - 2.0)), 30.0)
+        self.assertEqual(handlers._turntable(False), {"turntable": {"spinning": False}})
+        for bad in ("fast", float("nan"), None):
+            with self.assertRaises(handlers.ToolError):
+                handlers._turntable(bad)
+        turntable._adapter = lambda: None
+        with self.assertRaises(handlers.ToolError):
+            handlers._turntable(15)
+
+
 if __name__ == "__main__":
     unittest.main()

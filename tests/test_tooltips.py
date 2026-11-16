@@ -35,7 +35,7 @@ class Tooltips(unittest.TestCase):
 
     def test_view_commands_say_what_they_do(self):
         tips = {name: tip for name, _label, tip in commands.VIEW}
-        self.assertEqual(set(tips), {"Texturizer_Section"})   # Wireframe, Perspective: FreeCAD's own
+        self.assertEqual(set(tips), {"Texturizer_Section", "Texturizer_Turntable"})   # Wireframe, Perspective: FreeCAD's own
         self.assertEqual(tips["Texturizer_Section"], "Cut the view with FreeCAD's clipping plane; press again to close it.")
         for tip in tips.values():
             self.assertNotIn("Std_", tip)  # no command ids in what the user reads
