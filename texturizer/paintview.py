@@ -122,7 +122,8 @@ class PaintView:
     # -- on and off -------------------------------------------------------------------------
     def sync(self):
         """Listen on the active view while Brush or Fill is on, else let go."""
-        on = self.tool.tool() in ("brush", "bucket") and self.w.snapshot() is not None
+        on = (self.tool.tool() in ("brush", "bucket") and self.w.snapshot() is not None
+              and not getattr(self.w, "user_hidden", False))
         from .window import _view
 
         v = _view() if on else None

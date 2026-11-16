@@ -239,6 +239,153 @@ class OneGeometryCheckAnEvent(unittest.TestCase):
             live.reset()
 
 
+class _VO:
+    def __init__(self, on=True):
+        self.Visibility = on
+
+
+class _O:
+    def __init__(self, name, type_id, shown=True, solid=True, out=(), label=None):
+        self.Name, self.Label, self.TypeId = name, label or name, type_id
+        self.ViewObject = _VO(shown)
+        self.Shape = type("S", (), {"Solids": [1] if solid else [], "Faces": [1] if solid else []})()
+        self.OutList, self.InList = list(out), []
+        self.Mesh = None
+        for c in out:
+            c.InList.append(self)
+
+
+class _Doc:
+    def __init__(self, objs, name="Doc"):
+        self.Objects, self.Name, self.FileName = objs, name, f"/tmp/{name}.FCStd"
+
+
+class PartChoice(unittest.TestCase):
+    """Found live: after a restart the draft took "Reverse engineer"
+    (ScanRulerReverse, a hidden Part::FeaturePython) instead of Body, the
+    part it was on and the only visible solid."""
+
+    def setUp(self):
+        live._LAST.clear()
+
+    def scene(self):
+        pad = _O("Pad", "PartDesign::Pad", shown=False)
+        body = _O("Body", "PartDesign::Body", out=[pad])
+        rev = _O("ScanRulerReverse", "Part::FeaturePython", shown=False, label="Reverse engineer")
+        return body, rev, _Doc([rev, pad, body])
+
+    def test_never_a_hidden_object(self):
+        body, rev, doc = self.scene()
+        self.assertIs(live.choose_part(doc), body)
+        self.assertEqual([o.Name for o in live.candidates(doc)], ["Body"])
+        rev.ViewObject.Visibility = True     # shown, but a scripted object: the Body still wins
+        self.assertIs(live.choose_part(doc), body)
+        body.ViewObject.Visibility = False
+        self.assertIs(live.choose_part(doc), rev)
+
+    def test_last_part_then_selection(self):
+        a = _O("Box", "Part::Box")
+        b = _O("Cylinder", "Part::Cylinder")
+        doc = _Doc([a, b])
+        self.assertIsNone(live.choose_part(doc))          # two equally good: the person says which
+        live.remember_part(doc, "Cylinder")
+        self.assertIs(live.choose_part(doc), b)           # the last part this document's draft used
+        self.assertIs(live.choose_part(doc, selected="Box"), a)   # the selection first
+        b.ViewObject.Visibility = False
+        self.assertIs(live.choose_part(doc), a)           # the last one, hidden since: not taken
+        self.assertIsNone(live.last_part(_Doc([], name="Other")))
+
+    def test_container_repeating_its_children_and_hidden_groups(self):
+        a = _O("Box", "Part::Box")
+        fuse = _O("Fusion", "Part::MultiFuse", out=[_O("Cyl", "Part::Cylinder", shown=False), a])
+        doc = _Doc([a, fuse])
+        self.assertEqual([o.Name for o in live.candidates(doc)], ["Box"])
+        grp = _O("Part", "App::Part", solid=False, out=[a])
+        grp.ViewObject.Visibility = False
+        self.assertFalse(live.visible(a))                 # inside a hidden App::Part
+
+    def test_texture_draft_takes_the_visible_body(self):
+        from texturizer import handlers
+
+        body, rev, doc = self.scene()
+        live.reset()
+        saved = live.mesh_for
+        live.mesh_for = lambda part, doc=None, tol=None: cube()
+        try:
+            run = handlers.local_runner(handlers.Context(doc=doc, out_dir=__import__("tempfile").mkdtemp()))
+            ok, out = run("texture_draft", {})
+            self.assertTrue(ok, out)
+            self.assertEqual(live.draft().part, "Body")
+        finally:
+            live.mesh_for = saved
+            live.reset()
+
+
+class HiddenPart(unittest.TestCase):
+    """The person hides the draft's part: its preview and rings go with it."""
+
+    def test_hide_and_show(self):
+        from texturizer import window
+
+        live.reset()
+        saved = live.mesh_for
+        live.mesh_for = lambda part, doc=None, tol=None: cube()
+        try:
+            d = live.draft()
+            d.set_part("Body")
+            body = _O("Body", "PartDesign::Body")
+            w = window.Window()
+            closed, synced, opened = [], [], []
+
+            class C:
+                showing = "quicklook"
+                _body = True
+
+                def close(self):
+                    closed.append(self._body)
+                    self.showing = None
+
+                def open(self):
+                    opened.append(1)
+                    self.showing = "quicklook"
+
+                def request(self, stage):
+                    pass
+
+            class T:
+                def sync(self):
+                    synced.append(w.user_hidden)
+
+            class V:
+                def _body(self):
+                    return body
+
+            class SB:
+                def set_mesh_info(self, *a):
+                    pass
+
+                def set_estimate(self, *a):
+                    pass
+
+            w.controller, w.gizmo, w.paint, w.view, w.sidebar = C(), T(), T(), V(), SB()
+            w._own_vis = 1
+            body.ViewObject.Visibility = False
+            w.part_visibility(body)        # the preview's own hiding
+            self.assertEqual(closed, [])
+            w._own_vis = 0
+            w.part_visibility(body)        # the person's
+            self.assertTrue(w.user_hidden)
+            self.assertEqual(closed, [False])   # closed, the part left hidden
+            self.assertEqual(synced, [True, True])
+            body.ViewObject.Visibility = True
+            w.part_visibility(body)
+            self.assertFalse(w.user_hidden)
+            self.assertEqual(opened, [1])
+        finally:
+            live.mesh_for = saved
+            live.reset()
+
+
 class Probe(unittest.TestCase):
     def setUp(self):
         self.lines = []

@@ -31,7 +31,7 @@ class GizmoView:
     def sync(self):
         from .window import _view
 
-        v = _view() if self.w.snapshot() is not None else None
+        v = _view() if self.w.snapshot() is not None and not getattr(self.w, "user_hidden", False) else None
         if v is not self.view:
             self._detach()
             if v is not None:

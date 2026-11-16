@@ -376,31 +376,70 @@ if QtWidgets is not None:
 
     class LayerName(QtWidgets.QPushButton):
         """A layer row's name: as wide as its whole text when there is room,
-        elided ("Layer 1 · Knur…") when the row is narrower, never below
-        "Layer n"; the whole name in the tooltip."""
+        elided at its end ("Layer 1 · Knu…", Qt's ElideRight) when the row
+        is narrower, never below "Layer n"; the whole name in the tooltip.
+        The text sits at the left, and the room for it is the button's own
+        contents width as the style (and the theme's stylesheet) pads it:
+        found live, a fixed guess left the centred text wider than the
+        button, clipped at both ends (".ayer 1 · Knu..")."""
 
-        PAD = 16
+        PAD = 16    # the least room around the text, when the style can't say
+        SAFE = 2
 
         def __init__(self, full, least):
             super().__init__(full)
             self.full, self.least = full, least
+            try:
+                self.setStyleSheet("text-align: left;")
+            except (AttributeError, TypeError):
+                pass
 
         def _adv(self, t):
             return self.fontMetrics().horizontalAdvance(t)
 
+        def _pad(self):
+            """The style's width around the text: frame, padding, bezel."""
+            try:
+                opt = QtWidgets.QStyleOptionButton()
+                self.initStyleOption(opt)
+                opt.text = self.full
+                w = self._adv(self.full)
+                got = self.style().sizeFromContents(QtWidgets.QStyle.CT_PushButton, opt,
+                                                    QtCore.QSize(w, self.fontMetrics().height()), self)
+                return max(self.PAD, got.width() - w)
+            except Exception:  # noqa: BLE001 - a stand-in Qt: the fixed padding
+                return self.PAD
+
         def sizeHint(self):  # noqa: N802 (Qt)
-            return QtCore.QSize(self._adv(self.full) + self.PAD, super().sizeHint().height())
+            return QtCore.QSize(self._adv(self.full) + self._pad() + self.SAFE, super().sizeHint().height())
 
         def minimumSizeHint(self):  # noqa: N802 (Qt)
-            return QtCore.QSize(self._adv(self.least) + self.PAD, super().minimumSizeHint().height())
+            return QtCore.QSize(self._adv(self.least + "…") + self._pad() + self.SAFE, super().minimumSizeHint().height())
+
+        def room(self, width):
+            """The text's width in a button width px wide."""
+            room = int(width) - self._pad()
+            try:   # the contents rectangle as the style lays it out, when it says
+                opt = QtWidgets.QStyleOptionButton()
+                self.initStyleOption(opt)
+                opt.rect = QtCore.QRect(0, 0, int(width), max(1, self.height()))
+                r = self.style().subElementRect(QtWidgets.QStyle.SE_PushButtonContents, opt, self)
+                if r.width() > 0:
+                    room = min(room, r.width())
+            except Exception:  # noqa: BLE001
+                pass
+            return max(0, room - self.SAFE)
 
         def fit(self, width):
-            """The text for width px: the whole name, or elided."""
-            room = max(0, int(width) - self.PAD)
-            try:
-                t = self.fontMetrics().elidedText(self.full, QtCore.Qt.ElideRight, room)
-            except (AttributeError, TypeError):
-                t = elide(self.full, room, self._adv)
+            """The text for width px: the whole name, or its start and one "…"."""
+            room = self.room(width)
+            if self._adv(self.full) <= room:
+                t = self.full
+            else:
+                try:
+                    t = self.fontMetrics().elidedText(self.full, QtCore.Qt.ElideRight, room)
+                except (AttributeError, TypeError):
+                    t = elide(self.full, room, self._adv)
             if t != self.text():
                 self.setText(t)
             return t
