@@ -9,8 +9,10 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
-The dated versions below were never tagged: the first tagged release is
-being prepared.
+## 0.4.0 — 2026-11-16
+
+The dated versions below 0.4.0 were never tagged: 0.4.0 is prepared as the
+first tagged release.
 
 ### Added
 
