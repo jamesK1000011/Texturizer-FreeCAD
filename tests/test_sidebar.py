@@ -436,6 +436,19 @@ class SidebarWidget(unittest.TestCase):
         self.assertNotEqual(sb.favgrid.active, "Hexagons")
         d.redo()
         self.assertEqual(sb.favgrid.active, "Hexagons")
+        # The layer strip: a texture change sets its row in place; a new layer rebuilds it.
+        row = sb.layers.rows[0]["row"]
+        d.set_texture("knurling")
+        self.assertIs(sb.layers.rows[0]["row"], row)
+        self.assertIn("Knurling", sb.layers.rows[0]["name"].full)
+        d.undo()
+        self.assertIs(sb.layers.rows[0]["row"], row)
+        self.assertNotIn("Knurling", sb.layers.rows[0]["name"].full)
+        d.add_layer()
+        self.assertIsNot(sb.layers.rows[0]["row"], row)
+        self.assertEqual(len(sb.layers.rows), 2)
+        d.undo()
+        self.assertEqual(len(sb.layers.rows), 1)
         self.assertEqual(len(self.calls), n)
         sb.binds["exclusionTool"].buttons[0][1].click()  # Faces tool
         self.assertEqual(d.get("exclusionTool"), "faces")

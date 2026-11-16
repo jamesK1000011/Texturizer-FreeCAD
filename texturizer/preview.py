@@ -235,6 +235,13 @@ class PreviewController:
         stage = stage_for(event, self.draft)
         if stage is None:
             return
+        if timing.enabled():   # which stage, and what asked for it
+            what = event.get("key") or ""
+            ch = event.get("value") if event.get("kind") in ("undo", "redo") else None
+            if isinstance(ch, dict):
+                what = ",".join([k for k in ("part", "frame", "layers", "masks", "layer", "active") if ch.get(k)]
+                                + list(ch.get("keys") or ()))
+            timing.report(f"preview request {stage} ({event.get('kind')} {what})".rstrip(), 0.0)
         if self.quicklook_ok:
             with timing.stage(f"preview quicklook update ({stage})"):
                 self._v("update_quicklook", stage)  # uniforms only: < 16 ms a frame

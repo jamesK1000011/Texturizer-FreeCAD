@@ -149,6 +149,49 @@ class SameResult(unittest.TestCase):
         self.assertIs(D._KEEP["smooth"], kept)   # turned, not rerun
 
 
+class SubdivideKept(unittest.TestCase):
+    """The subdivide stage depends on the part and its own settings, not on
+    the texture or its scale: a texture switch (or an Undo of one) that
+    reruns from subdivide takes the kept mesh, the same arrays a new run
+    makes."""
+
+    def runs(self):
+        calls = []
+        real = engine._preview_subdivide
+
+        def counted(*a, **k):
+            calls.append(1)
+            return real(*a, **k)
+        return calls, real, counted
+
+    def test_texture_switch_reuses_and_matches(self):
+        calls, real, counted = self.runs()
+        engine._SUBDIVIDED.clear()
+        engine._preview_subdivide = counted
+        try:
+            d = draft.Draft(part="Body")
+            got = {}
+            for tex in ("Knurling", "Hexagons", "Knurling"):
+                d.set_texture(tex, defaults={"scaleU": 7.5 if tex == "Knurling" else 50})
+                got.setdefault(tex, []).append(engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX},
+                                                               "face_triangles": BOX_FT})["mesh"])
+            self.assertEqual(len(calls), 1)
+            d.set("refineLength", 2.0)   # its own setting: subdivided again
+            engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})
+            self.assertEqual(len(calls), 2)
+            d.mask_add(faces=["Face1"])  # with Preserve Untextured, the faces no layer textures count
+            engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})
+            self.assertEqual(len(calls), 3)
+        finally:
+            engine._preview_subdivide = real
+        engine._SUBDIVIDED.clear()   # a fresh run gives the same arrays
+        d = draft.Draft(part="Body")
+        d.set_texture("Knurling", defaults={"scaleU": 7.5})
+        fresh = engine.preview({"draft": d.to_dict(), "mesh": {"positions": BOX}, "face_triangles": BOX_FT})["mesh"]
+        for k in ("vertices", "normals", "faces", "weights"):
+            np.testing.assert_array_equal(fresh[k], got["Knurling"][1][k])
+
+
 @unittest.skipUnless(os.environ.get("TEXTURIZER_BENCH"), "set TEXTURIZER_BENCH=1 to time the displace stage")
 class Bench(unittest.TestCase):
     def test_displace_ms(self):

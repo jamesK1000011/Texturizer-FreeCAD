@@ -443,6 +443,29 @@ def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_ab
             "faceParentId": parents, "edge": edge, "predictedTriangles": est, "note": note}
 
 
+# Subdivided meshes kept by what they are made from: the part's triangles,
+# the settings the subdivide stage reads, the budget, and (with Preserve
+# Untextured) the faces no layer textures. Nothing of a texture, its scale or
+# the frame goes in, so switching textures, an Undo of a texture pick or a
+# second preview of the same part reuses it instead of subdividing again.
+SUBDIVIDED_KEEP = 4
+_SUBDIVIDED = {}
+_SUBDIVIDE_KEYS = ("refineLength", "preserveUntextured", "previewQuality", "maxTriangles", "harvestFlatFaces", "harvestTol")
+
+
+def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit):
+    import hashlib
+
+    g = {**DEFAULTS, **s}
+    keep = tuple((k, repr(g.get(k))) for k in sorted(g) if k in _SUBDIVIDE_KEYS or k.startswith("regularize"))
+    hard = _excluded_faces(specs, n) if g.get("preserveUntextured") else None
+    h = hashlib.blake2b(np.ascontiguousarray(pos, F32).tobytes(), digest_size=16)
+    if hard is not None:
+        h.update(b"hard")
+        h.update(np.ascontiguousarray(hard).tobytes())
+    return (h.hexdigest(), len(pos), keep, int(tri_budget), int(memory_limit))
+
+
 def _excluded_faces(layers, n):
     """main.js _previewExcludedFaces: source faces no visible layer textures (hard masks)."""
     hard = None
@@ -496,8 +519,18 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     # subdivide: in the part's own frame (rotation and centring are rigid).
     if first <= 0 or "subdivide" not in cache:
         _check(should_abort)
-        ran["subdivide"] = _preview_subdivide(pos, s, specs, si.get("tri_budget") or 500_000,
-                                              si.get("memory_limit") or (1 << 30), prog, should_abort)
+        tb, ml = si.get("tri_budget") or 500_000, si.get("memory_limit") or (1 << 30)
+        key = _subdivide_key(pos, s, specs, n, tb, ml)
+        hit = _SUBDIVIDED.get(key)
+        if hit is None:
+            hit = _preview_subdivide(pos, s, specs, tb, ml, prog, should_abort)
+            _SUBDIVIDED[key] = hit
+            while len(_SUBDIVIDED) > SUBDIVIDED_KEEP:
+                _SUBDIVIDED.pop(next(iter(_SUBDIVIDED)))
+        else:
+            _SUBDIVIDED[key] = _SUBDIVIDED.pop(key)   # most recent last
+            prog("subdivide", 1.0)
+        ran["subdivide"] = dict(hit)
         first = 0
     sub = ran.get("subdivide") or cache["subdivide"]
     note = sub.get("note")
