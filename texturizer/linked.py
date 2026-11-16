@@ -876,11 +876,172 @@ def follow_draft(doc=None):
         return None
 
 
+# -- the body hidden while its textured result is shown --------------------------------------
+# As PartDesign hides the previous feature when a new one becomes the tip: a
+# Textured result shown hides its source body (its flat faces would z-fight
+# through the texture; faces left smooth are part of the result mesh, so
+# nothing is lost), and the body comes back when the result is hidden or
+# deleted, or Undo takes the result away. Visibility is set on the view
+# object when there is one (what the eye in the tree toggles), else on the
+# document object, so the window shows and undoes exactly what was done.
+HIDDEN_NOTE = "the Body is hidden while its textured result is shown"
+_HIDDEN = set()   # (document, body) hidden by Texturizer for a result, this session
+_OWN = [0]        # Texturizer setting a visibility itself: not a person's change
+
+
+def is_textured(obj):
+    return "SourceBody" in getattr(obj, "PropertiesList", ())
+
+
+def shown(obj):
+    """The object's own eye (not its groups')."""
+    vo = getattr(obj, "ViewObject", None)
+    if vo is not None and hasattr(vo, "Visibility"):
+        return bool(vo.Visibility)
+    return bool(getattr(obj, "Visibility", True))
+
+
+def _show(obj, on):
+    if shown(obj) == bool(on):
+        return
+    gui = live.GUI
+    own = hasattr(gui, "_own_vis")   # the window's preview: not the person hiding the part
+    _OWN[0] += 1
+    if own:
+        gui._own_vis += 1
+    try:
+        vo = getattr(obj, "ViewObject", None)
+        if vo is not None and hasattr(vo, "Visibility"):
+            vo.Visibility = bool(on)
+        else:
+            obj.Visibility = bool(on)
+    finally:
+        _OWN[0] -= 1
+        if own:
+            gui._own_vis -= 1
+
+
+def _key(doc, body):
+    return (getattr(doc, "Name", ""), getattr(body, "Name", ""))
+
+
+def results_of(body, doc=None, without=None):
+    doc = doc or getattr(body, "Document", None)
+    name = getattr(body, "Name", None)
+    out = []
+    for t in list(getattr(doc, "Objects", None) or ()):
+        if t is without or not is_textured(t):
+            continue
+        if getattr(t, "Source", None) is body or getattr(t, "SourceBody", None) == name:
+            out.append(t)
+    return out
+
+
+def _preview_on(body):
+    """The window's preview controller when it is open on this body (it
+    hides the body itself and puts it back as it found it on close)."""
+    c = getattr(live.GUI, "controller", None)
+    try:
+        if c is not None and c.showing not in (None, "body") and live.draft().part == getattr(body, "Name", None):
+            return c
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def sync_source(body, doc=None, without=None, show_back=True):
+    """The body hidden when one of its Textured results is shown; shown again
+    when none is (show_back False: only when Texturizer hid it this session).
+    without: a result being deleted. Returns "hidden", "shown" or None."""
+    if body is None:
+        return None
+    doc = doc or getattr(body, "Document", None)
+    key = _key(doc, body)
+    c = _preview_on(body)
+    if any(shown(t) for t in results_of(body, doc, without)):
+        _HIDDEN.add(key)
+        if c is not None:
+            c._body = False   # the preview closing leaves it hidden
+            return "hidden"
+        if shown(body):
+            _show(body, False)
+            return "hidden"
+        return None
+    if not show_back and key not in _HIDDEN:
+        return None
+    _HIDDEN.discard(key)
+    if c is not None:
+        c._body = True        # the preview closing brings it back
+        return "shown"
+    if not shown(body):
+        _show(body, True)
+        return "shown"
+    return None
+
+
+def reconcile(doc):
+    """After Undo / Redo: every body with a shown result hidden, and the ones
+    Texturizer hid shown again when no result of theirs is shown (or left)."""
+    bodies = {}
+    for t in list(getattr(doc, "Objects", None) or ()):
+        if is_textured(t):
+            b = source_of(t)
+            if b is not None:
+                bodies[id(b)] = b
+    for b in bodies.values():
+        sync_source(b, doc, show_back=False)
+    for dname, bname in list(_HIDDEN):
+        if dname != getattr(doc, "Name", "") or any(getattr(b, "Name", None) == bname for b in bodies.values()):
+            continue
+        b = live.find(doc, bname)
+        _HIDDEN.discard((dname, bname))
+        if b is not None and not shown(b):
+            _show(b, True)
+
+
+def _busy(doc):
+    """A document opening, closing or undoing: no per-object step (Undo and
+    Redo reconcile once at the end)."""
+    return bool(getattr(doc, "Restoring", False) or getattr(doc, "Transacting", False)
+                or getattr(doc, "Closing", False))
+
+
 class Observer:
-    """Old documents convert when they open (slotFinishRestoreDocument)."""
+    """Old documents convert when they open (slotFinishRestoreDocument); a
+    Textured result shown or hidden, deleted, undone or redone keeps its body
+    hidden or shown to match (sync_source)."""
 
     def slotFinishRestoreDocument(self, doc):  # noqa: N802 (FreeCAD)
         try:
             convert(doc)
         except Exception as e:  # noqa: BLE001 — never raise into FreeCAD
             _warn(f"converting old Textured objects: {e}")
+
+    def slotChangedObject(self, obj, prop):  # noqa: N802 (FreeCAD)
+        if prop != "Visibility" or _OWN[0] or not is_textured(obj):
+            return
+        try:
+            if _busy(obj.Document):
+                return
+            sync_source(source_of(obj), obj.Document)
+        except Exception as e:  # noqa: BLE001 — never raise into FreeCAD
+            _warn(f"showing or hiding the textured body: {e}")
+
+    def slotDeletedObject(self, obj):  # noqa: N802 (FreeCAD)
+        if not is_textured(obj):
+            return
+        try:
+            doc = obj.Document
+            if _busy(doc):
+                return
+            sync_source(source_of(obj), doc, without=obj)
+        except Exception as e:  # noqa: BLE001
+            _warn(f"showing the body of a deleted textured result: {e}")
+
+    def slotUndoDocument(self, doc):  # noqa: N802 (FreeCAD)
+        try:
+            reconcile(doc)
+        except Exception as e:  # noqa: BLE001
+            _warn(f"showing or hiding textured bodies after Undo: {e}")
+
+    slotRedoDocument = slotUndoDocument  # noqa: N815 (FreeCAD)

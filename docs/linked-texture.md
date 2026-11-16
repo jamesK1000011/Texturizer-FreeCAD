@@ -108,6 +108,19 @@ properties and label, and the old object is removed. Anchors come from the
 current body only when the object was up to date. If it was out of date, its
 face names may already be wrong, so it is flagged for re-pick.
 
+## The body hidden while the result is shown
+
+As PartDesign hides the previous feature when a new one becomes the tip, a
+shown Textured result hides its source body (`linked.sync_source`): the
+body's flat faces would otherwise z-fight through the texture, and faces left
+smooth are part of the result mesh, so nothing is lost. The document observer
+shows the body again when the result is hidden or deleted, and after Undo /
+Redo reconciles once: bodies with a shown result hidden, bodies Texturizer hid
+with no shown result left shown again; a body Texturizer never hid is left
+alone. Visibility goes through the view object when there is one, else the
+document object. A preview open on the body is told (its close leaves the
+body as the result wants).
+
 ## Later: mid-step marker
 
 Not built yet: a texture "marker" step placed mid-tree, with the texturing
@@ -123,7 +136,8 @@ ones). Today the texture applies to the finished part only.
 - `obj.purgeTouched()`;
 - `doc.HasPendingTransaction`;
 - `Shape.ElementMap` and `Shape.ElementReverseMap` on PartDesign bodies;
-- `DocumentObserver.slotFinishRestoreDocument`, `slotRecomputedObject`, `slotRecomputedDocument`;
+- `DocumentObserver.slotFinishRestoreDocument`, `slotRecomputedObject`, `slotRecomputedDocument`, `slotChangedObject` (Visibility), `slotDeletedObject`, `slotUndoDocument`, `slotRedoDocument`;
+- `doc.Transacting` and `doc.Restoring` (no per-object visibility step while undoing or opening);
 - `FreeCAD.Console.PrintWarning`;
 - `doc.removeObject`;
 - setting `obj.Mesh` outside `execute()`.
