@@ -544,7 +544,8 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
         parents = np.asarray(sub["faceParentId"])
         fw = pin.get("faceWeights")
         weights_ex = None if fw is None else np.repeat(np.asarray(fw, F32).reshape(-1, 3)[parents][:, 0], 3)
-        geom = {"position": mp["positions"], "normal": mp["normals"], "excludeWeight": weights_ex}
+        # frame: the smoothing kept from the drag's last run is turned, not rerun (displacement._smoothed).
+        geom = {"position": mp["positions"], "normal": mp["normals"], "excludeWeight": weights_ex, "frame": mp["R"]}
         collect = {}
         from .displacement import apply_displacement, apply_displacement_layers
         from .softmask import interpolate_from_parents
@@ -608,8 +609,9 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     if mp["pin"]["origin"]:
         P = P + np.asarray(mp["pin"]["origin"])
     V = P[first_corner].astype(F32)
-    Nn = np.zeros((nv, 3))
-    np.add.at(Nn, vid, dp["normals"].reshape(-1, 3).astype(np.float64))
+    # np.add.at(Nn, vid, normals) as three bincounts: the same sums in the same order, faster.
+    cn = dp["normals"].reshape(-1, 3).astype(np.float64)
+    Nn = np.stack([np.bincount(vid, cn[:, k], nv) for k in range(3)], 1) if nv else np.zeros((0, 3))
     ln = np.linalg.norm(Nn, axis=1)
     Nn = (Nn / np.where(ln == 0, 1, ln)[:, None]).astype(F32)
     R = mp["R"]
