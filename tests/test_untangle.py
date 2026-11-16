@@ -6,8 +6,10 @@
 judges it: no self-intersections (displaced walls crossing at the hole and
 its corners: engine.untangle), no non-manifold edges (walls meeting at a
 square hole's inner corner), no points on edges (cap triangles:
-meshrepair.fix_caps via engine.printable: BumpMesh's own output has caps
-too, so engine.texture keeps them and stays bit-identical to it). Live: a 40 x 30 x 20 box with an M3 hole had 21
+meshrepair.fix_caps via engine.printable, by FreeCAD's own criterion,
+MeshEvalPointOnEdge: a point within 0.001 mm of a facet edge, inside the
+edge's box; BumpMesh's own output has them too, so engine.texture keeps
+them and stays bit-identical to it). Live: a 40 x 30 x 20 box with an M3 hole had 21
 self-intersecting pairs. Offline before this: 96 pairs and 1 cap with a
 3.6 mm round hole; 35 pairs, 18 non-manifold edges and 1 cap with a 4 mm
 square one."""
@@ -76,16 +78,32 @@ def square_hole(X=40, Y=30, H=20, hx=(18, 22), hy=(13, 17)):
     return np.asarray(tris, np.float32).reshape(-1)
 
 
-def caps(pos, tol=1e-4):
-    T = np.asarray(pos, float).reshape(-1, 3, 3)
-    n = 0
-    for p, q, r in ((T[:, 0], T[:, 1], T[:, 2]), (T[:, 1], T[:, 2], T[:, 0]), (T[:, 2], T[:, 0], T[:, 1])):
-        e = q - p
-        L = np.linalg.norm(e, axis=1)
-        h = np.linalg.norm(np.cross(e, r - p), axis=1) / np.maximum(L, 1e-30)
-        t = ((r - p) * e).sum(1) / np.maximum(L * L, 1e-30)
-        n += int(((h < tol) & (t > 0) & (t < 1) & (L > tol)).sum())
-    return n
+def freecad_points_on_edges(pos, tol=1e-3):
+    """FreeCAD's MeshEvalPointOnEdge, written plainly (every point against
+    every facet): a point that is not a corner of the facet, inside the
+    bounding box of one of its edges (MeshGeomEdge::GetBoundBox().IsInBox)
+    and within 0.001 mm of it (IsPointOf(point, 0.001F))."""
+    from texturizer.engine.meshindex import weld
+
+    P = np.asarray(pos, float).reshape(-1, 3)
+    vid, _n, firsts = weld(P, 1e5)
+    V, F = P[firsts], vid.reshape(-1, 3)
+    out = set()
+    for k in range(3):
+        a, b = V[F[:, k]], V[F[:, (k + 1) % 3]]
+        lo, hi = np.minimum(a, b), np.maximum(a, b)
+        ab = b - a
+        L2 = (ab * ab).sum(1)
+        for v in range(len(V)):
+            p = V[v]
+            inbox = ((p >= lo) & (p <= hi)).all(1) & (F != v).all(1)
+            if not inbox.any():
+                continue
+            i = np.nonzero(inbox)[0]
+            t = ((p - a[i]) * ab[i]).sum(1) / np.maximum(L2[i], 1e-300)
+            d = np.linalg.norm(a[i] + ab[i] * t[:, None] - p, axis=1)
+            out.update((v, int(f)) for f in i[d <= tol])
+    return out
 
 
 def export(pos):
@@ -103,7 +121,7 @@ class CleanExport(unittest.TestCase):
         P = res["positions"]
         self.assertEqual(len(untangle.crossings(P)), 0)        # FreeCAD: selfIntersections
         self.assertEqual(count_edge_defects(P), {"open": 0, "nonManifold": 0, "tris": len(P) // 9})
-        self.assertEqual(caps(P), 0)                            # FreeCAD: pointsOnEdges
+        self.assertEqual(res["pointsOnEdges"], 0)               # FreeCAD: pointsOnEdges false
         T = np.asarray(P, float).reshape(-1, 3, 3)
         self.assertGreater(np.einsum("ij,ij->i", T[:, 0], np.cross(T[:, 1], T[:, 2])).sum(), 0)   # outward
         return res
@@ -137,15 +155,52 @@ class CleanExport(unittest.TestCase):
         np.testing.assert_array_equal(untangle.untangle(W, N * 0.5, F, N), np.ones(len(W)))
 
     def test_fix_caps_keeps_it_closed(self):
-        # A tetrahedron-like closed patch with one cap: its corner on the opposite edge.
-        a, b, r, s, t = [0, 0, 0], [2, 0, 0], [1, 0.00001, 0], [1, 1, 0], [1, -1, 1]
+        # A closed patch with one cap: its corner 70 µm off the opposite edge
+        # (an edge at 45°, so the corner is inside the edge's box, as FreeCAD asks).
+        a, b, r, s, t = [0, 0, 0], [2, 2, 0], [1, 1.0001, 0], [2, 0, 0], [1, 1, 1]
         tris = [[a, b, r], [b, a, s], [a, r, t], [r, b, t], [b, s, t], [s, a, t]]
         pos = np.asarray(tris, np.float32).reshape(-1)
+        self.assertEqual(len(freecad_points_on_edges(pos)), 1)
         out, n = fix_caps(pos)
         self.assertEqual(n, 1)
-        self.assertEqual(caps(out), 0)
+        self.assertEqual(freecad_points_on_edges(out), set())
         self.assertEqual(count_edge_defects(out)["open"], 0)
 
+    def test_near_edges_is_freecads_criterion(self):
+        # On an export with points on edges (before printable), the fast check
+        # finds exactly what FreeCAD's rule, written plainly, finds.
+        from texturizer.engine.meshindex import weld
+
+        d = self.knurl()
+        d.set("refineLength", 2.0)   # small enough for the plain all-pairs check
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = engine.texture(round_hole(r=1.9), handlers.run_settings(d, {}), mode="export")
+        P = np.asarray(raw["positions"], float).reshape(-1, 3)
+        vid, _n, firsts = weld(P, 1e5)
+        fast = {(int(v), int(f)) for v, f, _k in untangle.near_edges(P[firsts], vid.reshape(-1, 3)).tolist()}
+        plain = freecad_points_on_edges(raw["positions"])
+        self.assertTrue(plain)   # there are some to find
+        self.assertEqual(fast, plain)
+        res = engine.printable(raw)
+        self.assertEqual(freecad_points_on_edges(res["positions"]), set())   # and printable takes them out
+
+    def knurl(self):
+        d = draft.Draft(part="Body")
+        d.set_texture("Knurling")
+        return d
+
+    def test_printable_clears_points_on_edges_and_keeps_it_closed(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = engine.texture(round_hole(r=1.9), handlers.run_settings(self.knurl(), {}), mode="export")
+        from texturizer.engine.meshrepair import points_on_edges
+
+        self.assertGreater(points_on_edges(raw["positions"]), 0)   # BumpMesh's output has them
+        res = engine.printable(raw)
+        self.assertEqual(points_on_edges(res["positions"]), 0)    # FreeCAD's rule (the test above checks it is)
+        self.assertEqual(count_edge_defects(res["positions"]), {"open": 0, "nonManifold": 0, "tris": len(res["positions"]) // 9})
+        self.assertEqual(len(untangle.crossings(res["positions"])), 0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -394,9 +394,43 @@ def _run_engine(s, a, pos, run, mode="export"):
     if est["memoryBytes"] > (num(a.get("memoryLimitGB", 4), "memoryLimitGB") * (1 << 30)):
         raise ToolError("invalid_state", f"refineLength {est['edge']} mm would make {est['subdividedTriangles']:,} triangles "
                         f"(~{est['memoryBytes'] / 2 ** 30:.1f} GB): raise settings.refineLength (texture_settings suggests one).")
-    res = engine.printable(engine.texture(pos, run, mode=mode))
+    import json
+    import time
+
+    from . import timing
+
+    # The live preview's worker would split the CPU with this run (live: an
+    # Update after a CAD change took 26 s against 5 s, the preview of the
+    # changed part subdividing beside it): it steps aside and reruns after.
+    c = getattr(live.GUI, "controller", None)
+    if c is not None and getattr(c, "running", None) is not None:
+        c.gen += 1          # the running preview goes stale, stopping at its next check
+        c._pending = True   # and runs again when it has
+    marks, info = {}, {}
+    t0 = time.perf_counter()
+
+    def progress(stage, _f, i=None):
+        marks.setdefault(stage, time.perf_counter())
+        if i:
+            info[stage] = i
+    res = engine.texture(pos, run, mode=mode, progress=progress)
+    t1 = time.perf_counter()
+    res = engine.printable(res)
     if res is None:
         raise ToolError("failed", "Stopped before it finished.")
+    stages = sorted(marks.items(), key=lambda kv: kv[1])
+    ms = {st: round(((stages[k + 1][1] if k + 1 < len(stages) else t1) - t) * 1000)
+          for k, (st, t) in enumerate(stages)}
+    ms["printable"] = round((time.perf_counter() - t1) * 1000)
+    # What the run was made of: settings that size it, triangle counts along
+    # the way, and the time per stage (an Update and a fresh apply compare).
+    res["engine"] = {"refineLength": res.get("refineLength", run.get("refineLength")), "maxTriangles": run.get("maxTriangles"),
+                     "inputTriangles": res.get("inputTriangles"),
+                     "subdivided": (info.get("subdivide2") or info.get("subdivide1") or {}).get("triCount"),
+                     "displaced": (info.get("displace") or {}).get("triCount"), "output": res.get("triangles"),
+                     "ms": ms, "previewYielded": c is not None and getattr(c, "_pending", False),
+                     "pointsOnEdges": res.get("pointsOnEdges"), "capsFixed": res.get("capsFixed")}
+    timing.report("texture_apply engine " + json.dumps(res["engine"]), (t1 - t0) * 1000)
     return res
 
 
@@ -443,7 +477,7 @@ def _apply_args(s, a, target=None):
     obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target, args=keep)
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "triangles": res["triangles"], "inputTriangles": res["inputTriangles"], "repair": res["repair"],
-           "warnings": res["warnings"], "layers": masked, "credit": engine.credit_of(run)}
+           "warnings": res["warnings"], "layers": masked, "credit": engine.credit_of(run), "engine": res.get("engine")}
     _export_with(s, a, pos, run, res, out)
     return out
 
@@ -481,7 +515,7 @@ def _apply_draft(s, a, d, target=None, name=None, bake=False):
                     draft_json=json.dumps(d.to_dict()), baked=bake, tess=(pos, ft))
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "updated": target is not None, "triangles": res["triangles"], "inputTriangles": res["inputTriangles"],
-           "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run),
+           "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run), "engine": res.get("engine"),
            "layers": [{"layer": i + 1, "texture": L["texture"], "mode": "include" if L.get("includeOnly") else "exclude",
                        "faces": list(L["mask"]["faces"])} for i, L in enumerate(d.layers)]}
     _export_with(s, a, pos, run, res, out)
@@ -615,7 +649,8 @@ def _update_linked(s, a, target):
     linked.write(target, job, res)
     out = {"body": src.Label, "object": target.Name, "label": target.Label, "updated": True,
            "triangles": res["triangles"], "inputTriangles": res["inputTriangles"], "repair": res["repair"],
-           "warnings": res["warnings"], "credit": engine.credit_of(job.run_settings), "state": linked.state(target)}
+           "warnings": res["warnings"], "credit": engine.credit_of(job.run_settings), "state": linked.state(target),
+           "engine": res.get("engine")}
     if job.report:
         out["maskReport"] = [r["message"] for r in job.report]
     if job.new_faces:

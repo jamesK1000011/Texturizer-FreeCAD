@@ -346,16 +346,25 @@ def credit_of(settings):
 
 def printable(res):
     """The textured mesh as Texturizer hands it to FreeCAD and to files: the
-    engine's (BumpMesh's) result with its cap triangles taken out (a corner
-    on the opposite edge: FreeCAD's "points on edges"; BumpMesh's own output
-    has them too, so texture() keeps them and stays bit-identical to it).
-    In place, once; returns res."""
+    engine's (BumpMesh's) result without what FreeCAD's Mesh evaluation
+    calls points on edges (MeshEvalPointOnEdge, 0.001 mm): edges shorter
+    than that collapsed where the mesh stays manifold, then cap triangles
+    split out. BumpMesh's own output has these too, so texture() keeps them
+    and stays bit-identical to it. In place, once; returns res, with
+    pointsOnEdges: what FreeCAD would still flag."""
     if res is None or res.get("capsFixed") is not None:
         return res
-    from .meshrepair import fix_caps
+    from .meshrepair import collapse_short_edges, fix_caps, points_on_edges
 
-    pa, n = fix_caps(res["positions"])
-    res["capsFixed"] = n
+    pa, short = collapse_short_edges(res["positions"])
+    pa, n = fix_caps(pa)
+    res["capsFixed"], res["shortEdgesCollapsed"] = n, short
+    res["pointsOnEdges"] = points_on_edges(pa)   # what FreeCAD's evaluation would still flag
+    n = n + short
+    if short:
+        res["triangles"] = len(pa) // 9
+        if isinstance(res.get("repair"), dict):
+            res["repair"] = dict(res["repair"], tris=len(pa) // 9)
     if n:
         T = np.asarray(pa, np.float64).reshape(-1, 3, 3)
         fn = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
