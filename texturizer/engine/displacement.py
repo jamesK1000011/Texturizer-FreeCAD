@@ -9,7 +9,9 @@
 # normal so seams stay quiet on noisy meshes.
 #
 # Vectorised per position; the sums run in the JS's corner order (bincount is
-# a sequential sum), so the arithmetic is the JS's.
+# a sequential sum), so the arithmetic is the JS's. Between runs on the same
+# mesh (a Rotate drag, a slider) the weld and the blend-normal smoothing are
+# kept and checked, not recomputed (_KEEP).
 import math
 
 import numpy as np
@@ -29,11 +31,17 @@ FOLD_GUARD_MIN_COS = 0.05
 QUANT = 1e5
 
 
+def _frac(x):
+    """np.fmod(np.fmod(x, 1) + 1, 1), exactly: x - trunc(x) is fmod(x, 1) (an
+    exact subtraction; only the sign of a zero differs, and + 1 drops it)."""
+    y = x - np.trunc(x) + 1
+    return y - np.trunc(y)
+
+
 def sample_bilinear(R, w, h, u, v):
     """sampleBilinear on the red channel R (h*w float64, already /255), GL-exact wrap."""
-    u = np.fmod(np.fmod(u, 1) + 1, 1)
-    v = np.fmod(np.fmod(v, 1) + 1, 1)
-    v = 1 - v
+    u = _frac(u)
+    v = 1 - _frac(v)
     fx = u * w - 0.5
     fy = v * h - 0.5
     x0 = np.floor(fx)
@@ -42,14 +50,19 @@ def sample_bilinear(R, w, h, u, v):
     ty = fy - y0
     x0 = x0.astype(np.int64)
     y0 = y0.astype(np.int64)
-    x1 = np.fmod(x0 + 1 + w, w)
-    y1 = np.fmod(y0 + 1 + h, h)
-    x0 = np.fmod(np.fmod(x0, w) + w, w)
-    y0 = np.fmod(np.fmod(y0, h) + h, h)
-    v00 = R[y0 * w + x0]
-    v10 = R[y0 * w + x1]
-    v01 = R[y1 * w + x0]
-    v11 = R[y1 * w + x1]
+    # u in [0, 1) and v in (0, 1]: x0 and y0 are -1 .. size - 1, so the
+    # wraps are one step each (the fmods' values, without a division).
+    x1 = x0 + 1
+    x1[x1 >= w] -= w
+    x0[x0 < 0] += w
+    y1 = y0 + 1
+    y1[y1 >= h] -= h
+    y0[y0 < 0] += h
+    r0, r1 = y0 * w, y1 * w
+    v00 = R.take(r0 + x0)
+    v10 = R.take(r0 + x1)
+    v01 = R.take(r1 + x0)
+    v11 = R.take(r1 + x1)
     return v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty) + v01 * (1 - tx) * ty + v11 * tx * ty
 
 
@@ -59,7 +72,15 @@ def _red(img):
 
 def _projected_grey(R, w, h, pos, nrm, mode, s, bounds):
     grey = np.zeros(len(pos))
-    for su, sv, sw in compute_uv(pos, nrm, mode, s, bounds):
+    uvw = compute_uv(pos, nrm, mode, s, bounds)
+    if len(uvw) > 1:   # one sampling pass for all projections (element-wise: the same values)
+        n = len(pos)
+        got = sample_bilinear(R, w, h, np.concatenate([np.broadcast_to(u, n) for u, _v, _w in uvw]),
+                              np.concatenate([np.broadcast_to(v, n) for _u, v, _w in uvw]))
+        for i, (_u, _v, sw) in enumerate(uvw):
+            grey = grey + got[i * n:(i + 1) * n] * sw
+        return grey
+    for su, sv, sw in uvw:
         grey = grey + sample_bilinear(R, w, h, su, sv) * sw
     return grey
 
@@ -175,11 +196,12 @@ class _Creases:
     pass
 
 
-def _find_creases(nrm, vid, unique):
+def _find_creases(nrm, vid, unique, firsts=None):
     n = len(vid)
-    firsts = np.full(unique, -1, np.int64)
-    rev = np.arange(n)[::-1]
-    firsts[vid[rev]] = rev
+    if firsts is None:   # each id's first corner (the weld's own firsts are these)
+        firsts = np.full(unique, -1, np.int64)
+        rev = np.arange(n)[::-1]
+        firsts[vid[rev]] = rev
     f = firsts[vid]
     dot = nrm[:, 0] * nrm[f, 0] + nrm[:, 1] * nrm[f, 1] + nrm[:, 2] * nrm[f, 2]
     cand = np.zeros(unique, bool)
@@ -444,6 +466,89 @@ def _guard_released_folds(cr, moves, pos, vid, acc, snx, sny, snz):
         moves[s * 3:s * 3 + 3] *= scale[s]
 
 
+# What a displace can keep between calls: a Rotate ring drag reruns it on the
+# same subdivided mesh with only the frame moved, and a slider reruns it on
+# the same positions. Each is checked against the call's own input before it
+# is used: the weld is reused only when it is this input's weld, the smoothed
+# blend normals as they were for the same inputs, or turned by the frame
+# (_smoothed) for the same mesh in another frame.
+_KEEP = {}
+FAST = True   # False: the first port's path (the tests' reference)
+
+
+def _weld(P):
+    """weld(P, QUANT), from the last call's grouping when it still holds: every
+    copy of a position in its group shares its grid cell, and no two groups
+    share one. The weld is that partition, numbered by first occurrence, so the
+    same partition is the same weld."""
+    if not FAST:
+        return weld(P, QUANT)
+    hit = _KEEP.get("weld")
+    if hit is not None and hit[0] == len(P):
+        _n, vid, unique, firsts = hit
+        from .meshindex import quantize
+        # Copies that are the same point share its cell; else check the cells.
+        same = (P == P[firsts][vid]).all()
+        rep = quantize(P[firsts], QUANT)
+        if same or (quantize(P, QUANT) == rep[vid]).all():
+            # Groups in distinct cells: their cells' hashes all differ (a
+            # shared hash, even a mere collision, sends it to weld()).
+            hk = rep.astype(np.uint64)
+            hk = hk[:, 0] * np.uint64(0x9E3779B97F4A7C15) + hk[:, 1] * np.uint64(0xC2B2AE3D27D4EB4F) + hk[:, 2]
+            hk.sort()
+            if len(hk) < 2 or (hk[1:] != hk[:-1]).all():
+                return vid, unique, firsts
+    vid, unique, firsts = weld(P, QUANT)
+    _KEEP["weld"] = (len(P), vid, unique, firsts)
+    return vid, unique, firsts
+
+
+def _smooth(g, node_count, ix, iy, iz, iters):
+    """blendNormalSmoothing's iterations on the graph g = (src, dst, has, invd)."""
+    src, dst, has, invd = g
+    cx_, cy_, cz_ = ix.copy(), iy.copy(), iz.copy()
+    for _ in range(iters):
+        sx = np.bincount(src, cx_[dst], node_count) * invd
+        sy = np.bincount(src, cy_[dst], node_count) * invd
+        sz = np.bincount(src, cz_[dst], node_count) * invd
+        l2 = np.sqrt(sx * sx + sy * sy + sz * sz)
+        okl = has & (l2 > 1e-12)
+        r = np.where(okl, 1 / np.where(okl, l2, 1), 0.0)
+        cx_, cy_, cz_ = np.where(okl, sx * r, cx_), np.where(okl, sy * r, cy_), np.where(okl, sz * r, cz_)
+    return cx_, cy_, cz_
+
+
+SMOOTH_FRAME_TOL = 1e-4   # how far (unit normals) a frame's inputs may sit from the kept ones
+
+
+def _smoothed(node, node_count, ix, iy, iz, iters, graph, R):
+    """The smoothed blend normals. The smoothing turns with the frame (it
+    averages and normalises), so a run on the same mesh in another frame
+    (R, a Rotate drag) takes the kept result turned by R, when its inputs
+    turned back match the kept ones to SMOOTH_FRAME_TOL; the same inputs
+    give the kept result as it was; else it runs. R False (no frame given:
+    the export) takes only the exact match."""
+    I = np.stack([ix, iy, iz], 1)
+    turn = R is not False
+    Rm = np.eye(3) if R is None or R is False else np.asarray(R, np.float64)
+    hit = _KEEP.get("smooth")
+    if hit is not None and hit["iters"] == iters and hit["n"] == node_count and np.array_equal(hit["node"], node):
+        if np.array_equal(hit["I"], I):
+            out = hit["out"]
+            return out[:, 0], out[:, 1], out[:, 2]
+        base_in = I @ Rm   # each row turned back: R^T v
+        if not turn or hit["base_in"] is None:
+            base_in = None
+        if base_in is not None and len(I) and float(np.abs(base_in - hit["base_in"]).max()) \
+                <= SMOOTH_FRAME_TOL * max(1.0, float(np.abs(hit["base_in"]).max())):
+            out = hit["base_out"] @ Rm.T
+            return out[:, 0], out[:, 1], out[:, 2]
+    out = np.stack(_smooth(graph(), node_count, ix, iy, iz, iters), 1)   # the graph: only when it runs
+    _KEEP["smooth"] = {"iters": iters, "n": node_count, "node": node.copy(), "I": I, "out": out,
+                       "base_in": I @ Rm if turn else None, "base_out": out @ Rm}
+    return out[:, 0], out[:, 1], out[:, 2]
+
+
 def apply_displacement(geom, image, settings, bounds, on_progress=None, collect=None):
     """applyDisplacement: one layer read off the geometry's excludeWeight / softExclude."""
     return apply_displacement_layers(geom, [{"image": image, "settings": settings, "legacy": True}], settings, bounds, on_progress, collect)
@@ -460,9 +565,9 @@ def apply_displacement_layers(geom, layers, settings, bounds, on_progress=None, 
     count = len(P)
     nrm32 = geom.get("normal")
     N = np.asarray(nrm32, F32).reshape(-1, 3).astype(np.float64) if nrm32 is not None else None
-    vid, unique, firsts = weld(P, QUANT)
+    vid, unique, firsts = _weld(P)
     idpos = P[firsts]
-    creases = _find_creases(N, vid, unique) if N is not None else None
+    creases = _find_creases(N, vid, unique, firsts) if N is not None else None
 
     T = P.reshape(-1, 9)
     A, B, Cc = T[:, 0:3], T[:, 3:6], T[:, 6:9]
@@ -576,30 +681,28 @@ def apply_displacement_layers(geom, layers, settings, bounds, on_progress=None, 
         ix, iy, iz = smx, smy, smz
     bx, by, bz = ix, iy, iz
     if iters > 0:
-        tn = node.reshape(-1, 3)
-        a, b, c = tn[:, 0], tn[:, 1], tn[:, 2]
-        src, dst = [], []
-        # Per triangle, in the JS's order: a-b, b-c, c-a, each both ways.
-        pr = []
-        for (p, q) in ((a, b), (b, c), (c, a)):
-            ok = p != q
-            pr.append((np.where(ok, p, -1), np.where(ok, q, -1)))
-        S = np.stack([pr[0][0], pr[0][1], pr[1][0], pr[1][1], pr[2][0], pr[2][1]], 1).reshape(-1)
-        D = np.stack([pr[0][1], pr[0][0], pr[1][1], pr[1][0], pr[2][1], pr[2][0]], 1).reshape(-1)
-        keep = S >= 0
-        src, dst = S[keep], D[keep]
-        deg = np.bincount(src, minlength=node_count).astype(np.float64)
-        has = deg > 0
-        invd = np.where(has, 1 / np.where(has, deg, 1), 0.0)
-        cx_, cy_, cz_ = ix.copy(), iy.copy(), iz.copy()
-        for _ in range(iters):
-            sx = np.bincount(src, cx_[dst], node_count) * invd
-            sy = np.bincount(src, cy_[dst], node_count) * invd
-            sz = np.bincount(src, cz_[dst], node_count) * invd
-            l2 = np.sqrt(sx * sx + sy * sy + sz * sz)
-            okl = has & (l2 > 1e-12)
-            r = np.where(okl, 1 / np.where(okl, l2, 1), 0.0)
-            cx_, cy_, cz_ = np.where(okl, sx * r, cx_), np.where(okl, sy * r, cy_), np.where(okl, sz * r, cz_)
+        def graph():
+            tn = node.reshape(-1, 3)
+            a, b, c = tn[:, 0], tn[:, 1], tn[:, 2]
+            # Per triangle, in the JS's order: a-b, b-c, c-a, each both ways.
+            pr = []
+            for (p, q) in ((a, b), (b, c), (c, a)):
+                ok = p != q
+                pr.append((np.where(ok, p, -1), np.where(ok, q, -1)))
+            S = np.stack([pr[0][0], pr[0][1], pr[1][0], pr[1][1], pr[2][0], pr[2][1]], 1).reshape(-1)
+            D = np.stack([pr[0][1], pr[0][0], pr[1][1], pr[1][0], pr[2][1], pr[2][0]], 1).reshape(-1)
+            keep = S >= 0
+            src, dst = S[keep], D[keep]
+            deg = np.bincount(src, minlength=node_count).astype(np.float64)
+            has = deg > 0
+            invd = np.where(has, 1 / np.where(has, deg, 1), 0.0)
+            return src, dst, has, invd
+
+        if not FAST:   # the reference: smoothed every run
+            cx_, cy_, cz_ = _smooth(graph(), node_count, ix, iy, iz, iters)
+        else:
+            cx_, cy_, cz_ = _smoothed(node, node_count, ix, iy, iz, iters, graph,
+                                      geom["frame"] if "frame" in geom else False)
         bx, by, bz = cx_, cy_, cz_
 
     acc = np.zeros(unique)
