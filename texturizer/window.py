@@ -474,6 +474,8 @@ class Window:
             self.paint = paintview.PaintView(self)
             self.gizmo = gizmoview.GizmoView(self)
             self.sidebar.stamp_place = self.gizmo.arm_place
+            self.sidebar.on_include_new = self._include_new
+        self.textured_changed()
         # Where the panel layout setting puts it (layout.py): right by
         # default, at most 360 px, the window kept at its size; the gallery
         # slides out inside it from its Texture Gallery button.
@@ -549,9 +551,43 @@ class Window:
             self.gizmo.on_draft(ev)
         moved = ev.get("kind") in ("undo", "redo") and isinstance(ev.get("value"), dict) and ev["value"].get("part")
         if ev.get("kind") in ("part", "load", "reset") or moved:
-            self._part_changed()   # an undo or redo that kept the part reruns only its stage (preview.stage_for)
+            self._part_changed()
+            self.textured_changed()   # an undo or redo that kept the part reruns only its stage (preview.stage_for)
         elif ev.get("key") in ("refineLength", "maxTriangles"):
             self._estimate()
+
+    # -- the Textured object this draft made ------------------------------------------------
+    def _textured(self):
+        from . import linked
+
+        doc, d = live._doc(), live.draft()
+        o = live.find(doc, live.TARGET["object"])
+        if o is None and d.part and doc is not None:
+            o = next((x for x in doc.Objects if linked.is_linked(x) and getattr(x, "SourceBody", None) == d.part), None)
+        return o
+
+    def textured_changed(self, obj=None):
+        """The sidebar's line for the Textured object (the observer calls this
+        when its TextureState or NewFaces change)."""
+        from . import linked
+
+        if not self._alive():
+            return
+        o = self._textured()
+        if obj is not None and o is not None and getattr(obj, "Name", None) != o.Name:
+            return
+        if o is None:
+            self.sidebar.show_textured(None)
+        else:
+            self.sidebar.show_textured(linked.state(o) or linked.UP_TO_DATE, linked.new_faces(o), o.Label)
+
+    def _include_new(self):
+        from . import linked
+
+        o = self._textured()
+        if o is not None:
+            linked.include_new(o)
+            self.textured_changed()
 
     def _part_changed(self):
         sb = self.sidebar
@@ -739,6 +775,11 @@ def get():
     if _WINDOW is None:
         _WINDOW = Window()
         live.GUI = _WINDOW
+        from . import linked
+
+        # Textured objects rerun on a worker when their body changes, written back here.
+        _WINDOW._rerun_poster, post = _poster()
+        linked.Reruns.install(preview._thread, post, later=lambda fn: _schedule(0.25, fn))
         from . import docdraft
 
         # Undo's signal can come before its last property: reload on the next turn.

@@ -1,0 +1,705 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 the Texturizer for FreeCAD contributors.
+# Part of Texturizer for FreeCAD, based on BumpMesh by Stefan Hermann
+# (CNC Kitchen), AGPL-3.0, github.com/CNCKitchen/stlTexturizer.
+"""The Textured object as a FreeCAD feature that follows its body
+(docs/linked-texture.md):
+
+    TexturedFeature   the Mesh::FeaturePython proxy: execute() reruns the
+                      stored draft when Source's geometry changed, in the
+                      background with the window, in place headless
+    anchors(...)      a draft's masks as geometry (mapped face names, sample
+                      points, the painted tessellation)
+    remap(...)        those anchors on a new tessellation: the draft with its
+                      masks moved, and what could not be moved (never guessed)
+    convert(doc)      old documents' Mesh::Feature Textured objects (a string
+                      SourceBody) as linked features
+    Reruns            the background queue: a newer change makes an older run
+                      stale
+
+No Qt import here; FreeCAD only inside the functions that need it.
+"""
+import base64
+import json
+
+import numpy as np
+
+from . import live
+
+KIND = "Mesh::FeaturePython"
+GROUP = "Texturizer"
+UP_TO_DATE, UPDATING, REPICK, NO_SOURCE = "up to date", "updating…", "mask needs re-pick", "source missing"
+SAMPLES = 24          # sample points kept per masked face
+NORMAL_COS = 0.8      # a sample lands on a triangle facing within ~37° of it
+LINK_PROPS = (("Source", "App::PropertyLink", "The body it textures: a change to it textures it again"),
+              ("MaskAnchors", "App::PropertyString", "The masks as geometry (JSON): how they follow the body"),
+              ("TextureState", "App::PropertyString", "up to date, updating…, or what mask needs re-picking"),
+              ("NewFaces", "App::PropertyString", "Faces made after the texture was set up (JSON): left smooth until included"))
+
+
+# -- geometry ------------------------------------------------------------------------
+def _tris(pos):
+    return np.asarray(pos, np.float64).reshape(-1, 3, 3)
+
+
+def _normals(T):
+    n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    ln = np.linalg.norm(n, axis=1)
+    return n / np.where(ln > 0, ln, 1)[:, None]
+
+
+def tolerance(T):
+    """How far a point may sit from a surface and still be on it: twice
+    the tessellation's chord error, at least a ten-thousandth of the part."""
+    if not len(T):
+        return 4 * live.TOLERANCE
+    p = T.reshape(-1, 3)
+    diag = float(np.linalg.norm(p.max(0) - p.min(0)))
+    return max(4 * live.TOLERANCE, 1e-4 * diag)
+
+
+def closest_on_triangles(p, T):
+    """The closest point to p on each triangle of T (m, 3, 3) (Ericson's
+    regions), and its distance."""
+    a, b, c = T[:, 0], T[:, 1], T[:, 2]
+    ab, ac, ap = b - a, c - a, p - a
+    d1, d2 = (ab * ap).sum(1), (ac * ap).sum(1)
+    bp = p - b
+    d3, d4 = (ab * bp).sum(1), (ac * bp).sum(1)
+    cp = p - c
+    d5, d6 = (ab * cp).sum(1), (ac * cp).sum(1)
+    va = d3 * d6 - d5 * d4
+    vb = d5 * d2 - d1 * d6
+    vc = d1 * d4 - d3 * d2
+    with np.errstate(all="ignore"):
+        den = 1 / (va + vb + vc)
+        v, w = vb * den, vc * den
+        out = a + ab * v[:, None] + ac * w[:, None]
+        # Edges and corners.
+        r_ab = (vc <= 0) & (d1 >= 0) & (d3 <= 0)
+        t = d1 / (d1 - d3)
+        out = np.where(r_ab[:, None], a + ab * t[:, None], out)
+        r_ac = (vb <= 0) & (d2 >= 0) & (d6 <= 0)
+        t = d2 / (d2 - d6)
+        out = np.where(r_ac[:, None], a + ac * t[:, None], out)
+        r_bc = (va <= 0) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0)
+        t = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        out = np.where(r_bc[:, None], b + (c - b) * t[:, None], out)
+    out = np.where(((d1 <= 0) & (d2 <= 0))[:, None], a, out)
+    out = np.where(((d3 >= 0) & (d4 <= d3))[:, None], b, out)
+    out = np.where(((d6 >= 0) & (d5 <= d6))[:, None], c, out)
+    return out, np.linalg.norm(out - p, axis=1)
+
+
+def _pack(a):
+    return base64.b64encode(np.ascontiguousarray(a, np.float32).tobytes()).decode("ascii")
+
+
+def _unpack(s, cols):
+    return np.frombuffer(base64.b64decode(s), np.float32).astype(np.float64).reshape(-1, cols)
+
+
+# -- mapped (topological naming) names -------------------------------------------------------
+def mapped_name(shape, name):
+    """FreeCAD 1.x's mapped name of an element ("Face6"), or None."""
+    try:
+        rev = shape.ElementReverseMap
+    except Exception:  # noqa: BLE001 — older FreeCAD, a mesh, a stand-in
+        return None
+    got = rev.get(name) if isinstance(rev, dict) else None
+    if isinstance(got, (list, tuple)):
+        got = got[0] if got else None
+    return got or None
+
+
+def indexed_name(shape, mapped):
+    """The element ("Face9") a mapped name stands for now, or None."""
+    if not mapped:
+        return None
+    try:
+        m = shape.ElementMap
+    except Exception:  # noqa: BLE001
+        return None
+    got = m.get(mapped) if isinstance(m, dict) else None
+    return got if isinstance(got, str) and got.startswith("Face") else None
+
+
+def _face_no(f):
+    return int(f[4:]) if f[4:].isdigit() else 0
+
+
+# -- anchors -------------------------------------------------------------------------------
+def _face_samples(T, N, tris):
+    tris = list(tris)
+    if len(tris) > SAMPLES:
+        tris = [tris[int(k)] for k in np.linspace(0, len(tris) - 1, SAMPLES)]
+    return [[*T[t].mean(0).round(6).tolist(), *N[t].round(6).tolist()] for t in tris]
+
+
+def anchors(draft, shape, pos, ft, known=None):
+    """MaskAnchors for draft (a to_dict()) on this tessellation: per layer
+    its faces as {name, mapped, samples}; "known", every face the texture
+    was set up (or last confirmed) with (known: their names, default all),
+    so a face a later CAD step makes is told apart; the tessellation itself
+    when any layer paints triangles (brush, Fill, a mesh part)."""
+    T = _tris(pos)
+    N = _normals(T)
+    names = sorted((ft or {}), key=_face_no) if known is None else [f for f in sorted(ft or {}, key=_face_no) if f in set(known)]
+    out = {"version": 1, "layers": [],
+           "known": [{"name": f, "mapped": mapped_name(shape, f) if shape is not None else None,
+                      "samples": _face_samples(T, N, (ft or {}).get(f, ()))} for f in names]}
+    painted = False
+    for L in draft.get("layers") or []:
+        m = L.get("mask") or {}
+        faces = []
+        for f in m.get("faces") or []:
+            faces.append({"name": f, "mapped": mapped_name(shape, f) if shape is not None else None,
+                          "samples": _face_samples(T, N, (ft or {}).get(f, ()))})
+        painted = painted or bool(m.get("triangles") or m.get("soft") or m.get("split"))
+        out["layers"].append({"faces": faces})
+    if painted:
+        out["tess"] = _pack(T.reshape(-1, 9))
+    return out
+
+
+# -- remapping ------------------------------------------------------------------------------
+def _map_face(a, shape, T, N, face_of, tol):
+    """The new faces an anchored face is now: by its mapped name, else the
+    faces its sample points lie on; [] when it is gone."""
+    got = indexed_name(shape, a.get("mapped")) if shape is not None else None
+    if got is not None:
+        return [got]
+    hits = set()
+    C = T.mean(1)
+    R = np.linalg.norm(T - C[:, None, :], axis=2).max(1)
+    for s in a.get("samples") or ():
+        p, n = np.asarray(s[:3]), np.asarray(s[3:6])
+        near = np.nonzero((np.linalg.norm(C - p, axis=1) <= R + tol) & ((N @ n) >= NORMAL_COS))[0]
+        if not len(near):
+            continue
+        _q, d = closest_on_triangles(p, T[near])
+        k = int(d.argmin())
+        if d[k] <= tol:
+            f = face_of.get(int(near[k]))
+            if f is not None:
+                hits.add(f)
+    return sorted(hits, key=_face_no)
+
+
+def _nearest_k(points, refs, k=8):
+    """For each point, its k nearest ref points (indices, nearest first)."""
+    points, refs = np.asarray(points, np.float64).reshape(-1, 3), np.asarray(refs, np.float64).reshape(-1, 3)
+    k = max(1, min(k, len(refs)))
+    if not len(points) or not len(refs):
+        return np.zeros((len(points), k), np.int64)
+    try:
+        from scipy.spatial import cKDTree
+
+        _d, i = cKDTree(refs).query(points, k=k)
+        return np.asarray(i, np.int64).reshape(len(points), k)
+    except ImportError:
+        out = np.empty((len(points), k), np.int64)
+        step = max(1, 4_000_000 // len(refs))
+        for a in range(0, len(points), step):
+            d2 = ((points[a:a + step, None, :] - refs[None, :, :]) ** 2).sum(2)
+            part = np.argpartition(d2, k - 1, axis=1)[:, :k]
+            order = np.take_along_axis(d2, part, 1).argsort(1)
+            out[a:a + step] = np.take_along_axis(part, order, 1)
+        return out
+
+
+def _on_surface(points, normals, T, tol):
+    """For each point, a triangle of T it lies on (within tol, facing within
+    NORMAL_COS of its normal; among its nearest by centroid), or -1."""
+    TN = _normals(T)
+    cand = _nearest_k(points, T.mean(1))
+    out = np.full(len(points), -1, np.int64)
+    for j in range(cand.shape[1]):
+        todo = out < 0
+        if not todo.any():
+            break
+        c = cand[todo, j]
+        _q, d = closest_on_triangles(points[todo], T[c])
+        ok = (d <= tol) & ((TN[c] * normals[todo]).sum(1) >= NORMAL_COS)
+        idx = np.nonzero(todo)[0]
+        out[idx[ok]] = c[ok]
+    return out
+
+
+def _match_triangles(old_T, new_T):
+    """Each new triangle's old triangle (the one its centroid lies on,
+    facing the same way), or -1."""
+    return _on_surface(new_T.mean(1), _normals(new_T), old_T, tolerance(new_T))
+
+
+def remap(draft, anchored, shape, pos, ft):
+    """(draft with its masks on the new tessellation, report, new faces):
+    report is a list of {"layer", "what", "lost", "of", "message"} for what
+    could not be carried over, which is left out; new faces are the faces
+    no face the texture was set up with became (a pocket's, a hole's)."""
+    draft = json.loads(json.dumps(draft))
+    T = _tris(pos)
+    N = _normals(T)
+    tol = tolerance(T)
+    face_of = {}
+    for f, tris in (ft or {}).items():
+        for t in tris:
+            face_of[int(t)] = f
+    report = []
+    old_T = _unpack(anchored["tess"], 9).reshape(-1, 3, 3) if anchored.get("tess") else None
+    match = _match_triangles(old_T, T) if old_T is not None else None
+    for li, L in enumerate(draft.get("layers") or []):
+        m = L.get("mask") or {}
+        A = (anchored.get("layers") or [])[li] if li < len(anchored.get("layers") or []) else {"faces": []}
+        # Faces.
+        if m.get("faces"):
+            by_name = {a["name"]: a for a in A.get("faces") or ()}
+            new, lost = [], 0
+            for f in m["faces"]:
+                a = by_name.get(f)
+                got = _map_face(a, shape, T, N, face_of, tol) if a is not None else []
+                if not got:
+                    lost += 1
+                new.extend(g for g in got if g not in new)
+            m["faces"] = new
+            if lost:
+                n = len(by_name) or len(m["faces"]) + lost
+                report.append({"layer": li + 1, "what": "faces", "lost": lost, "of": n,
+                               "message": f"Layer {li + 1}: {lost} of {n} masked "
+                                          f"{'face no longer exists' if n == 1 else 'faces no longer exist'}; "
+                                          "re-pick them."})
+        # Painted triangles, soft paint, the Precision brush's splits.
+        if old_T is not None and (m.get("triangles") or m.get("soft") or m.get("split")):
+            painted = np.zeros(len(old_T), bool)
+            painted[[int(t) for t in m.get("triangles") or () if 0 <= int(t) < len(old_T)]] = True
+            if m.get("triangles"):
+                new_t = np.nonzero((match >= 0) & painted[np.maximum(match, 0)])[0]
+                # An old painted triangle with no surface under it now is lost.
+                lost = int((_on_surface(old_T[painted].mean(1), _normals(old_T[painted]), T, tol) < 0).sum())
+                m["triangles"] = new_t.tolist()
+                if lost:
+                    n = int(painted.sum())
+                    report.append({"layer": li + 1, "what": "triangles", "lost": lost, "of": n,
+                                   "message": f"Layer {li + 1}: {lost} of {n} painted triangles have no surface "
+                                              "under them now; re-paint them."})
+            if m.get("soft"):
+                m["soft"] = _remap_soft(m["soft"], old_T, T, match)
+            if m.get("split"):
+                rows, dropped = _remap_split(m["split"], old_T, T, match)
+                m["split"] = rows
+                if dropped:
+                    report.append({"layer": li + 1, "what": "split", "lost": dropped, "of": dropped + len(rows),
+                                   "message": f"Layer {li + 1}: brush detail on {dropped} triangles could not be "
+                                              "carried over; re-paint them."})
+        L["mask"] = m
+    new_faces = []
+    if anchored.get("known") is not None:
+        seen = set()
+        for a in anchored["known"]:
+            seen.update(_map_face(a, shape, T, N, face_of, tol))
+        new_faces = [f for f in sorted(ft or {}, key=_face_no) if f not in seen]
+    return draft, report, new_faces
+
+
+def without_new(draft, new_faces):
+    """The draft as it runs: faces a later CAD step made stay smooth, whatever
+    the layer's mode (an exclude layer excludes them too; an include layer
+    never lists them)."""
+    if not new_faces:
+        return draft
+    draft = json.loads(json.dumps(draft))
+    for L in draft.get("layers") or []:
+        m = L.setdefault("mask", {"faces": [], "triangles": []})
+        if L.get("includeOnly"):
+            m["faces"] = [f for f in m.get("faces") or () if f not in new_faces]
+        else:
+            m["faces"] = list(m.get("faces") or ()) + [f for f in new_faces if f not in (m.get("faces") or ())]
+    return draft
+
+
+def _remap_soft(soft, old_T, T, match):
+    """Soft paint per corner: a new corner of a matched triangle takes the
+    value of the old triangle's corner at its place (exact when the
+    tessellation is the same there), else of the nearest one."""
+    val = {int(c): float(v) for c, v in zip(soft.get("corners") or (), soft.get("values") or ())}
+    if not val:
+        return soft
+    corners, values = [], []
+    for t in np.nonzero(match >= 0)[0].tolist():
+        o = int(match[t])
+        olds = [val.get(o * 3 + k) for k in range(3)]
+        if all(v is None for v in olds):
+            continue
+        for k in range(3):
+            j = int(np.linalg.norm(old_T[o] - T[t, k], axis=1).argmin())
+            v = olds[j]
+            if v is not None:
+                corners.append(t * 3 + k)
+                values.append(v)
+    return {"corners": corners, "values": values}
+
+
+def _remap_split(split, old_T, T, match):
+    """The Precision brush's rows move to a new triangle with the same three
+    corners in the same order; the others are dropped (and counted)."""
+    by_old = {}
+    for t in np.nonzero(match >= 0)[0].tolist():
+        by_old.setdefault(int(match[t]), []).append(t)
+    rows, dropped = [], 0
+    for r in split:
+        o = int(r[0])
+        new = [t for t in by_old.get(o, ()) if np.allclose(T[t], old_T[o], atol=1e-6)]
+        if new:
+            rows.append([new[0], r[1], r[2], r[3]])
+        else:
+            dropped += 1
+    return rows, dropped
+
+
+# -- the feature ----------------------------------------------------------------------------
+def _warn(text):
+    try:
+        import FreeCAD
+
+        FreeCAD.Console.PrintWarning(f"Texturizer: {text}\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def ensure_props(obj):
+    for prop, kind, doc in LINK_PROPS:
+        if prop not in obj.PropertiesList:
+            obj.addProperty(kind, prop, GROUP, doc)
+
+
+def is_linked(obj):
+    return "Source" in getattr(obj, "PropertiesList", ())
+
+
+class TexturedFeature:
+    """The proxy of a Textured object (Mesh::FeaturePython)."""
+
+    def __init__(self, obj=None):
+        if obj is not None:
+            obj.Proxy = self
+
+    def execute(self, obj):
+        rerun(obj, sync=None)
+
+    def onDocumentRestored(self, obj):  # noqa: N802 (FreeCAD)
+        ensure_props(obj)
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    __getstate__ = dumps
+
+    def __setstate__(self, state):
+        return None
+
+
+def source_of(obj):
+    src = getattr(obj, "Source", None)
+    if src is None and getattr(obj, "SourceBody", ""):
+        src = live.find(getattr(obj, "Document", None), obj.SourceBody)
+    return src
+
+
+def _set(obj, prop, value):
+    if getattr(obj, prop, None) != value:
+        setattr(obj, prop, value)
+
+
+def state(obj):
+    return getattr(obj, "TextureState", "") or ""
+
+
+def rerun(obj, sync=None, force=False):
+    """Texture obj's body again when its geometry changed (force: anyway).
+    sync None: in the background when a worker is set (Reruns), else here.
+    Returns the job's report, or None when nothing ran (up to date) or it
+    runs in the background."""
+    src = source_of(obj)
+    if src is None:
+        _set(obj, "TextureState", NO_SOURCE)
+        return None
+    _set(obj, "SourceBody", src.Name)
+    sig = live.signature(src)
+    if not force and sig == getattr(obj, "SourceSignature", None) and getattr(obj, "Mesh", None) is not None:
+        return None
+    job = prepare(obj, src, sig)
+    if job is None:   # made from texture_apply's own arguments: Update runs them
+        _set(obj, "OutOfDate", True)
+        _set(obj, "TextureState", "out of date: Update to texture it again")
+        return None
+    worker = Reruns.current()
+    if sync is False or (sync is None and worker is not None):
+        if worker is None:
+            worker = Reruns()
+        _set(obj, "TextureState", UPDATING)
+        _set(obj, "OutOfDate", True)
+        worker.schedule(obj, job)
+        return None
+    write(obj, job, job.run(lambda: False))
+    return job.report
+
+
+class Job:
+    """One rerun: everything read from the document on the GUI thread; run()
+    touches numpy and the engine only."""
+
+    def __init__(self, pos, run, mode, draft, report, signature, shape, ft):
+        self.pos, self.run_settings, self.mode = pos, run, mode
+        self.draft, self.report, self.signature = draft, report, signature
+        self.shape, self.ft = shape, ft
+        self.new_faces = []
+
+    def run(self, should_abort):
+        from . import engine
+
+        return engine.texture(self.pos, self.run_settings, mode=self.mode, should_abort=should_abort)
+
+
+def prepare(obj, src, sig=None):
+    from .draft import Draft
+    from .handlers import run_settings
+
+    stored = getattr(obj, "TextureDraft", "") or ""
+    if not stored:
+        return _prepare_args(obj, src, sig)
+    pos, ft = live.mesh_for(src)
+    data = json.loads(stored)
+    data["part"] = src.Name
+    report, new_faces = [], []
+    anchored = json.loads(getattr(obj, "MaskAnchors", "") or "null")
+    if anchored:
+        data, report, new_faces = remap(data, anchored, getattr(src, "Shape", None), pos, ft)
+    elif _has_masks(data):
+        report = [{"layer": 0, "what": "anchors", "lost": 0, "of": 0,
+                   "message": "Masks made before this body changed cannot be followed; re-pick them, then Update."}]
+    d = Draft.from_dict(data)
+    run = run_settings(Draft.from_dict(without_new(d.to_dict(), new_faces)), ft)
+    mode = "bake" if getattr(obj, "Baked", False) else "export"
+    job = Job(np.asarray(pos, np.float32), run, mode, d.to_dict(), report, sig or live.signature(src),
+              getattr(src, "Shape", None), ft)
+    job.new_faces = new_faces
+    return job
+
+
+def _has_masks(data):
+    return any((L.get("mask") or {}).get(k) for L in data.get("layers") or () for k in ("faces", "triangles", "soft", "split"))
+
+
+def _prepare_args(obj, src, sig):
+    """An object made from texture_apply's own arguments: they name faces
+    (pick_faces queries), so they run as they are, as Update did."""
+    return None
+
+
+def write(obj, job, res):
+    """The finished mesh on obj: one write of Mesh, the draft as remapped,
+    its anchors on the new geometry, the state; outside any transaction, and
+    obj left untouched for the next recompute."""
+    from .handlers import _make_mesh
+
+    if res is None:
+        return False
+    m = _make_mesh(res["positions"])
+    if m is not None:
+        obj.Mesh = m
+    _set(obj, "TextureDraft", json.dumps(job.draft))
+    known = [f for f in (job.ft or {}) if f not in job.new_faces]
+    _set(obj, "MaskAnchors", json.dumps(anchors(job.draft, job.shape, job.pos, job.ft, known=known)))
+    _set(obj, "NewFaces", json.dumps(job.new_faces))
+    _set(obj, "SourceSignature", job.signature)
+    _set(obj, "OutOfDate", False)
+    if job.report:
+        _set(obj, "TextureState", REPICK + ": " + " ".join(r["message"] for r in job.report))
+        for r in job.report:
+            _warn(f"{obj.Label}: {r['message']}")
+    else:
+        _set(obj, "TextureState", UP_TO_DATE)
+    if job.new_faces:
+        _warn(f"{obj.Label}: {new_faces_text(job.new_faces)}")
+    try:
+        obj.purgeTouched()
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+class Reruns:
+    """The background reruns: run_async(fn) on a worker, post(fn) back on the
+    GUI thread (the window's, the preview's own); one generation per
+    object, so a newer change makes an older run stale (its engine stops at
+    the next should_abort) and only the newest result is written, when no
+    transaction is open."""
+
+    _current = None
+
+    def __init__(self, run_async=None, post=None, later=None):
+        from .preview import _thread
+
+        self.run_async = run_async or _thread
+        self.post = post or (lambda fn: fn())
+        self.later = later or (lambda fn: self.post(fn))
+        self.gen = {}
+
+    @classmethod
+    def current(cls):
+        return cls._current
+
+    @classmethod
+    def install(cls, run_async, post, later=None):
+        cls._current = cls(run_async, post, later)
+        return cls._current
+
+    def schedule(self, obj, job):
+        key = (getattr(getattr(obj, "Document", None), "Name", ""), obj.Name)
+        g = self.gen.get(key, 0) + 1
+        self.gen[key] = g
+
+        def stale():
+            return self.gen.get(key) != g
+
+        def work():
+            try:
+                res = job.run(stale)
+            except Exception as e:  # noqa: BLE001
+                res, err = None, e
+            else:
+                err = None
+            self.post(lambda: self._done(obj, job, res, err, stale))
+
+        self.run_async(work)
+
+    def _done(self, obj, job, res, err, stale):
+        if stale():
+            return
+        if err is not None:
+            _set(obj, "TextureState", f"update failed: {err}")
+            _warn(f"{getattr(obj, 'Label', '')}: update failed: {err}")
+            return
+        doc = getattr(obj, "Document", None)
+        if getattr(doc, "HasPendingTransaction", False):
+            self.later(lambda: self._done(obj, job, res, err, stale))   # not inside someone's step
+            return
+        write(obj, job, res)
+
+
+def new_faces(obj):
+    try:
+        return list(json.loads(getattr(obj, "NewFaces", "") or "[]"))
+    except ValueError:
+        return []
+
+
+def new_faces_text(faces):
+    n = len(faces)
+    return (f"{n} new {'face' if n == 1 else 'faces'} since texturing ({', '.join(faces)}) "
+            f"{'is' if n == 1 else 'are'} left smooth; Include them to texture {'it' if n == 1 else 'them'}.")
+
+
+def include_new(obj, sync=None, run=True):
+    """Include them: the faces made after setup join the texture (include
+    layers list them; exclude layers stop excluding them) and are known
+    from now on; then it textures again."""
+    faces = new_faces(obj)
+    src = source_of(obj)
+    if not faces or src is None:
+        return []
+    data = json.loads(getattr(obj, "TextureDraft", "") or "null")
+    if data is not None:
+        for L in data.get("layers") or []:
+            if L.get("includeOnly"):
+                m = L.setdefault("mask", {"faces": [], "triangles": []})
+                m["faces"] = list(m.get("faces") or ()) + [f for f in faces if f not in (m.get("faces") or ())]
+        _set(obj, "TextureDraft", json.dumps(data))
+        pos, ft = live.mesh_for(src)
+        _set(obj, "MaskAnchors", json.dumps(anchors(data, getattr(src, "Shape", None), pos, ft)))
+    _set(obj, "NewFaces", "[]")
+    if run:
+        rerun(obj, sync=sync, force=True)
+    return faces
+
+
+# -- making and converting ---------------------------------------------------------------------
+def make(doc, name="Textured"):
+    """A new linked Textured object."""
+    obj = doc.addObject(KIND, name)
+    try:
+        TexturedFeature(obj)
+    except Exception:  # noqa: BLE001 — a stand-in object without a Proxy slot
+        pass
+    ensure_props(obj)
+    return obj
+
+
+def link(obj, body, draft_dict=None, pos=None, ft=None):
+    """Source, SourceBody and the anchors of draft_dict on body as it is."""
+    ensure_props(obj)
+    obj.Source = body
+    _set(obj, "SourceBody", body.Name)
+    if draft_dict is not None:
+        if pos is None:
+            pos, ft = live.mesh_for(body)
+        _set(obj, "MaskAnchors", json.dumps(anchors(draft_dict, getattr(body, "Shape", None), pos, ft)))
+    _set(obj, "TextureState", UP_TO_DATE)
+
+
+def convert(doc):
+    """Old Textured objects (a Mesh::Feature with a string SourceBody) as
+    linked features: the same mesh, properties and label; the old one
+    removed. Returns the new objects."""
+    from .handlers import PROPS
+
+    out = []
+    for old in list(getattr(doc, "Objects", None) or ()):
+        props = getattr(old, "PropertiesList", ())
+        if "SourceBody" not in props or "Source" in props:
+            continue
+        body = live.find(doc, old.SourceBody)
+        new = make(doc, "Textured")
+        try:
+            new.Mesh = old.Mesh
+        except Exception:  # noqa: BLE001
+            pass
+        for prop, kind, text in PROPS:
+            if prop not in new.PropertiesList:
+                new.addProperty(kind, prop, GROUP, text)
+            if prop in props:
+                setattr(new, prop, getattr(old, prop))
+        label = old.Label
+        stale = bool(getattr(old, "OutOfDate", False)) or (body is not None and live.signature(body) != getattr(old, "SourceSignature", ""))
+        if body is not None:
+            data = json.loads(getattr(old, "TextureDraft", "") or "null")
+            ensure_props(new)
+            new.Source = body
+            new.SourceBody = body.Name
+            if data is not None and not stale:
+                pos, ft = live.mesh_for(body)
+                new.MaskAnchors = json.dumps(anchors(data, getattr(body, "Shape", None), pos, ft))
+            new.TextureState = UP_TO_DATE if not stale else REPICK + ": made before its body changed; re-pick masks, then Update."
+        else:
+            new.TextureState = NO_SOURCE
+        doc.removeObject(old.Name)
+        new.Label = label
+        try:
+            new.purgeTouched()
+        except Exception:  # noqa: BLE001
+            pass
+        out.append(new)
+    return out
+
+
+class Observer:
+    """Old documents convert when they open (slotFinishRestoreDocument)."""
+
+    def slotFinishRestoreDocument(self, doc):  # noqa: N802 (FreeCAD)
+        try:
+            convert(doc)
+        except Exception as e:  # noqa: BLE001 — never raise into FreeCAD
+            _warn(f"converting old Textured objects: {e}")

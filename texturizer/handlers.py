@@ -478,7 +478,7 @@ def _apply_draft(s, a, d, target=None, name=None, bake=False):
     res = _run_engine(s, a, pos, run, "bake" if bake else "export")
     name = name or (target.Label if target is not None else f"{o.Label}_textured")
     obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target,
-                    draft_json=json.dumps(d.to_dict()), baked=bake)
+                    draft_json=json.dumps(d.to_dict()), baked=bake, tess=(pos, ft))
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "updated": target is not None, "triangles": res["triangles"], "inputTriangles": res["inputTriangles"],
            "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run),
@@ -527,11 +527,15 @@ def texture_apply(s, a):
             raise ToolError("not_found", f"update {a['update']!r}: not a Textured object in this document.")
         stored = getattr(target, "TextureDraft", "") or ""
         if stored:
-            from .draft import Draft
+            from . import linked
 
-            dd = Draft.from_json(stored)
-            dd.part = target.SourceBody
-            _obj, out = _apply_draft(s, a, dd, target=target)
+            if not linked.is_linked(target):
+                label = target.Label
+                target = next((o for o in linked.convert(doc) if o.Label == label), target)
+            included = linked.include_new(target, run=False) if a.get("include_new") else []
+            out = _update_linked(s, a, target)
+            if included:
+                out["included"] = included
         else:
             import json
 
@@ -592,6 +596,31 @@ def texture_apply(s, a):
     return remember("texture_apply", out)
 
 
+def _update_linked(s, a, target):
+    """Update of a linked Textured object: its stored draft with its masks
+    followed onto the body as it is (linked.prepare), here and now."""
+    from . import engine, linked
+
+    src = linked.source_of(target)
+    if src is None:
+        raise ToolError("not_found", f"{target.Label}: its body is gone.")
+    job = linked.prepare(target, src)
+    if not any(L.get("visible", True) is not False for L in job.run_settings["layers"]):
+        raise ToolError("invalid_state", "Every layer is hidden: show one (texture_layer).")
+    res = _run_engine(s, a, job.pos, job.run_settings, job.mode)
+    linked.write(target, job, res)
+    out = {"body": src.Label, "object": target.Name, "label": target.Label, "updated": True,
+           "triangles": res["triangles"], "inputTriangles": res["inputTriangles"], "repair": res["repair"],
+           "warnings": res["warnings"], "credit": engine.credit_of(job.run_settings), "state": linked.state(target)}
+    if job.report:
+        out["maskReport"] = [r["message"] for r in job.report]
+    if job.new_faces:
+        out["newFaces"] = job.new_faces
+        out["newFacesNote"] = linked.new_faces_text(job.new_faces)
+    _export_with(s, a, job.pos, job.run_settings, res, out)
+    return out
+
+
 def _make_mesh(positions):
     """A Mesh.Mesh from float32 positions, or None without FreeCAD's Mesh."""
     import tempfile
@@ -622,11 +651,16 @@ PROPS = (("Credit", "App::PropertyString", "The credit this texture carries"),
          ("Baked", "App::PropertyBool", "Made by Bake Textures: undecimated, so a mask on it keeps its triangles"))
 
 
-def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="", args=None, baked=False):
-    """The textured mesh as a Mesh::Feature beside the body (or the target
-    updated), carrying its credit, the settings it was made with, its body
-    and the body's fingerprint."""
+def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="", args=None, baked=False, tess=None):
+    """The textured mesh as a linked Textured feature beside the body (or the
+    target updated; an old Mesh::Feature one converted first), carrying its
+    credit, the settings it was made with, a link to its body, the body's
+    fingerprint and, from a draft, its masks as geometry (linked.anchors,
+    every face of the body as it is now known): it textures its body again
+    when the body changes (linked.TexturedFeature)."""
     import json
+
+    from . import linked
 
     # No document to put it in (a body that belongs to none) or no FreeCAD
     # Mesh module: no object, the export still made.
@@ -637,7 +671,10 @@ def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="",
     if m is None:
         return None
     doc = doc or target.Document
-    obj = target if target is not None else doc.addObject("Mesh::Feature", "Textured")
+    if target is not None and not linked.is_linked(target):
+        label = target.Label
+        target = next((o for o in linked.convert(doc) if o.Label == label), None)
+    obj = target if target is not None else linked.make(doc)
     obj.Label = name
     obj.Mesh = m
     vals = {"Credit": credit, "TextureSettings": json.dumps(_jsonable(run)), "TextureDraft": draft_json or "",
@@ -647,8 +684,19 @@ def _add_mesh(s, body, name, positions, credit, run, target=None, draft_json="",
         if prop not in obj.PropertiesList:
             obj.addProperty(kind, prop, "Texturizer", doc_text)
         setattr(obj, prop, vals[prop])
+    data = json.loads(draft_json) if draft_json else None
+    pos, ft = tess if tess is not None else (None, None)
+    linked.link(obj, body, data, pos, ft)
+    _set_new(obj, [])
     doc.recompute()
     return obj
+
+
+def _set_new(obj, faces):
+    import json
+
+    if getattr(obj, "NewFaces", None) != json.dumps(faces):
+        obj.NewFaces = json.dumps(faces)
 
 
 def _jsonable(run):
@@ -694,6 +742,14 @@ class Observer:
     objects out of date (FreeCAD.addDocumentObserver)."""
 
     def slotChangedObject(self, obj, prop):  # noqa: N802 (FreeCAD)
+        if prop in ("TextureState", "NewFaces") and live.GUI is not None:
+            fn = getattr(live.GUI, "textured_changed", None)
+            try:
+                if fn is not None:
+                    fn(obj)
+            except Exception:  # noqa: BLE001 — never raise into FreeCAD
+                pass
+            return
         if prop != "Visibility" or live.GUI is None:
             return
         try:
