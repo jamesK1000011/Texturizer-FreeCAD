@@ -21,6 +21,7 @@ No Qt import here; FreeCAD only inside the functions that need it.
 """
 import base64
 import json
+import types
 
 import numpy as np
 
@@ -693,6 +694,148 @@ def convert(doc):
             pass
         out.append(new)
     return out
+
+
+# -- the live draft follows its body too ------------------------------------------------------
+class DraftFollower:
+    """The draft the sidebar shows, kept on its body: a snapshot of the
+    part's geometry (tessellation, mapped names) the masks were made on;
+    when the part's geometry changes (follow()), its masks move with the
+    same anchors as a Textured object's (mapped names, then surface samples;
+    brush paint by surface), what can't move is left out and flagged, and
+    faces a later CAD step made stay smooth (excluded) and are listed until
+    Include Them. Add to Document then never applies old face names to
+    renumbered faces. The change is a draft edit: in the CAD step's own
+    transaction when one is open (its Undo undoes both)."""
+
+    _current = None
+
+    def __init__(self, draft, doc_fn=None):
+        self.draft = draft
+        self.doc_fn = doc_fn or (lambda: live._doc() or live.LAST_DOC["doc"])
+        self.snap = None
+        self.new_faces, self.report = [], []
+        self._applying = False
+        self._unsub = draft.subscribe(self._on_draft)
+        DraftFollower._current = self
+
+    @classmethod
+    def current(cls):
+        return cls._current
+
+    def detach(self):
+        self._unsub()
+        if DraftFollower._current is self:
+            DraftFollower._current = None
+
+    def _part(self):
+        d = self.draft
+        return live.find(self.doc_fn(), d.part) if d.part else None
+
+    def _on_draft(self, ev):
+        if self._applying:
+            return
+        if ev.get("kind") in ("part", "load", "reset", "undo", "redo"):
+            # An undo or redo restores the part and the draft together: what
+            # the masks are made on is the part as it is now.
+            if self.snap is None or self.snap["part"] != self.draft.part or ev.get("kind") in ("undo", "redo"):
+                if self.new_faces or self.report:
+                    self.new_faces, self.report = [], []
+                    self._notify()
+            self.snapshot()
+
+    def _notify(self):
+        fn = getattr(live.GUI, "draft_follow_changed", None)
+        if fn is not None:
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def snapshot(self):
+        """The part's geometry as it is now: what the masks are made on."""
+        o = self._part()
+        if o is None:
+            self.snap = None
+            return
+        try:
+            pos, ft = live.mesh_for(o)
+        except Exception:  # noqa: BLE001 — no faces yet: nothing to follow
+            self.snap = None
+            return
+        sh = getattr(o, "Shape", None)
+        rev = getattr(sh, "ElementReverseMap", None) if sh is not None else None
+        self.snap = {"part": o.Name, "sig": live.signature(o), "pos": pos, "ft": ft,
+                     "shape": types.SimpleNamespace(ElementReverseMap=dict(rev) if isinstance(rev, dict) else {})}
+
+    def follow(self):
+        """Move the draft's masks onto the part as it is now, when its
+        geometry changed since the snapshot. Returns (report, new faces) or
+        None when nothing changed."""
+        o = self._part()
+        if o is None:
+            return None
+        if self.snap is None or self.snap["part"] != o.Name:
+            self.snapshot()
+            return None
+        sig = live.signature(o)
+        if sig == self.snap["sig"]:
+            return None
+        d = self.draft
+        snap = self.snap
+        known = [f for f in snap["ft"] if f not in self.new_faces]
+        a = anchors(d.to_dict(), snap["shape"], snap["pos"], snap["ft"], known=known)
+        pos, ft = live.mesh_for(o)
+        data, report, new = remap(d.to_dict(), a, getattr(o, "Shape", None), pos, ft)
+        data = without_new(data, new)
+        self.new_faces, self.report = new, report
+        self._applying = True
+        try:
+            d.load(data)
+        finally:
+            self._applying = False
+        self.snapshot()
+        for r in report:
+            _warn(f"{o.Label} (the sidebar's draft): {r['message']}")
+        if new:
+            _warn(f"{o.Label} (the sidebar's draft): {new_faces_text(new)}")
+        self._notify()
+        return report, new
+
+    def include_new(self):
+        """Include Them for the draft: the new faces join every layer
+        (include layers list them, exclude layers stop excluding them)."""
+        faces, self.new_faces = list(self.new_faces), []
+        if not faces:
+            return []
+        data = self.draft.to_dict()
+        for L in data.get("layers") or []:
+            m = L.setdefault("mask", {"faces": [], "triangles": []})
+            if L.get("includeOnly"):
+                m["faces"] = list(m.get("faces") or ()) + [f for f in faces if f not in (m.get("faces") or ())]
+            else:
+                m["faces"] = [f for f in m.get("faces") or () if f not in faces]
+        self._applying = True
+        try:
+            self.draft.load(data)
+        finally:
+            self._applying = False
+        self._notify()
+        return faces
+
+
+def follow_draft(doc=None):
+    """The live draft onto its part as it is now (see DraftFollower)."""
+    f = DraftFollower.current()
+    if f is None:
+        return None
+    if doc is not None:
+        live.LAST_DOC["doc"] = doc
+    try:
+        return f.follow()
+    except Exception as e:  # noqa: BLE001 — a failed follow never stops a tool or a recompute
+        _warn(f"following the draft's masks: {e}")
+        return None
 
 
 class Observer:

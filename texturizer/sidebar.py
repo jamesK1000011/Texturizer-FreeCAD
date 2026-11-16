@@ -619,6 +619,7 @@ if QtWidgets is not None:
             self._gallery = None
             self.last = None
             self.on_include_new = None   # the window's: Include them
+            self.on_draft_include = None   # the window's: Include them, for the draft
 
             body = QtWidgets.QWidget()
             self.body = body
@@ -1151,6 +1152,18 @@ if QtWidgets is not None:
             # The Textured object this draft made: its state, faces a later CAD
             # step made (left smooth) with Include them, and that the texture
             # applies to the finished part.
+            # The draft itself after a CAD change: what its masks could not
+            # follow, and faces a later step made (left smooth) with Include Them.
+            self.draft_follow = QtWidgets.QLabel("")
+            self.draft_follow.setObjectName("draft_follow")
+            self.draft_follow.setWordWrap(True)
+            v.addWidget(self.draft_follow)
+            self.draft_include = QtWidgets.QPushButton("Include Them")
+            self.draft_include.setObjectName("btn_includeNewDraft")
+            self.draft_include.setToolTip("Texture the faces the last CAD change made (they are left smooth until then).")
+            self.draft_include.clicked.connect(lambda *_: self.on_draft_include and self.on_draft_include())
+            v.addWidget(self.draft_include)
+            self.show_draft_follow([], [])
             self.textured_state = QtWidgets.QLabel("")
             self.textured_state.setObjectName("textured_state")
             self.textured_state.setWordWrap(True)
@@ -1394,6 +1407,18 @@ if QtWidgets is not None:
             self.mesh_info.setText(S("ui.meshInfo", n=f"{int(triangles):,}", mb=f"{mb:.1f}" if mb is not None else "–",
                                      sx=f"{sx:.1f}", sy=f"{sy:.1f}", sz=f"{sz:.1f}"))
             self.set_anchor(max(size))
+
+        def show_draft_follow(self, messages, new_faces):
+            """After the part changed: what the draft's masks could not follow
+            (re-pick) and the faces left smooth, with Include Them."""
+            lines = list(messages)
+            if new_faces:
+                n = len(new_faces)
+                lines.append(f"{n} new {'face' if n == 1 else 'faces'} since the part changed "
+                             f"({', '.join(new_faces)}) left smooth.")
+            self.draft_follow.setText("\n".join(lines))
+            self.draft_follow.setVisible(bool(lines))
+            self.draft_include.setVisible(bool(new_faces))
 
         def show_textured(self, state, new_faces=(), label=""):
             """The Textured object's state (None: there is none yet): up to

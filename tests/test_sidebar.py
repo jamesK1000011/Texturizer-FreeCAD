@@ -463,6 +463,13 @@ class SidebarWidget(unittest.TestCase):
         self.assertFalse(sb.include_new.isHidden())
         sb.include_new.click()
         self.assertEqual(hit, [1])
+        # The draft's own line after a CAD change.
+        self.assertTrue(sb.draft_follow.isHidden() and sb.draft_include.isHidden())
+        sb.on_draft_include = lambda: hit.append(2)
+        sb.show_draft_follow(["Layer 1: 1 of 2 masked faces no longer exist; re-pick them."], ["Face6"])
+        self.assertIn("re-pick them.\n1 new face since the part changed (Face6) left smooth.", sb.draft_follow.text())
+        sb.draft_include.click()
+        self.assertEqual(hit, [1, 2])
         self.assertEqual(len(self.calls), n)
         sb.binds["exclusionTool"].buttons[0][1].click()  # Faces tool
         self.assertEqual(d.get("exclusionTool"), "faces")

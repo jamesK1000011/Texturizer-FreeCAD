@@ -521,6 +521,9 @@ def texture_apply(s, a):
     runs again only on Update."""
     d = live.draft()
     doc = _doc(s)
+    from . import linked
+
+    linked.follow_draft()   # never old face names on renumbered faces
     if a.get("update"):
         target = live.find(doc, a["update"])
         if target is None or "SourceBody" not in getattr(target, "PropertiesList", []):
@@ -759,12 +762,32 @@ class Observer:
         except Exception:  # noqa: BLE001 — never raise into FreeCAD
             pass
 
+    _follow = False
+
     def slotRecomputedObject(self, obj):  # noqa: N802 (FreeCAD)
+        try:
+            if getattr(obj, "Name", None) == live.draft().part:
+                self._follow = True   # the sidebar's draft follows once the recompute is done
+        except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
         try:
             doc = obj.Document
             if any(t.SourceBody == obj.Name for t in textured_objects(doc)):
                 mark_out_of_date(doc, obj)
         except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
+
+    def slotRecomputedDocument(self, doc):  # noqa: N802 (FreeCAD)
+        """After the recompute (still inside the CAD step's transaction, so its
+        Undo undoes the draft's move too): the draft onto its changed part."""
+        if not self._follow:
+            return
+        self._follow = False
+        try:
+            from . import linked
+
+            linked.follow_draft(doc)
+        except Exception:  # noqa: BLE001
             pass
 
     # The preview stands in for the body by hiding it; a save meanwhile
@@ -796,7 +819,10 @@ class Observer:
 # ── the draft (design 5.1): one Draft, shared with the sidebar ─────────────
 
 def _doc(s):
-    return getattr(s, "doc", None) or live._doc()
+    doc = getattr(s, "doc", None) or live._doc()
+    if doc is not None:
+        live.LAST_DOC["doc"] = doc
+    return doc
 
 
 def _part(s, ref, d=None):
@@ -824,7 +850,12 @@ def _part(s, ref, d=None):
 
 
 def _watch():
-    """The sidebar open in the window, so the draft moves where it can be watched."""
+    """The sidebar open in the window, so the draft moves where it can be
+    watched; the draft's masks on its part as it is now (linked.follow_draft:
+    a CAD change the observer did not see is caught before a tool reads them)."""
+    from . import linked
+
+    linked.follow_draft()
     if live.GUI is not None:
         try:
             live.GUI.open()
