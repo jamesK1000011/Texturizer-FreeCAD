@@ -22,7 +22,8 @@ texture_* tools all edit.
     ui        panel state that is not saved with a project (brush, tool)
 
 Defaults come from controls.py (BumpMesh's own). JSON round-trips; one
-undo/redo stack (BumpMesh's UNDO_LIMIT, 50); change signals are plain
+undo/redo stack (BumpMesh's UNDO_LIMIT, 50) without FreeCAD; in FreeCAD the
+draft lives in the document and Edit > Undo is the one (docdraft); change signals are plain
 callbacks: subscribe(fn) -> unsubscribe, fn(event) with event a dict
 {kind, key, layer, value}. kinds: set, frame, part, layer, layers, active,
 mask, texture, reset, load, undo, redo.
@@ -133,6 +134,12 @@ class Draft:
         self._batch_before = None
         self._coalesce = None
         self._seq = 0
+        self._closers = []
+        # The draft's own undo stack. Off when the draft lives in a FreeCAD
+        # document (docdraft.DocSync): FreeCAD's Undo is the one, and no
+        # state is copied per step.
+        self.history = True
+        self.sync = None   # the docdraft.DocSync, when FreeCAD's Undo is the one
         self.part = part
         self.frame = {"rotation": [0, 0, 0], "face": None}
         self.layers = []
@@ -208,6 +215,11 @@ class Draft:
         tag in a row (one slider drag) make one undo step."""
         if self._batch:
             return
+        if self._coalesce is not None and coalesce != self._coalesce:
+            self._closed()   # another change ends a run: its step is done
+        if not self.history:
+            self._coalesce = coalesce
+            return
         if coalesce is not None and coalesce == self._coalesce:
             return
         self._coalesce = coalesce
@@ -218,7 +230,35 @@ class Draft:
 
     def end_coalesce(self):
         """Close a coalesced run (slider released): the next change is a new step."""
+        was, self._coalesce = self._coalesce, None
+        if was is not None:
+            self._closed()
+
+    def _closed(self):
         self._coalesce = None
+        for fn in list(self._closers):
+            fn()
+
+    def on_close(self, fn):
+        """fn() when a step is done: a coalesced run (a slider or gizmo drag)
+        released or ended by another change, or the outer batch closed."""
+        self._closers.append(fn)
+        return lambda: fn in self._closers and self._closers.remove(fn)
+
+    def coalescing(self):
+        return self._coalesce is not None
+
+    def batching(self):
+        return self._batch > 0
+
+    def apply(self, data, kind="undo"):
+        """The draft from data (to_dict's), as an undo or redo the document
+        made (docdraft.DocSync): no step of its own, one event saying what
+        changed (changes), so the preview reruns from that stage only."""
+        before = self._state()
+        self._load(data)
+        self._coalesce = None
+        self._emit(kind, value=changes(before, self._state()))
 
     class _Batch:
         def __init__(self, d):
@@ -247,18 +287,27 @@ class Draft:
                 if d._undo and d._undo[-1] == self.before:
                     d._undo.pop()
                 d._redo[:] = self.redo
+            d._closed()
 
     def batch(self):
         """with draft.batch(): ... several changes, one undo step."""
         return Draft._Batch(self)
 
     def can_undo(self):
+        if not self.history:
+            return bool(self.sync and self.sync.can_undo())
         return bool(self._undo)
 
     def can_redo(self):
+        if not self.history:
+            return bool(self.sync and self.sync.can_redo())
         return bool(self._redo)
 
     def undo(self):
+        """The draft's own step back; with the draft in the document,
+        FreeCAD's (the document's Undo, which reloads the draft)."""
+        if not self.history:
+            return bool(self.sync and self.sync.undo())
         if not self._undo:
             return False
         before = self._state()
@@ -269,6 +318,8 @@ class Draft:
         return True
 
     def redo(self):
+        if not self.history:
+            return bool(self.sync and self.sync.redo())
         if not self._redo:
             return False
         before = self._state()
@@ -507,6 +558,12 @@ class Draft:
             raise ValueError("not a Texturizer draft")
         if undoable:
             self._push()
+        self._load(data)
+        self._emit("load")
+
+    def _load(self, data):
+        if data.get("format", FORMAT) != FORMAT:
+            raise ValueError("not a Texturizer draft")
         self.part = data.get("part")
         fr = data.get("frame") or {}
         self.frame = {"rotation": [float(a) for a in fr.get("rotation", [0, 0, 0])], "face": fr.get("face")}
@@ -534,7 +591,6 @@ class Draft:
             self.layers.append(L)
             self._seq = max(self._seq, L["id"])
         self.active = min(max(0, int(data.get("active", 0))), len(self.layers) - 1)
-        self._emit("load")
 
     @classmethod
     def from_dict(cls, data):

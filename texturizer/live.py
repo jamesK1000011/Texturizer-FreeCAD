@@ -38,12 +38,17 @@ def draft():
     global _DRAFT
     if _DRAFT is None:
         _DRAFT = _draft.Draft()
+        from . import docdraft
+
+        docdraft.attach(_DRAFT, _doc)   # in FreeCAD: the draft in the document, Edit > Undo undoes it
     return _DRAFT
 
 
 def reset():
     """A fresh session (tests; a new document)."""
     global _DRAFT
+    if _DRAFT is not None and getattr(_DRAFT, "sync", None) is not None:
+        _DRAFT.sync.detach()
     _DRAFT = None
     _CACHE.clear()
     TARGET["object"] = None

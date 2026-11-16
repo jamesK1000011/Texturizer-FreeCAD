@@ -1124,6 +1124,9 @@ if QtWidgets is not None:
                 return
             b = self.binds[key]
             self._edit(key, pos_to_value(b.c, pos, self.anchor), coalesce=True)
+            down = getattr(b.slider, "isSliderDown", None)
+            if down is not None and not down():
+                self.draft.end_coalesce()   # a key or a click on the track: one step now, no release comes
 
         def _edit(self, key, value, coalesce=False):
             if self._updating:
@@ -1160,7 +1163,6 @@ if QtWidgets is not None:
 
         def _on_draft_(self, ev):
             kind = ev["kind"]
-            self._header()
             if kind == "set" and ev["layer"] not in (None, self.draft.active):
                 return
             if kind == "set":
@@ -1192,7 +1194,6 @@ if QtWidgets is not None:
                 self.refresh_texture()   # the layer strip with it
                 self._mask_text()
                 self._visibility()
-                self._header()
             finally:
                 self._tex_memo = None
 
@@ -1216,13 +1217,6 @@ if QtWidgets is not None:
             for b in self.binds.values():
                 if b.c.get("show"):
                     b.row.setVisible(shown(b.c, self._get))
-
-        def _header(self):
-            for k, can in (("undo", self.draft.can_undo), ("redo", self.draft.can_redo)):
-                b = self.binds.get(k)   # FreeCAD's Edit > Undo is the one (overrides.OWNED)
-                if b is not None:
-                    b.widgets[0].setEnabled(can())
-
 
         # -- actions ---------------------------------------------------------------
         def press(self, key, **extra):
@@ -1249,7 +1243,6 @@ if QtWidgets is not None:
                 self.say(S("ui.stampHint"))
             else:
                 return self.run(key, **extra)
-            self._header()
             return True, {}
 
         def run(self, key, **extra):
@@ -1265,7 +1258,6 @@ if QtWidgets is not None:
             self.last = (tool, args, ok, out)
             msg = out.get("error") or out.get("message") if isinstance(out, dict) else str(out)
             self.say(msg or ("done" if ok else "failed"))
-            self._header()
             return ok, out
 
         def add_selected_faces(self):
@@ -1360,8 +1352,9 @@ if QtWidgets is not None:
 
 
 def _std_undo(key, d):
-    """Undo / Redo: FreeCAD's (Std_Undo / Std_Redo), which undo texture edits
-    as the draft lives in the document; the draft's own without FreeCAD."""
+    """Undo / Redo (no button: a key press): FreeCAD's Std_Undo / Std_Redo,
+    which undo texture edits as the draft lives in the document
+    (docdraft); the draft's own without FreeCAD."""
     try:
         import FreeCADGui
 
