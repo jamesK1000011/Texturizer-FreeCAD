@@ -12,7 +12,7 @@ and these properties:
 
 | Property | Type | Holds |
 |---|---|---|
-| `Source` | `App::PropertyLink` | the body: FreeCAD's dependency graph, renames, deletion |
+| `Source` | `App::PropertyLinkGlobal` | the body: FreeCAD's dependency graph, renames, deletion; global, as the body may sit in an Assembly or App::Part |
 | `TextureDraft` / `TextureArgs` | String | what to run again (as before) |
 | `MaskAnchors` | String (JSON) | the masks as geometry, not indices (below) |
 | `TextureState` | String | `up to date`, `updating…`, or `mask needs re-pick: …` |
@@ -118,7 +118,8 @@ ones). Today the texture applies to the finished part only.
 
 - `Mesh::FeaturePython` with a proxy `execute`, `onDocumentRestored`,
   `dumps` / `loads`;
-- `App::PropertyLink` dependency recompute;
+- `App::PropertyLinkGlobal` dependency recompute, `getTypeIdOfProperty` / `removeProperty` (migrating 50f02ed's plain link);
+- `Face.Surface.parameter` and `Mesh.Mesh.harmonizeNormals` (face winding);
 - `obj.purgeTouched()`;
 - `doc.HasPendingTransaction`;
 - `Shape.ElementMap` and `Shape.ElementReverseMap` on PartDesign bodies;

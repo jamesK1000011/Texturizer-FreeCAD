@@ -604,6 +604,7 @@ def _update_linked(s, a, target):
     followed onto the body as it is (linked.prepare), here and now."""
     from . import engine, linked
 
+    linked.ensure_props(target)   # an older object's Source becomes a PropertyLinkGlobal
     src = linked.source_of(target)
     if src is None:
         raise ToolError("not_found", f"{target.Label}: its body is gone.")
@@ -639,7 +640,12 @@ def _make_mesh(positions):
     try:
         with open(tmp, "wb") as fh:
             fh.write(writers.stl_bytes(positions))
-        return Mesh.Mesh(tmp)
+        m = Mesh.Mesh(tmp)
+        try:   # one winding throughout (FreeCAD's own check), whatever the input's faces were
+            m.harmonizeNormals()
+        except Exception:  # noqa: BLE001 — an older Mesh module
+            pass
+        return m
     finally:
         os.unlink(tmp)
 

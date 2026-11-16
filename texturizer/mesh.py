@@ -12,7 +12,15 @@ from .refusal import Refused
 def face_triangles(shape, tol):
     """One mesh of the whole part (faces meet edge to edge), face by face:
     the triangles, each wound outward as its face is in the solid, and each
-    face's [start, end) among them."""
+    face's [start, end) among them.
+
+    A face's winding is checked against the face's own normal where its
+    largest triangle is (Surface.parameter there), not at the middle of its
+    parameter range: on a hole's cylinder the middle is across the axis,
+    where the normal points the other way, and the whole wall came out
+    flipped (live: 3276 flipped facets, the textured wall pushed into the
+    part). Then the whole mesh is made consistent across its shared edges
+    and outward (orient_consistently)."""
     import FreeCAD
 
     shape.tessellate(tol)
@@ -22,16 +30,93 @@ def face_triangles(shape, tol):
         if not ft:
             continue
         P = [(p.x, p.y, p.z) for p in pts]
-        u0, u1, v0, v1 = f.ParameterRange
-        n = f.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
-        a0, b0, c0 = (FreeCAD.Vector(*P[k]) for k in ft[0])
-        flip = (b0 - a0).cross(c0 - a0).dot(n) < 0 and abs((b0 - a0).cross(c0 - a0).Length) > 1e-12
+        k, best = 0, -1.0
+        for j, t in enumerate(ft):
+            a, b, c = (P[x] for x in t)
+            e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+            e2 = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+            cr = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+            ar = cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]
+            if ar > best:
+                k, best, ck = j, ar, cr
+        a, b, c = (P[x] for x in ft[k])
+        n = _normal_near(f, ((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3), FreeCAD)
+        flip = best > 1e-24 and (ck[0] * n.x + ck[1] * n.y + ck[2] * n.z) < 0
         start = len(tris)
         for t in ft:
-            tri = [P[k] for k in t]
+            tri = [P[x] for x in t]
             tris.append(tri[::-1] if flip else tri)
         per_face[f"Face{i + 1}"] = [start, len(tris)]
+    if tris:
+        tris = orient_consistently(tris)
     return tris, per_face
+
+
+def _normal_near(f, c, FreeCAD):
+    """The face's normal at the point of it nearest c; at the middle of its
+    parameter range when the surface can't say (a stand-in face)."""
+    try:
+        u, v = f.Surface.parameter(FreeCAD.Vector(*c))
+        return f.normalAt(u, v)
+    except Exception:  # noqa: BLE001
+        u0, u1, v0, v1 = f.ParameterRange
+        return f.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
+
+
+def orient_consistently(tris, quant=1e5):
+    """tris (n, 3, 3) wound the same way across every shared edge (a
+    triangle meets each neighbour on an edge it runs the other way), and
+    each closed piece outward (positive volume). Faces wound right stay as
+    they are; a wrongly wound face is turned with its piece."""
+    import numpy as np
+
+    from .engine.meshindex import weld
+
+    T = np.asarray(tris, np.float64).reshape(-1, 3, 3)
+    vid, _n, _f = weld(T.reshape(-1, 3), quant)
+    F = vid.reshape(-1, 3)
+    n = len(F)
+    edges = {}
+    for t in range(n):
+        a, b, c = F[t].tolist()
+        for p, q in ((a, b), (b, c), (c, a)):
+            if p != q:
+                edges.setdefault((min(p, q), max(p, q)), []).append((t, p < q))
+    flip = np.zeros(n, bool)
+    seen = np.zeros(n, bool)
+    nbrs = [[] for _ in range(n)]
+    closed_edge = {}
+    for key, uses in edges.items():
+        if len(uses) == 2:
+            (t1, d1), (t2, d2) = uses
+            same = d1 == d2   # both run the edge the same way: one is wound wrong
+            nbrs[t1].append((t2, same))
+            nbrs[t2].append((t1, same))
+        for t, _d in uses:
+            closed_edge[t] = closed_edge.get(t, True) and len(uses) == 2
+    for seed in range(n):
+        if seen[seed]:
+            continue
+        piece, todo = [seed], [seed]
+        seen[seed] = True
+        while todo:
+            t = todo.pop()
+            for o, same in nbrs[t]:
+                if not seen[o]:
+                    seen[o] = True
+                    flip[o] = flip[t] ^ same
+                    piece.append(o)
+                    todo.append(o)
+        piece = np.array(piece)
+        if all(closed_edge.get(t, False) for t in piece.tolist()):
+            Q = T[piece].copy()
+            Q[flip[piece]] = Q[flip[piece]][:, ::-1]
+            vol = np.einsum("ij,ij->i", Q[:, 0], np.cross(Q[:, 1], Q[:, 2])).sum()
+            if vol < 0:
+                flip[piece] = ~flip[piece]
+    out = T.copy()
+    out[flip] = out[flip][:, ::-1]
+    return out.tolist()
 
 
 def read_stl(path):

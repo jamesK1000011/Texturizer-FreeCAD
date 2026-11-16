@@ -99,8 +99,17 @@ class LObj(Obj):
 
     def addProperty(self, kind, prop, group, text):  # noqa: N802 (FreeCAD)
         super().addProperty(kind, prop, group, text)
-        if kind == "App::PropertyLink":
+        self.__dict__.setdefault("kinds", {})[prop] = kind
+        if kind.startswith("App::PropertyLink"):
             setattr(self, prop, None)
+
+    def getTypeIdOfProperty(self, prop):  # noqa: N802 (FreeCAD)
+        return self.kinds[prop]
+
+    def removeProperty(self, prop):  # noqa: N802 (FreeCAD)
+        self.PropertiesList.remove(prop)
+        del self.kinds[prop]
+        delattr(self, prop)
 
 
 class Linked(unittest.TestCase):
@@ -165,7 +174,14 @@ class Linked(unittest.TestCase):
         self.assertEqual(obj.TypeId, "Mesh::FeaturePython")
         self.assertIsInstance(obj.Proxy, linked.TexturedFeature)
         self.assertIs(obj.Source, self.body)
+        self.assertEqual(obj.getTypeIdOfProperty("Source"), "App::PropertyLinkGlobal")   # the body may sit in an Assembly
         self.assertEqual((obj.SourceBody, obj.TextureState, json.loads(obj.NewFaces)), ("Body", "up to date", []))
+        # Made by 50f02ed with a plain PropertyLink: it becomes global, the body kept.
+        obj.removeProperty("Source")
+        obj.addProperty("App::PropertyLink", "Source", "Texturizer", "")
+        obj.Source = self.body
+        linked.TexturedFeature().onDocumentRestored(obj)
+        self.assertEqual((obj.getTypeIdOfProperty("Source"), obj.Source), ("App::PropertyLinkGlobal", self.body))
         a = json.loads(obj.MaskAnchors)
         self.assertEqual([f["name"] for f in a["layers"][0]["faces"]], ["Face4"])
         self.assertEqual(len(a["known"]), 6)
@@ -306,29 +322,89 @@ class Linked(unittest.TestCase):
         self.assertEqual(conv.MaskAnchors, "")
 
     def test_background_rerun_writes_the_newest_outside_transactions(self):
+        from texturizer import timing
+
         obj = self.textured(include=["Face4"])
-        jobs, posted = [], []
+        jobs, posted, lines = [], [], []
         linked.Reruns.install(jobs.append, posted.append)
+
+        def drain():
+            while posted:
+                posted.pop(0)()
+        saved = timing.FORCE, timing.SINK
+        timing.FORCE, timing.SINK = True, lines.append
+        self.addCleanup(lambda: (setattr(timing, "FORCE", saved[0]), setattr(timing, "SINK", saved[1])))
         before = obj.Mesh
         self.body.Shape = Shape(h=10.0)
         self.recompute(obj)
         self.assertEqual((obj.TextureState, obj.Mesh), ("updating…", before))   # execute does not block
+        self.recompute(obj)                       # recomputed again, same geometry: the run under way stands
+        self.assertEqual(len(jobs), 1)
         self.body.Shape = Shape(h=12.0)
         self.recompute(obj)                       # a newer change: the first run goes stale
+        self.assertEqual(len(jobs), 2)
+        self.doc.HasPendingTransaction = True     # someone's step is open: wait
         for j in jobs:
             j()
-        self.assertEqual(len(posted), 2)
-        self.doc.HasPendingTransaction = True     # someone's step is open: wait
-        posted[0]()
-        posted[1]()
+        posted_now = list(posted)
+        posted.clear()
+        for fn in posted_now:
+            fn()
         self.assertIs(obj.Mesh, before)
         self.doc.HasPendingTransaction = False
-        while len(posted) > 2:
-            posted.pop(2)()
+        drain()
         self.assertIsNot(obj.Mesh, before)
         self.assertEqual((obj.TextureState, obj.SourceSignature), ("up to date", live.signature(self.body)))
         self.assertFalse(getattr(obj, "touched", False))
+        text = "\n".join(lines)
+        for step in ("queued (run 1)", "skipped: a rebuild for this geometry is already running", "queued (run 2)",
+                     "started (run 2)", "skipped (run 1): a newer change replaced it", "finished (run 2)",
+                     "waiting (run 2): a transaction is open", "written (run 2)"):
+            self.assertIn(step, text)
 
+    def test_a_step_left_open_does_not_hold_it_forever(self):
+        obj = self.textured(include=["Face4"])
+        jobs, posted = [], []
+        linked.Reruns.install(jobs.append, posted.append)
+        self.body.Shape = Shape(h=10.0)
+        self.recompute(obj)
+        self.doc.HasPendingTransaction = True     # Agent Link's own transaction, say, never closed
+        jobs.pop()()
+        n = 0
+        while posted and n < 50:
+            posted.pop(0)()
+            n += 1
+        self.assertEqual(obj.TextureState, "up to date")
+        self.assertEqual(obj.SourceSignature, live.signature(self.body))
+
+    def test_a_failed_rebuild_says_why(self):
+        obj = self.textured(include=["Face4"])
+        jobs, posted = [], []
+        linked.Reruns.install(jobs.append, posted.append)
+        self.body.Shape = Shape(h=10.0)
+        real = linked.Job.run
+        linked.Job.run = lambda self, should_abort: (_ for _ in ()).throw(MemoryError("out of memory"))
+        try:
+            self.recompute(obj)
+            jobs.pop()()
+        finally:
+            linked.Job.run = real
+        while posted:
+            posted.pop(0)()
+        self.assertEqual(obj.TextureState, "update failed: MemoryError: out of memory")
+        self.assertTrue(any("update failed" in w for w in self.warned))
+        # A write that raises says so too, never "updating…".
+        self.body.Shape = Shape(h=11.0)
+        real_w = linked.write
+        linked.write = lambda *a: (_ for _ in ()).throw(RuntimeError("no Mesh module"))
+        try:
+            self.recompute(obj)
+            jobs.pop()()
+            while posted:
+                posted.pop(0)()
+        finally:
+            linked.write = real_w
+        self.assertEqual(obj.TextureState, "update failed: RuntimeError: no Mesh module")
 
 def pad40(hole=False):
     """The Mac's case: a 40 x 30 x 20 Pad, its top Face6; a PartDesign Hole
