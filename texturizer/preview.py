@@ -264,6 +264,11 @@ class PreviewController:
         i = STAGES.index(stage)
         for s in STAGES[i:]:
             self.cache.pop(s, None)
+        if timing.enabled():   # who asked: the start stage's reason in the worker's probe line
+            import sys
+
+            f = sys._getframe(1)
+            self.why = f"{stage} by {f.f_code.co_name}" + (f" < {f.f_back.f_code.co_name}" if f.f_back else "")
         if self.dirty is None or i < STAGES.index(self.dirty):
             self.dirty = stage
         if self.showing is None:  # after Cancel or an error, a change resumes
@@ -331,6 +336,10 @@ class PreviewController:
         start = self.rerun_from()
         if start is None:
             return self._swap()
+        if timing.enabled():
+            missing = [s for s in STAGES if s not in self.cache]
+            timing.report(f"preview start {start} (missing {','.join(missing) or '-'}; dirty {self.dirty}; "
+                          f"last request {getattr(self, 'why', '?')})", 0.0)
         gen = self.gen
         quality = self.draft.get("previewQuality") or "draft"
         inputs = {"draft": self.draft.to_dict(), "rerun_from": start,
@@ -354,6 +363,12 @@ class PreviewController:
             except Exception as e:  # reported on the GUI thread
                 res, err = None, e
             t1 = time.perf_counter()
+            import sys
+
+            sub = dict(getattr(sys.modules.get(__package__ + ".engine"), "LAST_SUBDIVIDE", None) or {}) \
+                if start == "subdivide" else None
+            if sub:
+                self.post(lambda: timing.report("preview subdivide cache " + " ".join(f"{k} {v}" for k, v in sub.items()), 0.0))
             self.post(lambda: self._timings(start, marks, t0, t1))
             self.post(lambda: self._done(gen, res, err))
 

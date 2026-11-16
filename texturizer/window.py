@@ -589,6 +589,8 @@ class Window:
             linked.include_new(o)
             self.textured_changed()
 
+    _last_geometry = None
+
     def _part_changed(self):
         sb = self.sidebar
         snap = self.snapshot()
@@ -609,8 +611,11 @@ class Window:
         if c is not None and not self.user_hidden:
             if c.showing is None:
                 c.open()
-            else:
-                c.request("subdivide")
+            elif self._last_geometry != (_part, id(pos)):
+                c.request("subdivide")   # another part, or its geometry changed
+            # else: the same part and mesh (a visibility restored by Undo, the
+            # sidebar reopened): the preview's cache stands, nothing reruns
+        self._last_geometry = (_part, id(pos))
 
     def _part_shown(self):
         o = self.view._body() if self.view is not None else None
