@@ -11,6 +11,8 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ### Changed
 
+- The Texture tab, when Agent Link hosts it in its panel, is registered with `own_credit=True`: the page carries its own credit line (BumpMesh by Stefan Hermann, CNC Kitchen), so Agent Link hides its own credit line while the tab is in front. An Agent Link whose `register_tab` has no `own_credit` still gets the tab.
+- `texturizer/layout.py` synced with Agent Link's shared copy: a panel restored much wider than about 420 px goes back to its normal width at start. `tests/test_shared.py` fails when a shared helper file differs from Agent Link's (but for its licence line); it is skipped without an Agent Link checkout beside this repository or at `$AGENTLINK_DIR`.
 - `texture_apply` hides the source Body while its textured result is shown, as PartDesign hides the previous feature: the Body's flat faces no longer z-fight through the texture. Hiding or deleting the result, or Edit > Undo of the apply, shows the Body again; showing the result hides it again; a second shown result of the same Body keeps it hidden; a Body Texturizer never hid is left alone. A preview open on the Body is told (closing it leaves the Body as the result wants) rather than overridden. The answer carries `bodyHidden` and says so in its note. Headless, the document object's Visibility is set when there is no view object (`tests/test_body_visibility.py`).
 - Confirmed `texture_apply` opens no dialog or progress window during a tool call (no Qt in its path; a test keeps it so), so a "busy" refusal seen live does not come from Texturizer.
 

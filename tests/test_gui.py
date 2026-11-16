@@ -433,6 +433,30 @@ print([t["title"] for t in hooks.TABS if t["order"] == 60], texturizer._hosted)
 """
         self.assertEqual(fresh(code, AGENTLINK), "['Texture'] True")
 
+    @unittest.skipUnless(AGENTLINK, "Agent Link is not beside it")
+    def test_hosted_tab_carries_its_own_credit(self):
+        # The Texture page shows BumpMesh's credit (Stefan Hermann, CNC
+        # Kitchen), so Agent Link hides its own line while it is in front;
+        # an Agent Link whose register_tab has no own_credit still gets the tab.
+        code = r"""
+import sys, types
+for n in ("agentlink.facepick", "agentlink.families", "agentlink.families.picks"):
+    sys.modules[n] = types.ModuleType(n)
+from agentlink import hooks
+if OLD:
+    real = hooks.register_tab
+    def register_tab(title, factory, order=50, workbench=None):
+        return real(title, factory, order, workbench)
+    hooks.register_tab = register_tab
+import texturizer, texturizer.agentlink_families
+print([(t["title"], t.get("own_credit", False)) for t in hooks.TABS if t["order"] == 60])
+"""
+        self.assertEqual(fresh("OLD = False\n" + code, AGENTLINK), "[('Texture', True)]")
+        self.assertEqual(fresh("OLD = True\n" + code, AGENTLINK), "[('Texture', False)]")
+        import texturizer
+
+        self.assertIn("Stefan Hermann", texturizer.CREDIT)
+
 
 if __name__ == "__main__":
     unittest.main()

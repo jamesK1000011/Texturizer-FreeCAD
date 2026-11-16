@@ -29,7 +29,14 @@ texturizer._hosted = True
 from . import layout as _layout  # noqa: E402
 
 if _layout.hosted_tabs(hooks):
+    # The Texture page carries its own credit line (BumpMesh by Stefan
+    # Hermann, CNC Kitchen), so own_credit=True: Agent Link hides its own
+    # credit line while this tab is in front.
     try:  # the tab only while Texturizer is the workbench in front
-        hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench")
-    except TypeError:  # an Agent Link before tabs per workbench
-        hooks.register_tab("Texture", _texture_tab, order=60)
+        hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench",
+                           own_credit=True)
+    except TypeError:  # an Agent Link before own_credit, or before tabs per workbench
+        try:
+            hooks.register_tab("Texture", _texture_tab, order=60, workbench="TexturizerWorkbench")
+        except TypeError:
+            hooks.register_tab("Texture", _texture_tab, order=60)
