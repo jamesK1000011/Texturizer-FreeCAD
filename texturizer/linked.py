@@ -32,7 +32,11 @@ GROUP = "Texturizer"
 UP_TO_DATE, UPDATING, REPICK, NO_SOURCE = "up to date", "updating…", "mask needs re-pick", "source missing"
 SAMPLES = 24          # sample points kept per masked face
 NORMAL_COS = 0.8      # a sample lands on a triangle facing within ~37° of it
-LINK_PROPS = (("Source", "App::PropertyLink", "The body it textures: a change to it textures it again"),
+# PropertyLinkGlobal: the body may sit in another container (an Assembly, an
+# App::Part) than the Textured object; a plain PropertyLink warns on every
+# recompute that it goes out of its allowed scope.
+LINK_KIND = "App::PropertyLinkGlobal"
+LINK_PROPS = (("Source", LINK_KIND, "The body it textures: a change to it textures it again"),
               ("MaskAnchors", "App::PropertyString", "The masks as geometry (JSON): how they follow the body"),
               ("TextureState", "App::PropertyString", "up to date, updating…, or what mask needs re-picking"),
               ("NewFaces", "App::PropertyString", "Faces made after the texture was set up (JSON): left smooth until included"))
@@ -368,9 +372,27 @@ def _warn(text):
 
 
 def ensure_props(obj):
+    _global_source(obj)
     for prop, kind, doc in LINK_PROPS:
         if prop not in obj.PropertiesList:
             obj.addProperty(kind, prop, GROUP, doc)
+
+
+def _global_source(obj):
+    """Source made as a plain App::PropertyLink (50f02ed) becomes a
+    PropertyLinkGlobal, keeping its body."""
+    if "Source" not in getattr(obj, "PropertiesList", ()):
+        return
+    try:
+        kind = obj.getTypeIdOfProperty("Source")
+    except Exception:  # noqa: BLE001
+        return
+    if kind != "App::PropertyLink":
+        return
+    body = obj.Source
+    obj.removeProperty("Source")
+    obj.addProperty(LINK_KIND, "Source", GROUP, LINK_PROPS[0][2])
+    obj.Source = body
 
 
 def is_linked(obj):
@@ -414,6 +436,13 @@ def _set(obj, prop, value):
         setattr(obj, prop, value)
 
 
+def _probe(obj, what):
+    """A linked rebuild's step, with the timing probe on."""
+    from . import timing
+
+    timing.report(f"linked rebuild {getattr(obj, 'Label', '')}: {what}", 0.0)
+
+
 def state(obj):
     return getattr(obj, "TextureState", "") or ""
 
@@ -440,6 +469,9 @@ def rerun(obj, sync=None, force=False):
     if sync is False or (sync is None and worker is not None):
         if worker is None:
             worker = Reruns()
+        if not force and worker.running_for(obj) == sig:
+            _probe(obj, f"skipped: a rebuild for this geometry is already running")
+            return None   # a recompute again (another tool's, the GUI's): the run under way is the one
         _set(obj, "TextureState", UPDATING)
         _set(obj, "OutOfDate", True)
         worker.schedule(obj, job)
@@ -548,6 +580,7 @@ class Reruns:
         self.post = post or (lambda fn: fn())
         self.later = later or (lambda fn: self.post(fn))
         self.gen = {}
+        self.running = {}   # key -> the signature being made
 
     @classmethod
     def current(cls):
@@ -558,37 +591,72 @@ class Reruns:
         cls._current = cls(run_async, post, later)
         return cls._current
 
+    WAIT_TRIES = 8   # x the later() delay (0.25 s with the window): then write inside the open step
+
+    def _key(self, obj):
+        return (getattr(getattr(obj, "Document", None), "Name", ""), obj.Name)
+
+    def running_for(self, obj):
+        """The signature the run under way for obj is making, or None."""
+        return self.running.get(self._key(obj))
+
     def schedule(self, obj, job):
-        key = (getattr(getattr(obj, "Document", None), "Name", ""), obj.Name)
+        key = self._key(obj)
         g = self.gen.get(key, 0) + 1
         self.gen[key] = g
+        self.running[key] = job.signature
+        _probe(obj, f"queued (run {g})")
 
         def stale():
             return self.gen.get(key) != g
 
         def work():
+            import time
+
+            t0 = time.perf_counter()
+            self.post(lambda: _probe(obj, f"started (run {g})"))
             try:
                 res = job.run(stale)
             except Exception as e:  # noqa: BLE001
                 res, err = None, e
             else:
                 err = None
-            self.post(lambda: self._done(obj, job, res, err, stale))
+            ms = (time.perf_counter() - t0) * 1000
+            self.post(lambda: self._done(obj, job, res, err, stale, g, ms, 0))
 
-        self.run_async(work)
+        try:
+            self.run_async(work)
+        except Exception as e:  # noqa: BLE001 — never leave it "updating…"
+            self._fail(obj, key, g, f"could not start: {e}")
 
-    def _done(self, obj, job, res, err, stale):
-        if stale():
-            return
-        if err is not None:
-            _set(obj, "TextureState", f"update failed: {err}")
-            _warn(f"{getattr(obj, 'Label', '')}: update failed: {err}")
-            return
-        doc = getattr(obj, "Document", None)
-        if getattr(doc, "HasPendingTransaction", False):
-            self.later(lambda: self._done(obj, job, res, err, stale))   # not inside someone's step
-            return
-        write(obj, job, res)
+    def _fail(self, obj, key, g, why):
+        if self.gen.get(key) == g:
+            self.running.pop(key, None)
+        _set(obj, "TextureState", f"update failed: {why}")
+        _warn(f"{getattr(obj, 'Label', '')}: update failed: {why}")
+        _probe(obj, f"failed (run {g}): {why}")
+
+    def _done(self, obj, job, res, err, stale, g=0, ms=0.0, tries=0):
+        key = self._key(obj)
+        try:
+            if stale():
+                _probe(obj, f"skipped (run {g}): a newer change replaced it")
+                return
+            if err is not None:
+                return self._fail(obj, key, g, f"{type(err).__name__}: {err}")
+            if res is None:
+                return self._fail(obj, key, g, "the engine stopped before it finished")
+            _probe(obj, f"finished (run {g}) {ms:.0f} ms")
+            doc = getattr(obj, "Document", None)
+            if getattr(doc, "HasPendingTransaction", False) and tries < self.WAIT_TRIES:
+                _probe(obj, f"waiting (run {g}): a transaction is open")
+                self.later(lambda: self._done(obj, job, res, err, stale, g, ms, tries + 1))   # not inside someone's step
+                return
+            write(obj, job, res)
+            self.running.pop(key, None)
+            _probe(obj, f"written (run {g})" + (" inside an open transaction" if tries >= self.WAIT_TRIES else ""))
+        except Exception as e:  # noqa: BLE001 — never leave it "updating…", never raise into Qt
+            self._fail(obj, key, g, f"{type(e).__name__}: {e}")
 
 
 def new_faces(obj):

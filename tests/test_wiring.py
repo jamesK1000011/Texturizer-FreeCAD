@@ -384,6 +384,58 @@ class Shape:
         pass
 
 
+class CurvedFace(Face):
+    """A face whose normal at the middle of its parameter range points the
+    other way from where its triangles are (a hole's cylinder: the middle is
+    across the axis); Surface.parameter finds the right place."""
+
+    class _S:
+        def parameter(self, p):
+            return (0.1, 0.1)
+
+    Surface = _S()
+
+    def normalAt(self, u, v):  # noqa: N802 (FreeCAD)
+        return V(0, 0, 1 if (u, v) == (0.1, 0.1) else -1)
+
+
+class Orientation(unittest.TestCase):
+    def fc(self):
+        fc = types.ModuleType("FreeCAD")
+        fc.Vector = V
+        saved = sys.modules.get("FreeCAD")
+        sys.modules["FreeCAD"] = fc
+        self.addCleanup(lambda: sys.modules.__setitem__("FreeCAD", saved) if saved is not None else sys.modules.pop("FreeCAD"))
+
+    def test_winding_checked_where_the_face_is(self):
+        from texturizer import mesh
+
+        self.fc()
+
+        class S:
+            Faces = [CurvedFace(1, True)]
+
+            def tessellate(self, tol):
+                pass
+        tris, _ft = mesh.face_triangles(S(), 0.1)
+        T = np.asarray(tris)
+        n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+        self.assertTrue((n[:, 2] > 0).all())   # as the face's own normal there, not the far side's
+
+    def test_orient_consistently(self):
+        from texturizer import mesh
+
+        pos, _ft = cube()
+        T = pos.reshape(-1, 3, 3).astype(float)
+        bad = T.copy()
+        bad[4:6] = bad[4:6, ::-1]              # one face wound inward
+        out = np.asarray(mesh.orient_consistently(bad))
+        np.testing.assert_array_equal(out, T)
+        inside_out = T[:, ::-1].copy()          # every face inward: turned outward
+        np.testing.assert_array_equal(np.asarray(mesh.orient_consistently(inside_out)), T)
+        np.testing.assert_array_equal(np.asarray(mesh.orient_consistently(T)), T)   # right stays right
+
+
 class MeshFor(unittest.TestCase):
     def test_adapter_on_a_fake_shape(self):
         fc = types.ModuleType("FreeCAD")
