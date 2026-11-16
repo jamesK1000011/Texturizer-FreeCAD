@@ -22,6 +22,7 @@ tests/test_displace_speed.py
 tests/test_docdraft.py
 tests/test_engine_api.py
 tests/test_engine_parity.py
+tests/test_face_snap.py
 tests/test_gizmo.py
 tests/test_gui.py
 tests/test_layout.py
@@ -31,9 +32,13 @@ tests/test_live_speed.py
 tests/test_paint.py
 tests/test_paint_line.py
 tests/test_preview.py
+tests/test_preview_budget.py
+tests/test_progressive.py
 tests/test_project.py
 tests/test_projection_extras.py
+tests/test_projection_gizmo.py
 tests/test_quicklook.py
+tests/test_regularize_batched.py
 tests/test_release.py
 tests/test_sidebar.py
 tests/test_texture.py
@@ -97,6 +102,7 @@ texturizer/icons/Texturizer_Prepare.svg
 texturizer/icons/Texturizer_Reset.svg
 texturizer/icons/Texturizer_SaveProject.svg
 texturizer/icons/Texturizer_Section.svg
+texturizer/icons/Texturizer_Turntable.svg
 texturizer/icons/Texturizer_Workbench.svg
 texturizer/layout.py
 texturizer/linked.py
