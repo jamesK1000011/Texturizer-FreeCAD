@@ -430,6 +430,12 @@ class SidebarWidget(unittest.TestCase):
         sb.binds["rotation"].box.setValue(30)
         sb.press("undo")   # without FreeCAD: the draft's own (with it: Std_Undo)
         self.assertEqual(d.get("rotation"), 0)
+        self.assertEqual(sb.binds["rotation"].box.value(), 0)   # only what the undo changed is synced
+        d.set_texture("Hexagons")
+        d.undo()
+        self.assertNotEqual(sb.favgrid.active, "Hexagons")
+        d.redo()
+        self.assertEqual(sb.favgrid.active, "Hexagons")
         self.assertEqual(len(self.calls), n)
         sb.binds["exclusionTool"].buttons[0][1].click()  # Faces tool
         self.assertEqual(d.get("exclusionTool"), "faces")
