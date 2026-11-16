@@ -101,6 +101,22 @@ def texture_prepare(s, a):
     })
 
 
+def stale_check(out, label, name):
+    """A check of a Textured object that is out of date: its mesh is of the
+    body as it was, measured against the body as it is, so the figures are
+    of the change to the body and the texture alike. Never "ok" (found
+    live: a block made 2 mm taller answered verdict ok, "2 mm deep at
+    most", with every point 1.6 to 2 mm under its face)."""
+    why = f"{label} is out of date: its body changed (texture_apply {{ update: \"{name}\" }} first)."
+    out.setdefault("warnings", []).append(why)
+    out["verdict"] = "check"
+    out["outOfDate"] = True
+    out["note"] = (f"Out of date: this is {label}'s mesh of the body as it was, measured against the body as it is now, so the figures "
+                   f"mix the body's change with the texture — run texture_apply {{ update: \"{name}\" }}, then check again. "
+                   "(As measured: " + str(out.get("note") or "").rstrip() + ")")
+    return out
+
+
 def texture_check(s, a):
     """A textured STL against its body. The mask: object (a Textured object
     texture_apply made: its stored draft or arguments, its body), mask
@@ -158,7 +174,7 @@ def texture_check(s, a):
         out["file"] = f"{obj.Label} (its mesh)"
     out["object"] = obj.Name
     if getattr(obj, "OutOfDate", False):
-        out.setdefault("warnings", []).append(f"{obj.Label} is out of date: its body changed (texture_apply {{ update: \"{obj.Name}\" }} first).")
+        stale_check(out, obj.Label, obj.Name)
     return remember("texture_check", out)
 
 
@@ -405,7 +421,9 @@ def _layers_from_args(s, a, o, per_face, n, settings):
         elif L.get("mode") == "include":
             raise ToolError("invalid_input", f"layers.{i}.faces: mode include needs the faces to texture (names such as Face3, or a "
                             "query); leave mode out, or use exclude, to texture every face.")
-        masked.append({"layer": i + 1, "mode": (L.get("mode") or "exclude") if names else None, "faces": names})
+        # layer: its index from 0, bottom first, as the layers were given
+        # and as texture_mask, texture_set and texture_layer take it.
+        masked.append({"layer": i, "mode": (L.get("mode") or "exclude") if names else None, "faces": names})
         ls = {**shared, **_numbers(L.get("settings"), f"layers.{i}.settings")}
         layers.append({"texture": _texture_id(L["texture"]), "settings": ls, "mask": mask,
                        "blendAdd": bool(L.get("blendAdd")) and i > 0, "visible": L.get("visible", True) is not False})
@@ -544,7 +562,8 @@ def _apply_draft(s, a, d, target=None, name=None, bake=False):
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "updated": target is not None, "triangles": res["triangles"], "inputTriangles": res["inputTriangles"],
            "repair": res["repair"], "warnings": res["warnings"], "credit": engine.credit_of(run), "engine": res.get("engine"),
-           "layers": [{"layer": i + 1, "texture": L["texture"], "mode": "include" if L.get("includeOnly") else "exclude",
+           # layer: the draft's own index (from 0), as texture_mask { layer } takes it.
+           "layers": [{"layer": i, "name": L.get("name"), "texture": L["texture"], "mode": "include" if L.get("includeOnly") else "exclude",
                        "faces": list(L["mask"]["faces"])} for i, L in enumerate(d.layers)]}
     _export_with(s, a, pos, run, res, out)
     if bake and obj is not None:
@@ -1460,14 +1479,29 @@ def texture_mask(s, a):
                 raise ToolError("invalid_input", "fill: needs a seed face; give fill: {faces: [\"Face3\"], maxAngle: 20}.")
             ang = num(f.get("maxAngle", d.get("bucketThreshold") if "bucketThreshold" in d.ui else 20), "fill.maxAngle")
             d.mask_add(faces=sorted(_flood(shape, seeds, ang)), layer=i)
+    before = list(d.mask(i)["faces"])
     strokes = _paint_strokes(d, i, o, a["paint"]) if a.get("paint") is not None else 0
     m = d.mask(i)
     L = d.layer(i)
     counts = mask_counts(m)
-    return {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts,
-            **({"strokes": strokes} if strokes else {}),
-            "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or counts["triangles"] else
-                    ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
+    out = {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts,
+           **({"strokes": strokes} if strokes else {}),
+           "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or counts["triangles"] else
+                   ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
+    gone = brushed_off(before, m["faces"]) if strokes else []
+    if gone:
+        out["facesBrushedOff"] = gone
+        out["note"] += (f" The brush took {', '.join(gone)} off the layer's faces"
+                        + (f" ({counts['triangles']} of the part's triangles stay masked)" if counts["triangles"] else " and none of their triangles stays masked")
+                        + ": mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two), "
+                          "mode precision splits them under the brush's rim.")
+    return out
+
+
+def brushed_off(before, after):
+    """The faces a brush stroke took off a layer's face list, in order."""
+    now = set(after)
+    return [f for f in before if f not in now]
 
 
 def _fill_triangles(d, i, o, f):
@@ -1617,9 +1651,29 @@ def texture_preview(s, a):
            "vertices": int(len(m["vertices"])), "inputTriangles": len(pos) // 9, "ms": ms,
            "export": {"edge": est["edge"], "triangles": est["outputTriangles"], "memoryMB": round(est["memoryBytes"] / 2 ** 20)},
            "warnings": [w for w in [res.get("note")] if w]}
+    finer = preview_finer(out["previewEdge"], est["edge"])
+    if finer:
+        out["warnings"].append(finer)
     out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
                    else "texture_apply adds it to the document.")
     return out
+
+
+def preview_finer(preview_edge, export_edge):
+    """A sentence when the preview is refined finer than texture_apply will
+    refine: BumpMesh's preview edge is never coarser than the part's largest
+    size / 80 (previewPipeline.js choosePreviewEdge), so on a small part
+    with a coarse refineLength the picture shows detail the result will not
+    have (found live: previewEdge 0.5 against refineLength 0.8). None when
+    the preview is as coarse as the export or coarser."""
+    try:
+        p, e = float(preview_edge), float(export_edge)
+    except (TypeError, ValueError):
+        return None
+    if not p < e * 0.999:
+        return None
+    return (f"The preview is finer than the result will be: it is refined to {p:g} mm edges, texture_apply to refineLength {e:g} mm, "
+            f"so fine detail that shows here may be lost. Set settings.refineLength to {p:g} (texture_set) for a result like this picture.")
 
 
 def _turntable(v):
