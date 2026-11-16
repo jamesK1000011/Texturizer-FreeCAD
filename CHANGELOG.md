@@ -9,6 +9,11 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+### Changed
+
+- `texture_apply` hides the source Body while its textured result is shown, as PartDesign hides the previous feature: the Body's flat faces no longer z-fight through the texture. Hiding or deleting the result, or Edit > Undo of the apply, shows the Body again; showing the result hides it again; a second shown result of the same Body keeps it hidden; a Body Texturizer never hid is left alone. A preview open on the Body is told (closing it leaves the Body as the result wants) rather than overridden. The answer carries `bodyHidden` and says so in its note. Headless, the document object's Visibility is set when there is no view object (`tests/test_body_visibility.py`).
+- Confirmed `texture_apply` opens no dialog or progress window during a tool call (no Qt in its path; a test keeps it so), so a "busy" refusal seen live does not come from Texturizer.
+
 ## 0.4.0 — 2026-11-16
 
 The dated versions below 0.4.0 were never tagged: 0.4.0 is prepared as the

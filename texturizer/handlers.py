@@ -554,6 +554,24 @@ def _stored_triangles(obj, positions, tris):
     return sorted(out)
 
 
+def _hide_source(doc, out):
+    """The source body hidden while its textured result is shown (as
+    PartDesign hides the previous feature), said in the answer."""
+    from . import linked
+
+    obj = live.find(doc, out.get("object")) if out.get("object") else None
+    if obj is None:
+        return
+    try:
+        linked.sync_source(linked.source_of(obj), doc)
+    except Exception:  # noqa: BLE001 — the result is made: visibility never fails it
+        return
+    if linked.shown(obj):
+        out["bodyHidden"] = True
+        out["note"] = (out.get("note", "") + " " if out.get("note") else "") + (
+            linked.HIDDEN_NOTE[0].upper() + linked.HIDDEN_NOTE[1:] + "; hiding or deleting the result shows it again.")
+
+
 def texture_apply(s, a):
     """Add to document / Update / Bake Textures: BumpMesh's engine on a body
     (the draft's, or the texture / layers given here). A Textured object keeps
@@ -589,11 +607,13 @@ def texture_apply(s, a):
             out = _apply_args(s, args, target=target)
             out["updated"] = True
         out["outOfDate"] = False
+        _hide_source(doc, out)
         out["next"] = (f"texture_check {{ object: \"{out['object']}\" }} measures it face by face against its body; "
                        "texture_export for an STL / 3MF.")
         return remember("texture_apply", out)
     if a.get("texture") or a.get("layers") is not None:
         out = _apply_args(s, a)
+        _hide_source(doc, out)
         out["next"] = ((f"texture_check {{ object: \"{out['object']}\" }}" if out.get("object") else
                         f"texture_check {{ body: \"{out['body']}\", path: <the export> }}")
                        + " measures the depth face by face; slice the export or the mesh object.")
@@ -634,6 +654,7 @@ def texture_apply(s, a):
         live.TARGET["object"] = None
         out["baked"] = obj.Name
         out["maskedTriangles"] = len(baked or []) if bake_mask else 0
+    _hide_source(doc, out)
     out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check { object: \"%s\" } "
                    "measures it face by face; texture_export for an STL / 3MF." % (out["object"] or "", out["object"] or ""))
     return remember("texture_apply", out)

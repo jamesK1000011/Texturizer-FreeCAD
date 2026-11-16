@@ -18,6 +18,7 @@ tests/_fc.py
 tests/reference/make_refs.mjs
 tests/reference/refs.json
 tests/test_api.py
+tests/test_body_visibility.py
 tests/test_displace_speed.py
 tests/test_docdraft.py
 tests/test_engine_api.py
