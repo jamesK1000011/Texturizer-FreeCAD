@@ -39,8 +39,9 @@ a stand-in document.
 import json
 import os
 import tempfile
+import time
 
-from . import controls
+from . import controls, timing
 
 NAME = "TextureDraft"
 GROUP = "Texturizer"
@@ -111,6 +112,8 @@ class DocSync:
         self._dirty = False
         self._writing = self._applying = False
         self._touched = []       # draft objects an undo / redo changed
+        self._pending = False    # a reload is posted
+        self._kind = None        # "undo" / "redo" as the document said
         self._cache = {}         # object Name -> (Masks path, masks JSON)
         self._tmp = None
         draft.history = False
@@ -210,6 +213,10 @@ class DocSync:
                 self._cache[o.Name] = (getattr(o, "Masks", "") or "", masks)
                 if os.path.exists(f):
                     os.remove(f)
+            try:
+                o.purgeTouched()   # data, nothing to recompute
+            except Exception:  # noqa: BLE001
+                pass
         finally:
             self._writing = False
         return True
@@ -283,7 +290,8 @@ class DocSync:
                     if not getattr(doc, "HasPendingTransaction", False):
                         doc.openTransaction(f"Texture: {self._verb or 'Edit'}")
                         self._mine = True
-                    self._store(o, data)
+                    with timing.stage("docdraft write"):
+                        self._store(o, data)
             self._dirty = False
         if not keep_open:
             self._verb = None
@@ -299,30 +307,50 @@ class DocSync:
             data["active"] = keep   # the layer being edited stays the one shown
         self._applying = True
         try:
-            self.draft.apply(data, kind)
+            with timing.stage(f"docdraft apply ({kind})"):
+                self.draft.apply(data, kind)
         finally:
             self._applying = False
 
     def changed(self, obj, prop):
-        """slotChangedObject: an undo or redo (or a script) set a draft object."""
+        """slotChangedObject: an undo or redo (or a script) set a draft object.
+        It does not wait for slotUndoDocument / slotRedoDocument (nor read
+        doc.Transacting): one reload is posted for the step, after it."""
         if self._writing or prop not in ("Draft", "Masks", "TexturePart") or not is_draft_object(obj):
             return
-        doc = getattr(obj, "Document", None) or self.doc()
-        if getattr(doc, "Transacting", False):
-            if obj.Name not in self._touched:
-                self._touched.append(obj.Name)
-            return
-        self._touched = [obj.Name]
-        self.post(lambda: self.reload("load"))
+        timing.report(f"docdraft changed {obj.Name}.{prop}", 0.0)
+        if obj.Name not in self._touched:
+            self._touched.append(obj.Name)
+        self._schedule(None)
 
     def undone(self, doc, kind):
-        """slotUndoDocument / slotRedoDocument: the draft from the document."""
-        if doc is not None and doc is not self.doc():
-            self._touched = []
+        """slotUndoDocument / slotRedoDocument: says which it was; the reload
+        is the one changed() posted (or one now, for this document)."""
+        mine = self.doc()
+        if doc is not None and mine is not None and getattr(doc, "Name", None) != getattr(mine, "Name", None):
+            return   # another document's step
+        self._schedule(kind)
+
+    def _schedule(self, kind):
+        if kind is not None:
+            self._kind = kind
+        if self._pending:
             return
-        self.post(lambda: self.reload(kind))
+        self._pending = time.perf_counter()
+        self.post(self._run_reload)
+
+    def _run_reload(self):
+        kind, self._kind = self._kind, None
+        since, self._pending = self._pending, False
+        if since:
+            timing.report("docdraft reload waited (signal to reload)", (time.perf_counter() - since) * 1000)
+        with timing.stage(f"docdraft reload ({kind or 'change'})"):
+            self.reload(kind or "undo")
 
     def reload(self, kind="undo"):
+        """The draft from the document after a step: once, as an undo or
+        redo event (draft.changes says what moved, so the preview reruns
+        from that stage only and the sidebar syncs only that)."""
         doc = self.doc()
         touched, self._touched = self._touched, []
         self._mine, self._dirty, self._verb = False, False, None
@@ -343,7 +371,8 @@ class DocSync:
             return
         if pick is None:
             return
-        data = self.read(pick)
+        with timing.stage("docdraft read"):
+            data = self.read(pick)
         if data is None:
             return
         data["part"] = pick.TexturePart or data.get("part")
@@ -380,7 +409,7 @@ class Observer:
 
     def slotChangedObject(self, obj, prop):  # noqa: N802 (FreeCAD)
         s = _CURRENT[0]
-        if s is not None:
+        if s is not None and prop in ("Draft", "Masks", "TexturePart"):
             try:
                 s.changed(obj, prop)
             except Exception:  # noqa: BLE001 — never raise into FreeCAD
@@ -396,6 +425,7 @@ class Observer:
         s = _CURRENT[0]
         if s is not None:
             try:
+                timing.report(f"docdraft signal {kind}", 0.0)
                 s.undone(doc, kind)
             except Exception:  # noqa: BLE001
                 pass

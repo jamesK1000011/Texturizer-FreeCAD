@@ -63,7 +63,7 @@ class Doc:
         self.Objects, self.observers = [], []
         self.undos, self.redos = [], []
         self.open = None   # [name, [(obj, prop, old) or (obj, "created")]]
-        self.Transacting = False
+        self._tx = False
         self.dir = tempfile.mkdtemp(prefix="fakedoc-")
         self._n = 0
 
@@ -84,12 +84,16 @@ class Doc:
         return next((o for o in self.Objects if o.Name == name), None)
 
     def record(self, o, prop):
-        if self.open and not self.Transacting and not any(r[0] is o and r[1] == prop for r in self.open[1]):
+        if self.open and not self._tx and not any(r[0] is o and r[1] == prop for r in self.open[1]):
             self.open[1].append((o, prop, o._p[prop]))
 
     def changed(self, o, prop):
         for ob in self.observers:
             ob.slotChangedObject(o, prop)
+
+    @property
+    def Transacting(self):  # noqa: N802 (FreeCAD)
+        return self._tx
 
     @property
     def HasPendingTransaction(self):  # noqa: N802 (FreeCAD)
@@ -125,7 +129,7 @@ class Doc:
 
     def _roll(self, t):
         back = [t[0], []]
-        self.Transacting = True
+        self._tx = True
         for r in reversed(t[1]):
             if r[1] == "created":
                 self.Objects.remove(r[0])
@@ -138,7 +142,7 @@ class Doc:
                 back[1].append((o, prop, o._p[prop]))
                 o._p[prop] = old
                 self.changed(o, prop)
-        self.Transacting = False
+        self._tx = False
         return back
 
     def undo(self):
@@ -156,15 +160,33 @@ class Doc:
                 ob.slotRedoDocument(self)
 
 
+class BareDoc(Doc):
+    """No doc.Transacting to read."""
+
+    @property
+    def Transacting(self):  # noqa: N802
+        raise AttributeError("Transacting")
+
+
 class DraftInDocument(unittest.TestCase):
+    DOC = Doc
+
     def setUp(self):
-        self.doc = Doc()
+        self.doc = self.DOC()
         self.d = draft.Draft()
-        self.sync = docdraft.DocSync(self.d, lambda: self.doc)
+        self.queue = []   # as the window's QTimer.singleShot(0): after the step
+        self.sync = docdraft.DocSync(self.d, lambda: self.doc, post=self.queue.append)
         self.doc.observers.append(docdraft.Observer())
+        real_undo, real_redo = self.doc.undo, self.doc.redo
+        self.doc.undo = lambda: (real_undo(), self.idle())
+        self.doc.redo = lambda: (real_redo(), self.idle())
         self.events = []
         self.d.subscribe(self.events.append)
         self.d.set_part("Body")
+
+    def idle(self):
+        while self.queue:
+            self.queue.pop(0)()
 
     def tearDown(self):
         self.sync.detach()
@@ -274,7 +296,7 @@ class DraftInDocument(unittest.TestCase):
         self.d.mask_add(faces=["Face3"])
         d2 = draft.Draft()
         self.sync.detach()
-        self.sync = docdraft.DocSync(d2, lambda: self.doc)
+        self.sync = docdraft.DocSync(d2, lambda: self.doc, post=self.queue.append)
         d2.set_part("Body")                     # the reopened document's sidebar
         self.assertEqual(d2.get("amplitude"), 1.5)
         self.assertEqual(d2.mask()["faces"], ["Face3"])
@@ -285,6 +307,7 @@ class DraftInDocument(unittest.TestCase):
         data = self.d.to_dict()
         data["layers"][0]["settings"]["amplitude"] = 0.7
         o.Draft = docdraft.split(data)[0]
+        self.idle()
         self.assertEqual(self.d.get("amplitude"), 0.7)
 
     def test_without_freecad_the_draft_keeps_its_own_undo(self):
@@ -292,6 +315,68 @@ class DraftInDocument(unittest.TestCase):
         d = draft.Draft()
         d.set("amplitude", 1.1)
         self.assertTrue(d.undo())
+
+
+class LikeFreeCAD(DraftInDocument):
+    """FreeCAD 1.1.3's signals as they may come: a fresh Python wrapper of
+    the document per signal, no doc.Transacting, and no slotRedoDocument
+    reaching Python: the property changes alone bring the draft back."""
+    DOC = BareDoc
+
+    def setUp(self):
+        super().setUp()
+        doc = self.doc
+
+        class Wrapper:   # the same document, another object
+            Name = doc.Name
+
+        class Obs(docdraft.Observer):
+            def slotUndoDocument(self, d):  # noqa: N802
+                super().slotUndoDocument(Wrapper())
+
+            def slotRedoDocument(self, d):  # noqa: N802
+                pass
+
+        doc.observers[:] = [Obs()]
+
+    def test_std_undo_undoes_a_texture_edit_and_redo_brings_it_back(self):
+        self.d.set("amplitude", 1.25)
+        self.doc.undo()
+        self.assertEqual(self.d.get("amplitude"), draft.layer_defaults()["amplitude"])
+        self.doc.redo()
+        self.assertEqual(self.d.get("amplitude"), 1.25)
+
+
+class GalleryPick(DraftInDocument):
+    def test_a_tile_then_undo_then_redo(self):
+        """The Hexagons tile (texture_set through the runner, in its own
+        transaction), Std_Undo back to Knurling, Std_Redo to Hexagons again;
+        one reload each, as undo / redo events (no full reload)."""
+        self.d.set_texture("Knurling")
+        self.doc.openTransaction("Texturizer: texture_set")
+        self.d.set_texture("Hexagons", defaults={"scaleU": 6})
+        self.doc.commitTransaction()
+        self.assertEqual(self.doc.UndoNames[0], "Texturizer: texture_set")
+        n = len(self.events)
+        self.doc.undo()
+        self.assertEqual(self.d.layer()["texture"], "Knurling")
+        self.assertEqual([e["kind"] for e in self.events[n:]], ["undo"])
+        self.assertEqual(self.events[-1]["value"]["keys"], ["scaleU", "texture"])
+        self.doc.redo()
+        self.assertEqual(self.d.layer()["texture"], "Hexagons")
+        self.assertEqual(self.d.get("scaleU"), 6)
+        self.assertEqual([e["kind"] for e in self.events[n:]], ["undo", "redo"])
+        self.assertFalse(self.d.can_redo())
+        self.assertTrue(self.d.can_undo())
+
+    def test_an_echo_of_the_reload_writes_no_step(self):
+        """A widget set back to the value the undo gave writes nothing, so
+        FreeCAD's Redo stays."""
+        self.d.set("amplitude", 1.25)
+        self.doc.undo()
+        self.d.set("amplitude", self.d.get("amplitude"))
+        self.d.set_texture(self.d.layer()["texture"])
+        self.assertTrue(self.d.can_redo())
 
 
 if __name__ == "__main__":

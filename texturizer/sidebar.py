@@ -1181,7 +1181,26 @@ if QtWidgets is not None:
             if kind == "texture":
                 self.refresh_texture()
                 return
+            ch = ev.get("value") if kind in ("undo", "redo") else None
+            if isinstance(ch, dict) and not (ch.get("part") or ch.get("layers") or ch.get("active")):
+                self._refresh_changed(ch)   # an undo or redo: only what it changed
+                return
             self.refresh()
+
+        def _refresh_changed(self, ch):
+            keys = [k for k in ch.get("keys") or () if k != "texture"]
+            if ch.get("frame"):
+                keys += ["rotateX", "rotateY", "rotateZ"]
+            for k in keys:
+                if k in self.binds:
+                    self._sync(k)
+            if "texture" in (ch.get("keys") or ()) or ch.get("layer"):
+                self.refresh_texture()   # the layer strip with it
+            if ch.get("masks"):
+                self._sync("includeOnly")
+                self._sync("maskFaces")
+                self._mask_text()
+            self._visibility()
 
         def refresh(self):
             """Every widget from the draft (after undo, reset, load, layer

@@ -547,8 +547,9 @@ class Window:
             self.paint.on_draft(ev)
         if self.gizmo is not None:
             self.gizmo.on_draft(ev)
-        if ev.get("kind") in ("part", "load", "reset"):
-            self._part_changed()
+        moved = ev.get("kind") in ("undo", "redo") and isinstance(ev.get("value"), dict) and ev["value"].get("part")
+        if ev.get("kind") in ("part", "load", "reset") or moved:
+            self._part_changed()   # an undo or redo that kept the part reruns only its stage (preview.stage_for)
         elif ev.get("key") in ("refineLength", "maxTriangles"):
             self._estimate()
 
