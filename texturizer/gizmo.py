@@ -261,6 +261,132 @@ def reorient(settings, positions):
     return {} if s is None else dict(zip(("stampNormalX", "stampNormalY", "stampNormalZ"), s[3:6]))
 
 
+# -- the projection gizmo (planar, triplanar, cubic) --------------------------------------------
+# Texturizer's own, drawn with the rings while Rotate is on, for the modes
+# whose projection has a direction in space: an arrow along the planar
+# projection's axis (drag its tip to point the projection anywhere: the
+# texturing frame turns the least that does it), a dial in the projection's
+# plane whose knob is the texture's U direction (drag it round: Rotation),
+# and a knob on a line along U (drag it out or in: Size U, and V with
+# Lock, by the ratio of distances from the centre), with one tile drawn
+# when it fits. Triplanar and Cubic have no single direction (the rings
+# orient them): dial and size only, in the frame's XY plane.
+PLANAR_AXES = {0: (2, 0, 1), 1: (1, 0, 2), 2: (0, 1, 2)}   # mode: (normal, u, v) axes of the texturing frame
+BOX_MODES = (5, 6)                                          # triplanar, cubic
+ARROW = 0.95     # the arrow tip, of the bounding sphere
+DIAL = 0.85      # the dial's radius
+SIZE_AT = 0.45   # the size knob's distance from the centre
+PICK = 0.07      # a knob is hit within this much of the sphere's radius of the ray
+PROJ_COLOURS = {"direction": (0.98, 0.69, 0.24), "rotation": (0.75, 0.48, 0.95), "scale": (0.3, 0.85, 0.85)}
+PROJ_HOVER = {"direction": (1.0, 0.85, 0.55), "rotation": (0.88, 0.72, 1.0), "scale": (0.6, 1.0, 1.0)}
+
+
+def projection_applies(settings):
+    """True for a layer whose projection has a direction to set: Planar
+    XY / XZ / YZ, Triplanar, Cubic, and no stamp."""
+    m = (settings or {}).get("mappingMode")
+    return (m in PLANAR_AXES or m in BOX_MODES) and not is_stamp_active(settings or {})
+
+
+def projection_widget(settings, rotation, centre, radius):
+    """The handles in the document's frame: {centre, normal, u, v, tu (the
+    texture's U on screen), planar, arrow (tip or None), dial_radius, dial,
+    scale, tile (4 corners or None)}; radius the part's bounding sphere."""
+    m = settings.get("mappingMode")
+    n, u, v = PLANAR_AXES.get(m, (2, 0, 1))
+    R = frame_matrix(rotation)
+    c = np.asarray(centre, float)
+    nw, uw, vw = R[n], R[u], R[v]   # the frame's axes in the document: R^T e_k, row k of R
+    phi = -math.radians(float(settings.get("rotation") or 0.0))
+    tu = math.cos(phi) * uw + math.sin(phi) * vw
+    tv = -math.sin(phi) * uw + math.cos(phi) * vw
+    su, sv = float(settings.get("scaleU") or 1.0), float(settings.get("scaleV") or 1.0)
+    tile = None
+    if max(su, sv) <= 2.5 * radius:
+        a, b = tu * su / 2, tv * sv / 2
+        tile = [c - a - b, c + a - b, c + a + b, c - a + b]
+    planar = m in PLANAR_AXES
+    return {"centre": c, "normal": nw, "u": uw, "v": vw, "tu": tu, "planar": planar,
+            "arrow": c + nw * radius * ARROW if planar else None,
+            "dial_radius": radius * DIAL, "dial": c + tu * radius * DIAL,
+            "scale": c + tu * radius * SIZE_AT, "tile": tile, "radius": radius}
+
+
+def dial_points(w, n=RING_SEGMENTS):
+    """The dial as n + 1 points (closed) in the projection's plane."""
+    t = np.linspace(0, 2 * math.pi, n + 1)
+    r = w["dial_radius"]
+    return w["centre"] + np.outer(np.cos(t) * r, w["u"]) + np.outer(np.sin(t) * r, w["v"])
+
+
+def pick_projection(origin, direction, w):
+    """The handle under the cursor ray: "direction", "rotation" or "scale"
+    (the nearest along the ray within PICK of the sphere), or None."""
+    o = np.asarray(origin, float)
+    d = np.asarray(direction, float)
+    d = d / (np.linalg.norm(d) or 1)
+    best, best_t = None, math.inf
+    for kind, p in (("direction", w["arrow"]), ("rotation", w["dial"]), ("scale", w["scale"])):
+        if p is None:
+            continue
+        t = float((p - o) @ d)
+        if t <= 0:
+            continue
+        if np.linalg.norm(o + t * d - p) <= PICK * w["radius"] and t < best_t:
+            best, best_t = kind, t
+    return best
+
+
+def _on_plane(origin, direction, centre, normal):
+    o, d = np.asarray(origin, float), np.asarray(direction, float)
+    den = float(normal @ d)
+    if abs(den) < 1e-9:
+        return None
+    t = float(normal @ (centre - o)) / den
+    return None if t < 0 else o + t * d
+
+
+def _on_sphere(origin, direction, centre, r):
+    """The ray on the sphere (its near side), else the sphere's point nearest the ray."""
+    o, d = np.asarray(origin, float), np.asarray(direction, float)
+    d = d / (np.linalg.norm(d) or 1)
+    oc = o - centre
+    b = float(oc @ d)
+    disc = b * b - (float(oc @ oc) - r * r)
+    q = o + (-b - math.sqrt(disc)) * d if disc >= 0 else o + max(-b, 0.0) * d
+    return q
+
+
+def turn_to(n_from, n_to):
+    """The least rotation (3 x 3) taking direction n_from to n_to."""
+    a = np.asarray(n_from, float) / (np.linalg.norm(n_from) or 1)
+    b = np.asarray(n_to, float) / (np.linalg.norm(n_to) or 1)
+    v = np.cross(a, b)
+    c = float(a @ b)
+    if c < -1 + 1e-9:   # opposite: a half turn about any axis across a
+        k = np.cross(a, (1.0, 0.0, 0.0) if abs(a[0]) < 0.9 else (0.0, 1.0, 0.0))
+        k /= np.linalg.norm(k)
+        return 2 * np.outer(k, k) - np.eye(3)
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + vx + vx @ vx / (1 + c)
+
+
+def point_projection(rotation, mode, direction):
+    """Rotate X / Y / Z that point the projection's axis (the planar mode's
+    normal, or the frame's Z for Triplanar and Cubic) along direction
+    (document frame), turning the frame the least: texture_set { frame:
+    {direction} } and the arrow's drag."""
+    n = PLANAR_AXES.get(mode, (2, 0, 1))[0]
+    R = frame_matrix(rotation)
+    Q = turn_to(R[n], direction)
+    return matrix_to_euler(R @ Q.T)
+
+
+def _angle_in(w, p):
+    q = p - w["centre"]
+    return math.atan2(float(q @ w["v"]), float(q @ w["u"]))
+
+
 # -- events -----------------------------------------------------------------------------------
 class GizmoTool:
     """Viewer events to the rings and the stamp on the draft's active layer.
@@ -270,11 +396,14 @@ class GizmoTool:
     draws them ({centre, radius, hover, drag}); on_armed(bool) lights the
     stamp hint while the wheel resizes."""
 
-    def __init__(self, draft, positions, ray, on_rings=None, on_armed=None, scale_range=(0.0, math.inf)):
+    def __init__(self, draft, positions, ray, on_rings=None, on_armed=None, scale_range=(0.0, math.inf),
+                 on_projection=None):
         self.d = draft
         self.positions = positions
         self.ray = ray
         self.on_rings = on_rings or (lambda *a: None)
+        self.on_projection = on_projection or (lambda *a: None)
+        self.phover = None
         self.on_armed = on_armed or (lambda *a: None)
         self.scale_range = scale_range
         self.placing = False
@@ -306,6 +435,59 @@ class GizmoTool:
         if g is not None:
             g.update(hover=self.hover, drag=self.drag["axis"] if self.drag and self.drag["kind"] == "ring" else None)
         self.on_rings(g)
+        w = self.projection()
+        if w is not None:
+            w.update(hover=self.phover, drag=self.drag["kind"] if self.drag and self.drag["kind"] in PROJ_COLOURS else None)
+        self.on_projection(w)
+
+    def projection(self):
+        """The projection gizmo's handles (projection_widget), or None: shown
+        with the rings, on a layer whose projection has a direction."""
+        if not self.rings_on():
+            return None
+        S = self.d.layer()["settings"]
+        if not projection_applies(S):
+            return None
+        c, r = bounding_sphere(self.positions())
+        return projection_widget(S, self.d.frame.get("rotation"), c, r)
+
+    def _projection_drag(self, kind, o, d, w):
+        S = self.d.layer()["settings"]
+        dr = {"kind": kind, "w": w, "tag": ("proj", self._n), "S": dict(S), "rot": list(self.d.frame.get("rotation") or (0, 0, 0))}
+        if kind == "rotation":
+            p = _on_plane(o, d, w["centre"], w["normal"])
+            dr["a0"] = None if p is None else _angle_in(w, p)
+        elif kind == "scale":
+            p = _on_plane(o, d, w["centre"], w["normal"])
+            dr["r0"] = None if p is None else float(np.linalg.norm(p - w["centre"]))
+        return dr
+
+    def _projection_move(self, o, d):
+        dr = self.drag
+        w = dr["w"]
+        if dr["kind"] == "direction":
+            q = _on_sphere(o, d, w["centre"], float(np.linalg.norm(w["arrow"] - w["centre"])))
+            v = q - w["centre"]
+            if np.linalg.norm(v) > 1e-9:
+                rot = point_projection(dr["rot"], dr["S"].get("mappingMode"), v)
+                self.d.set_frame(rotation=rot, coalesce=dr["tag"])
+            return
+        p = _on_plane(o, d, w["centre"], w["normal"])
+        if p is None:
+            return
+        if dr["kind"] == "rotation":
+            if dr["a0"] is None:
+                dr["a0"] = _angle_in(w, p)
+                return
+            deg = math.degrees(wrap(_angle_in(w, p) - dr["a0"]))
+            val = round((float(dr["S"].get("rotation") or 0.0) - deg) % 360.0, 3)
+            self.d.update({"rotation": val}, coalesce=dr["tag"])
+            return
+        r = float(np.linalg.norm(p - w["centre"]))
+        if not dr.get("r0"):
+            dr["r0"] = r or None
+            return
+        self.d.update(scale_by(dr["S"], r / dr["r0"], *self.scale_range), coalesce=dr["tag"])
 
     def _R(self):
         return frame_matrix(self.d.frame.get("rotation"))
@@ -368,6 +550,15 @@ class GizmoTool:
             return True
         if self.positions() is None:
             return False
+        w = self.projection()
+        if w is not None:
+            o, d = self.ray(x, y)
+            kind = pick_projection(o, d, w)
+            if kind is not None:
+                self._n += 1
+                self.drag = self._projection_drag(kind, o, d, w)
+                self.draw()
+                return True
         if self.rings_on():
             g = self.rings()
             o, d = self.ray(x, y)
@@ -415,11 +606,17 @@ class GizmoTool:
             if self.rings_on():
                 g = self.rings()
                 o, d = self.ray(x, y)
-                h = pick_ring(o, d, g["centre"], g["radius"])
-                if h != self.hover:
-                    self.hover = h
+                w = self.projection()
+                ph = pick_projection(o, d, w) if w is not None else None
+                h = None if ph else pick_ring(o, d, g["centre"], g["radius"])
+                if h != self.hover or ph != self.phover:
+                    self.hover, self.phover = h, ph
                     self.draw()
             return False
+        if self.drag["kind"] in PROJ_COLOURS:
+            o, d = self.ray(x, y)
+            self._projection_move(o, d)
+            return True
         if self.drag["kind"] == "ring":
             dr = self.drag
             o, d = self.ray(x, y)

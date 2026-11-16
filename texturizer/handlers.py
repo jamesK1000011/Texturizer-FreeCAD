@@ -1178,12 +1178,25 @@ def texture_set(s, a):
         fr = a.get("frame")
         if fr is not None:
             if not isinstance(fr, dict):
-                raise ToolError("invalid_input", "frame: {rotation: [x, y, z]} degrees, or {face: \"selected\" | FaceN}.")
+                raise ToolError("invalid_input", "frame: {rotation: [x, y, z]} degrees, {direction: [x, y, z]}, or {face: \"selected\" | FaceN}.")
             if fr.get("rotation") is not None:
                 rot = [num(x, "frame.rotation") for x in fr["rotation"]]
                 if len(rot) != 3:
                     raise ToolError("invalid_input", "frame.rotation: [x, y, z] degrees.")
                 d.set_frame(rotation=rot)
+            if fr.get("direction") is not None:
+                # The projection gizmo's arrow: the planar projection's axis (Triplanar
+                # and Cubic: the frame's Z) along this direction, the frame turned the least.
+                from . import gizmo
+
+                dv = fr["direction"]
+                if not isinstance(dv, (list, tuple)) or len(dv) != 3:
+                    raise ToolError("invalid_input", "frame.direction: [x, y, z], the way the projection looks along.")
+                dv = [num(x, "frame.direction") for x in dv]
+                if not any(dv):
+                    raise ToolError("invalid_input", "frame.direction: not [0, 0, 0].")
+                mode = d.layer(i)["settings"].get("mappingMode")
+                d.set_frame(rotation=gizmo.point_projection(d.frame.get("rotation"), mode, dv))
             if fr.get("face") is not None:
                 # Place on Face: the picked face down on the bed (its normal to -Z),
                 # by turning the texturing frame; the body does not move.
