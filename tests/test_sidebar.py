@@ -449,6 +449,20 @@ class SidebarWidget(unittest.TestCase):
         self.assertEqual(len(sb.layers.rows), 2)
         d.undo()
         self.assertEqual(len(sb.layers.rows), 1)
+        # The Textured object's line: none yet, then its state, new faces with Include Them.
+        self.assertTrue(sb.textured_state.isHidden() and sb.include_new.isHidden())
+        sb.show_textured("up to date", [], "Grip_textured")
+        self.assertEqual(sb.textured_state.text(), "Grip_textured: up to date")
+        self.assertFalse(sb.finished_note.isHidden())
+        self.assertIn("finished part", sb.finished_note.text())
+        self.assertTrue(sb.include_new.isHidden())
+        hit = []
+        sb.on_include_new = lambda: hit.append(1)
+        sb.show_textured("up to date", ["Face7", "Face8"], "Grip_textured")
+        self.assertIn("2 new faces since texturing (Face7, Face8) left smooth.", sb.textured_state.text())
+        self.assertFalse(sb.include_new.isHidden())
+        sb.include_new.click()
+        self.assertEqual(hit, [1])
         self.assertEqual(len(self.calls), n)
         sb.binds["exclusionTool"].buttons[0][1].click()  # Faces tool
         self.assertEqual(d.get("exclusionTool"), "faces")

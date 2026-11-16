@@ -26,6 +26,7 @@ from . import controls, gallery, layout, overrides, timing, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
+FINISHED_NOTE = "The texture applies to the finished part: later CAD steps don't build on it."
 TITLE = "Texturizer"
 NAME = "TexturizerSidebar"
 CREDIT_HTML = (f'{gallery.BUMPMESH_CREDIT} · <a href="{gallery.BUMPMESH_URL}">github.com/CNCKitchen/stlTexturizer</a>')
@@ -617,6 +618,7 @@ if QtWidgets is not None:
             self._updating = False
             self._gallery = None
             self.last = None
+            self.on_include_new = None   # the window's: Include them
 
             body = QtWidgets.QWidget()
             self.body = body
@@ -1146,6 +1148,23 @@ if QtWidgets is not None:
             h.addWidget(self.cancel)
             v.addWidget(self.progress_label)
             v.addLayout(h)
+            # The Textured object this draft made: its state, faces a later CAD
+            # step made (left smooth) with Include them, and that the texture
+            # applies to the finished part.
+            self.textured_state = QtWidgets.QLabel("")
+            self.textured_state.setObjectName("textured_state")
+            self.textured_state.setWordWrap(True)
+            v.addWidget(self.textured_state)
+            self.include_new = QtWidgets.QPushButton("Include Them")
+            self.include_new.setObjectName("btn_includeNew")
+            self.include_new.setToolTip("Texture the faces made after the texture was set up (they are left smooth until then).")
+            self.include_new.clicked.connect(lambda *_: self.on_include_new and self.on_include_new())
+            v.addWidget(self.include_new)
+            self.finished_note = QtWidgets.QLabel(FINISHED_NOTE)
+            self.finished_note.setObjectName("finished_note")
+            self.finished_note.setWordWrap(True)
+            v.addWidget(self.finished_note)
+            self.show_textured(None)
             self.credit = QtWidgets.QLabel(CREDIT_HTML)
             self.credit.setObjectName("credit")
             self.credit.setTextFormat(QtCore.Qt.RichText)
@@ -1375,6 +1394,23 @@ if QtWidgets is not None:
             self.mesh_info.setText(S("ui.meshInfo", n=f"{int(triangles):,}", mb=f"{mb:.1f}" if mb is not None else "–",
                                      sx=f"{sx:.1f}", sy=f"{sy:.1f}", sz=f"{sz:.1f}"))
             self.set_anchor(max(size))
+
+        def show_textured(self, state, new_faces=(), label=""):
+            """The Textured object's state (None: there is none yet): up to
+            date, updating…, or what mask needs re-picking; new faces listed
+            with Include them."""
+            on = state is not None
+            self.textured_state.setVisible(on)
+            self.finished_note.setVisible(on)
+            text = ""
+            if on:
+                text = f"{label}: {state}" if label else state
+                if new_faces:
+                    n = len(new_faces)
+                    text += (f"\n{n} new {'face' if n == 1 else 'faces'} since texturing "
+                             f"({', '.join(new_faces)}) left smooth.")
+            self.textured_state.setText(text)
+            self.include_new.setVisible(bool(on and new_faces))
 
         def set_estimate(self, text):
             self.binds["estimate"].set(text)

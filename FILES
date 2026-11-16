@@ -11,6 +11,7 @@ LICENSES/LGPL-2.1-or-later.txt
 LICENSES/MIT.txt
 README.md
 REUSE.toml
+docs/linked-texture.md
 package.xml
 tests/_fakeqt.py
 tests/_fc.py
@@ -25,6 +26,7 @@ tests/test_gizmo.py
 tests/test_gui.py
 tests/test_layout.py
 tests/test_layout_placer.py
+tests/test_linked.py
 tests/test_live_speed.py
 tests/test_paint.py
 tests/test_paint_line.py
@@ -95,6 +97,7 @@ texturizer/icons/Texturizer_SaveProject.svg
 texturizer/icons/Texturizer_Section.svg
 texturizer/icons/Texturizer_Workbench.svg
 texturizer/layout.py
+texturizer/linked.py
 texturizer/live.py
 texturizer/mesh.py
 texturizer/meshdist.py
