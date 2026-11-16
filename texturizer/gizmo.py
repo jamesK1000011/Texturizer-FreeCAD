@@ -336,8 +336,9 @@ class GizmoTool:
         if on != self.armed:
             self.armed = on
             self.on_armed(on)
-        if not on:
+        if not on and self._wheel is not None:
             self._wheel = None
+            self.d.end_coalesce()   # the wheel's resize: one step
 
     def cancel(self):
         """Escape, another tool, a new part: placing ends, the wheel zooms again."""

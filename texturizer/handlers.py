@@ -839,16 +839,17 @@ def _bounds_of_part(s, d):
 def _load_project(s, d, path, mode):
     from . import project
 
-    try:
-        res = project.load(path, d, mode=mode)
-    except (OSError, ValueError, KeyError) as e:
-        raise ToolError("invalid_input", f"project: {e}") from None
     note = []
-    if res.get("model") is not None and res["mode"] == "all":
-        obj = _add_plain_mesh(s, os.path.splitext(os.path.basename(path))[0], res["model"])
-        if obj is not None:
-            d.part = obj.Name  # the project's model, in the draft's undo step
-            note.append(f"Model loaded as {obj.Label}.")
+    with d.batch():   # the project and its model: one step
+        try:
+            res = project.load(path, d, mode=mode)
+        except (OSError, ValueError, KeyError) as e:
+            raise ToolError("invalid_input", f"project: {e}") from None
+        if res.get("model") is not None and res["mode"] == "all":
+            obj = _add_plain_mesh(s, os.path.splitext(os.path.basename(path))[0], res["model"])
+            if obj is not None:
+                d.set_part(obj.Name)
+                note.append(f"Model loaded as {obj.Label}.")
     return {"mode": res["mode"], "warnings": res.get("warnings") or [], "note": " ".join(note)}
 
 

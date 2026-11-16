@@ -17,6 +17,7 @@ tests/_fc.py
 tests/reference/make_refs.mjs
 tests/reference/refs.json
 tests/test_api.py
+tests/test_docdraft.py
 tests/test_engine_api.py
 tests/test_engine_parity.py
 tests/test_gizmo.py
@@ -52,6 +53,7 @@ texturizer/agentlink_families.py
 texturizer/commands.py
 texturizer/controls.py
 texturizer/data/tools.json
+texturizer/docdraft.py
 texturizer/draft.py
 texturizer/engine/__init__.py
 texturizer/engine/_js.py

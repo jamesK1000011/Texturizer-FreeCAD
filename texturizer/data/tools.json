@@ -98,7 +98,7 @@
   },
   "texture_set": {
    "group": "texture",
-   "description": "Change the draft (a partial update, one undo step; the sidebar's sliders move as it runs): texture (a library id, or {file} for your own heightmap), settings by BumpMesh's names for the layer and the run (texture_settings lists them, e.g. scaleU mm per tile, textureHeight mm, mappingMode), frame (rotation [x, y, z] degrees as BumpMesh's Rotate, or face: Place on Face), cylinder (autofit, reset, from_face with face), stamp (on, off, or {point, normal} for Position on model), active (the layer the sidebar edits). Nothing changes in the document.",
+   "description": "Change the draft (a partial update, one undo step; the sidebar's sliders move as it runs): texture (a library id, or {file} for your own heightmap), settings by BumpMesh's names for the layer and the run (texture_settings lists them, e.g. scaleU mm per tile, textureHeight mm, mappingMode), frame (rotation [x, y, z] degrees as BumpMesh's Rotate, or face: Place on Face), cylinder (autofit, reset, from_face with face), stamp (on, off, or {point, normal} for Position on model), active (the layer the sidebar edits). The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -161,7 +161,7 @@
   },
   "texture_mask": {
    "group": "texture",
-   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces, or seed triangles on a Mesh part, across edges under maxAngle degrees), triangles (a Mesh part), paint (BumpMesh's Brush: strokes of hits on the part, Circle or Single, Size, Hardness, erase; each stroke one undo step), clear (Clear All). The sidebar's face list lights as it runs. Nothing changes in the document.",
+   "description": "BumpMesh's Masking, By Surface, for one layer: mode exclude (these faces stay plain) or include (only these faces get the texture; switching clears the layer's faces, as BumpMesh), add or remove faces, add_by (direction, box or surface, from the picked faces or faces), fill (BumpMesh's Fill from seed faces, or seed triangles on a Mesh part, across edges under maxAngle degrees), triangles (a Mesh part), paint (BumpMesh's Brush: strokes of hits on the part, Circle or Single, Size, Hardness, erase; each stroke one undo step), clear (Clear All). The sidebar's face list lights as it runs. The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -268,7 +268,7 @@
   },
   "texture_layer": {
    "group": "texture",
-   "description": "BumpMesh's layer strip (up to 4 layers, bottom first): add (a copy of the active layer, Include Only, made active), remove, move (delta -1 up / +1 down), solo (shows only it in the preview), visible, blend (cover or add on the layers below), name, active. Nothing changes in the document.",
+   "description": "BumpMesh's layer strip (up to 4 layers, bottom first): add (a copy of the active layer, Include Only, made active), remove, move (delta -1 up / +1 down), solo (shows only it in the preview), visible, blend (cover or add on the layers below), name, active. The model is untouched; the draft is kept in the document, so Edit > Undo undoes it.",
    "inputSchema": {
     "type": "object",
     "properties": {

@@ -738,6 +738,10 @@ def get():
     if _WINDOW is None:
         _WINDOW = Window()
         live.GUI = _WINDOW
+        from . import docdraft
+
+        # Undo's signal can come before its last property: reload on the next turn.
+        docdraft.POST[0] = lambda fn: QtCore.QTimer.singleShot(0, fn)
         try:
             import FreeCAD
 
