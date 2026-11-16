@@ -60,7 +60,9 @@ Entering it opens the sidebar with the part you selected loaded.
 **BumpMesh's sidebar**, docked on the right. It has BumpMesh's sections, in
 BumpMesh's order, with its labels, ranges and defaults:
 
-- **Load Model…**, **Place on Face** and **Rotate**.
+- **Use Selected Part** (the selected solid; else this document's last
+  textured part, else the one solid shown; import an STL with File ▸ Import
+  first), **Place on Face** and **Rotate**.
 - **Displacement Map**: the layer strip (up to 4 layers), favourites, the
   Texture Gallery and Upload custom map.
 - **Projection**, **Texture Depth** and **Transform**: how the texture wraps,
@@ -72,7 +74,8 @@ BumpMesh's order, with its labels, ranges and defaults:
   **Mask just-baked faces** on (the default), the faces you just textured
   stay as they are on the next layer.
 - **Export**: Suggest values, Resolution, Output Triangles, **Add to
-  document** / **Update**, and **Export STL** / **Export 3MF**.
+  document** / **Update**, and **Export 3MF**. For an STL, export the
+  Textured object with FreeCAD's File ▸ Export.
 
 <!-- screenshot: the Texturizer sidebar, Displacement Map and Masking sections open -->
 
@@ -84,11 +87,13 @@ CNC Kitchen, Yours).
 
 **The toolbars.**
 
-- **Texturizer** is BumpMesh's header row: Undo, Redo, Reset to Defaults,
-  Save Project, Load Project, Texture Gallery, Export STL, Export 3MF. Save
-  and Load Project read and write BumpMesh's own `.bumpmesh` files.
-- **View** has FreeCAD's own Wireframe, Perspective View and Section View,
-  under BumpMesh's labels.
+- **Texturizer** is BumpMesh's header row: Reset to Defaults, Export
+  BumpMesh Project…, Import BumpMesh Project…, Texture Gallery, Export 3MF.
+  The texture draft is saved with the FreeCAD document, and FreeCAD's own
+  Edit ▸ Undo / Redo undo texture edits; the BumpMesh project files
+  (`.bumpmesh`) are for sharing with the BumpMesh web app.
+- **View** has Section View (FreeCAD's clipping plane). For wireframe and
+  perspective, use FreeCAD's own Draw Style and camera commands.
 - **Check** has Prepare for Texture and Check Textured Mesh.
 
 **Quick look and the preview.** While you change settings, **Quick look**

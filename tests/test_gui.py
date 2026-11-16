@@ -188,7 +188,7 @@ class Echo(unittest.TestCase):
         self.assertEqual(a["AREAS"], {"texture_": "Texture"})
         draft_tools = ("texture_draft", "texture_set", "texture_mask", "texture_layer", "texture_preview")
         self.assertEqual({t: a["COMMANDS"][t] for t in draft_tools}, {t: commands.TEXTURE for t in draft_tools})
-        self.assertEqual((a["COMMANDS"]["texture_apply"], a["COMMANDS"]["texture_export"]), (commands.ADD, "Texturizer_ExportSTL"))
+        self.assertEqual((a["COMMANDS"]["texture_apply"], a["COMMANDS"]["texture_export"]), (commands.ADD, commands.ADD))  # export: File > Export of that object
         self.assertEqual((a["COMMANDS"]["texture_prepare"], a["COMMANDS"]["texture_check"]), (commands.PREPARE, commands.CHECK))
         self.assertEqual(set(a["SHOWN"]), {"texture_preview", "texture_check"})
         self.assertEqual(set(a["NO_BUTTON"]), {"texture_list"})
@@ -241,14 +241,15 @@ class Workbench(unittest.TestCase):
         self.assertEqual(out["icons"], [os.path.join(PKG, "icons")])
         self.assertTrue(os.path.isfile(out["icon"]))
         self.assertIn("CNC Kitchen", out["tip"])
-        header = ["Texturizer_Undo", "Texturizer_Redo", "Texturizer_Reset", "Texturizer_SaveProject", "Texturizer_LoadProject",
-                  "Texturizer_Gallery", "Texturizer_ExportSTL", "Texturizer_Export3MF"]
+        # Undo, Redo, Export STL, Wireframe and Perspective are FreeCAD's own.
+        header = ["Texturizer_Reset", "Texturizer_SaveProject", "Texturizer_LoadProject",
+                  "Texturizer_Gallery", "Texturizer_Export3MF"]
         self.assertEqual(out["toolbars"], [["Texturizer", header], ["View", commands.VIEW_TOOLBAR],
                                            ["Check", [commands.PREPARE, commands.CHECK]],
                                            ["Texturizer Panel", [commands.TEXTURE]]])
         self.assertEqual([out["commands"][n]["MenuText"] for n in header],
-                         ["Undo", "Redo", "Reset to Defaults", "Save Project", "Load Project", "Texture Gallery", "Export STL", "Export 3MF"])
-        self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Wireframe", "Perspective View", "Section View"])
+                         ["Reset to Defaults", "Export BumpMesh Project…", "Import BumpMesh Project…", "Texture Gallery", "Export 3MF"])
+        self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Section View"])
         self.assertIn("Texturizer_About", out["menus"][0][1])
         self.assertEqual(out["menus"][0][1][0], commands.TEXTURE)
         self.assertEqual(sorted(out["commands"]), sorted(commands.NAMES + ["Texturizer_About"]))

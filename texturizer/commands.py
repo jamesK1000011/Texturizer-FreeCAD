@@ -9,31 +9,30 @@
 # (Stefan Hermann, CNC Kitchen) in texturizer.engine, run in FreeCAD.
 import os
 
-from . import CREDIT, controls, handlers, panel, title_case
+from . import CREDIT, controls, handlers, overrides, panel, title_case
 
 PREPARE, CHECK, PANEL = "Texturizer_Prepare", "Texturizer_Check", "Texturizer_Panel"
 TEXTURE, ADD = "Texturizer_Texture", "Texturizer_AddToDocument"
 # BumpMesh's header row: (command, the sidebar button it presses, icon).
-HEADER = [("Texturizer_Undo", "undo"), ("Texturizer_Redo", "redo"), ("Texturizer_Reset", "resetSettings"),
+# Undo, Redo and Export STL are FreeCAD's own (Edit > Undo undoes texture
+# edits; File > Export exports the object Add to Document makes):
+# overrides.OWNED. Save / Load Project share with the BumpMesh web app.
+HEADER = [("Texturizer_Reset", "resetSettings"),
           ("Texturizer_SaveProject", "saveProject"), ("Texturizer_LoadProject", "loadProject"),
-          ("Texturizer_Gallery", "textureGallery"), ("Texturizer_ExportSTL", "exportStl"),
-          ("Texturizer_Export3MF", "export3mf")]
-# FreeCAD's own view commands under BumpMesh's labels (its viewport overlay).
-VIEW = [("Texturizer_Wireframe", "Wireframe", "Show the model as wireframe; press again for its normal look."),
-        ("Texturizer_Perspective", "Perspective View", "Switch between perspective and orthographic camera."),
-        ("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane; press again to close it.")]
+          ("Texturizer_Gallery", "textureGallery"), ("Texturizer_Export3MF", "export3mf")]
+# Section runs FreeCAD's Std_ToggleClipPlane (toggle_section only tabs its
+# dock so the window keeps its size). Wireframe and Perspective are FreeCAD's
+# Draw Style and Std_PerspectiveCamera / Std_OrthographicCamera.
+VIEW = [("Texturizer_Section", "Section View", "Cut the view with FreeCAD's clipping plane; press again to close it.")]
 # A toolbar button's tooltip says what it does, then the sidebar's own
 # BumpMesh tooltip (kept word for word). Where BumpMesh's tooltip only
 # repeats the name, the first part carries the meaning. No credit here:
 # macOS cuts long tooltips short, and the credit is in About, the sidebar's
 # footer and the workbench's own tooltip.
-TIPS = {"undo": "Undo the last change to the texture settings.",
-        "redo": "Redo the last undone change to the texture settings.",
-        "resetSettings": "Put every texture setting back to its default.",
-        "saveProject": "Save the model, texture, settings and masks as a project.",
-        "loadProject": "Open a project: its model, texture, settings and masks.",
+TIPS = {"resetSettings": "Put every texture setting back to its default.",
+        "saveProject": "Write the texture settings and masks (and the model) as a BumpMesh project for the BumpMesh web app.",
+        "loadProject": "Read a BumpMesh project's texture settings and masks (and its model) into this document.",
         "textureGallery": "Browse the textures and pick one.",
-        "exportStl": "Export the textured mesh as STL.",
         "export3mf": "Export the textured mesh as 3MF."}
 
 
@@ -45,6 +44,8 @@ def _sentence(text):
 def tooltip(key):
     """The command's tooltip for a sidebar button key (see TIPS)."""
     c = controls.BY_KEY[key]
+    if overrides.label(c):   # FreeCAD's meaning, not BumpMesh's button
+        return TIPS.get(key) or overrides.tooltip(c)
     own = _sentence(c.get("tooltip") or c["label"])
     lead = TIPS.get(key)
     parts = [lead] if lead else []
@@ -322,7 +323,7 @@ class _Press:
     def GetResources(self):
         c = controls.BY_KEY[self.key]
         # Title Case, as FreeCAD's design guide asks of command names.
-        menu = title_case(c["label"].replace(" ⓘ", ""))
+        menu = overrides.label(c) or title_case(c["label"].replace(" ⓘ", ""))
         return {"Pixmap": self.name, "MenuText": menu,
                 "ToolTip": tooltip(self.key)}
 
@@ -352,14 +353,7 @@ class _View:
     def Activated(self):
         import FreeCADGui
 
-        if self.name == "Texturizer_Wireframe":
-            self.on = not getattr(self, "on", False)
-            FreeCADGui.runCommand("Std_DrawStyle", 2 if self.on else 0)
-        elif self.name == "Texturizer_Perspective":
-            v = FreeCADGui.ActiveDocument.ActiveView
-            v.setCameraType("Orthographic" if v.getCameraType() == "Perspective" else "Perspective")
-        else:
-            toggle_section(FreeCADGui.getMainWindow(), lambda: FreeCADGui.runCommand("Std_ToggleClipPlane", 0))
+        toggle_section(FreeCADGui.getMainWindow(), lambda: FreeCADGui.runCommand("Std_ToggleClipPlane", 0))
 
 
 def _clipping_dock(mw):

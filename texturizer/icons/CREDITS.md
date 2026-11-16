@@ -11,13 +11,10 @@ Each icon here is hand-drawn on a 64×64 canvas in FreeCAD's Artwork Guidelines 
 | Texturizer_Workbench.svg | MDI `texture-box` | Chocolate three-quarter box with raised bumps |
 | Texturizer_Prepare.svg | Tabler `grain` (mesh) | Aluminium triangle mesh with the masked faces in Chocolate |
 | Texturizer_Check.svg | Tabler `arrow-autofit-height` | Chocolate textured section with a depth gauge |
-| Texturizer_Undo.svg, Texturizer_Redo.svg | Tabler `arrow-back-up` / `arrow-forward-up` | Chocolate curved arrow |
 | Texturizer_Reset.svg | Tabler `refresh` | Chocolate turn with its arrowhead |
 | Texturizer_SaveProject.svg | Tabler `device-floppy` | Sky blue disk with a Chocolate label |
 | Texturizer_LoadProject.svg | Tabler `folder-open` | Chocolate folder, Aluminium flap |
 | Texturizer_Gallery.svg | Tabler `layout-grid` | Chocolate and Aluminium tiles |
-| Texturizer_ExportSTL.svg, Texturizer_Export3MF.svg | Tabler `download` | Chocolate arrow into a tray, the format named |
+| Texturizer_Export3MF.svg | Tabler `download` | Chocolate arrow into a tray, the format named |
 | Texturizer_AddToDocument.svg | Tabler `box` with `circle-plus` | Chocolate box with a Sky blue plus |
-| Texturizer_Wireframe.svg | Tabler `box` (outline) | Box edges only |
-| Texturizer_Perspective.svg | Tabler `perspective` | Aluminium frame, Chocolate far face |
 | Texturizer_Section.svg | Tabler `box` with a plane | Chocolate box cut by a Sky blue plane |

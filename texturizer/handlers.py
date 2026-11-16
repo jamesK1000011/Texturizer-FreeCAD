@@ -882,7 +882,15 @@ def texture_draft(s, a):
             raise ToolError("invalid_input", f"draft: {e}") from None
     ref = a.get("part", a.get("body"))
     if a.get("load") == "selection":
+        # Use Selected Part: the selected visible solid, else as a fresh
+        # draft picks (live.choose_part). Models come from the document: an
+        # STL is imported with FreeCAD's File > Import first.
         ref = _gui("load: selection").selected_object() or ref
+        if ref is None:
+            o = live.choose_part(_doc(s))
+            if o is None:
+                raise ToolError("invalid_input", "Select a solid to texture (import an STL with File > Import first).")
+            ref = o.Name
     if ref is not None or (d.part is None and not a.get("project")):
         o = _part(s, ref, None)
         stored = getattr(o, "TextureDraft", "") if "SourceBody" in getattr(o, "PropertiesList", []) else ""

@@ -316,6 +316,22 @@ class PartChoice(unittest.TestCase):
             ok, out = run("texture_draft", {})
             self.assertTrue(ok, out)
             self.assertEqual(live.draft().part, "Body")
+
+            class Gui:   # Use Selected Part with nothing selected: as a fresh draft picks
+                def selected_object(self):
+                    return None
+
+                def open(self):
+                    pass
+
+            live.draft().set_part(None)
+            saved_gui, live.GUI = live.GUI, Gui()
+            try:
+                ok, out = run("texture_draft", {"load": "selection"})
+            finally:
+                live.GUI = saved_gui
+            self.assertTrue(ok, out)
+            self.assertEqual(live.draft().part, "Body")
         finally:
             live.mesh_for = saved
             live.reset()
