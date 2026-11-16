@@ -27,7 +27,7 @@ WORKBENCHES = {"texture_": "TexturizerWorkbench"}
 COMMANDS = {"texture_draft": "Texturizer_Texture", "texture_set": "Texturizer_Texture",
             "texture_mask": "Texturizer_Texture", "texture_layer": "Texturizer_Texture",
             "texture_preview": "Texturizer_Texture", "texture_apply": "Texturizer_AddToDocument",
-            "texture_export": "Texturizer_ExportSTL", "texture_prepare": "Texturizer_Prepare",
+            "texture_export": "Texturizer_AddToDocument", "texture_prepare": "Texturizer_Prepare",
             "texture_check": "Texturizer_Check"}
 AREAS = {"texture_": "Texture"}
 SHOWN = ("texture_preview", "texture_check")

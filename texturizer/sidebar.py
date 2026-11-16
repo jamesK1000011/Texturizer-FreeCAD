@@ -22,7 +22,7 @@ own alone; the sidebar doesn't care which (ACTIONS lists what it asks).
 """
 import math
 
-from . import controls, gallery, layout, timing, title_case
+from . import controls, gallery, layout, overrides, timing, title_case
 from .qt import QtCore, QtGui, QtWidgets
 
 S = controls.string
@@ -657,7 +657,8 @@ if QtWidgets is not None:
 
         # -- building ------------------------------------------------------------
         def _fill(self, sec):
-            rows = controls.section(sec.sid)
+            # FreeCAD's own controls (overrides.OWNED) are not built twice.
+            rows = [c for c in controls.section(sec.sid) if c["key"] not in overrides.OWNED]
             i = 0
             while i < len(rows):
                 c = rows[i]
@@ -976,10 +977,10 @@ if QtWidgets is not None:
             if own:
                 row = self._row(c)
             b = self._register(_Bind(c, row))
-            btn = QtWidgets.QPushButton(title_case(c["label"]))
+            btn = QtWidgets.QPushButton(overrides.label(c) or title_case(c["label"]))
             btn.setObjectName("btn_" + c["key"])
-            if c.get("tooltip"):
-                btn.setToolTip(c["tooltip"])
+            if overrides.tooltip(c):
+                btn.setToolTip(overrides.tooltip(c))
             btn.clicked.connect(lambda *_, k=c["key"]: self.press(k))
             if own:
                 h = QtWidgets.QHBoxLayout(row)
@@ -1217,18 +1218,18 @@ if QtWidgets is not None:
                     b.row.setVisible(shown(b.c, self._get))
 
         def _header(self):
-            self.binds["undo"].widgets[0].setEnabled(self.draft.can_undo())
-            self.binds["redo"].widgets[0].setEnabled(self.draft.can_redo())
+            for k, can in (("undo", self.draft.can_undo), ("redo", self.draft.can_redo)):
+                b = self.binds.get(k)   # FreeCAD's Edit > Undo is the one (overrides.OWNED)
+                if b is not None:
+                    b.widgets[0].setEnabled(can())
 
 
         # -- actions ---------------------------------------------------------------
         def press(self, key, **extra):
             """A button: the draft's own, or a tool through the runner."""
             d = self.draft
-            if key == "undo":
-                d.undo()
-            elif key == "redo":
-                d.redo()
+            if key in ("undo", "redo"):
+                _std_undo(key, d)
             elif key == "resetSettings":
                 if self.confirm():
                     d.reset()
@@ -1356,6 +1357,19 @@ if QtWidgets is not None:
                 self._unsub()
                 self._unsub = None
             super().closeEvent(ev)
+
+
+def _std_undo(key, d):
+    """Undo / Redo: FreeCAD's (Std_Undo / Std_Redo), which undo texture edits
+    as the draft lives in the document; the draft's own without FreeCAD."""
+    try:
+        import FreeCADGui
+
+        FreeCADGui.runCommand("Std_Undo" if key == "undo" else "Std_Redo", 0)
+        return
+    except ImportError:
+        pass
+    (d.undo if key == "undo" else d.redo)()
 
 
 def _freecad_faces():

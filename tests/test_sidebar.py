@@ -345,11 +345,16 @@ class SidebarWidget(unittest.TestCase):
     def test_every_label_is_bumpmeshs(self):
         d, sb = self.make()
         got = sb.labels()
+        from texturizer import overrides
+
         for c in controls.CONTROLS:
-            if c["type"] == "hidden":   # stored on the layer, no widget
+            if c["type"] == "hidden" or c["key"] in overrides.OWNED:   # no widget: stored, or FreeCAD's own
                 self.assertNotIn(c["key"], got)
                 continue
             self.assertIn(c["key"], got)
+            if c["key"] in overrides.LABELS:   # FreeCAD's meaning: the draft is in the document
+                self.assertEqual(got[c["key"]], overrides.LABELS[c["key"]])
+                continue
             if c.get("label") is not None:
                 # Buttons in Title Case, as FreeCAD's design guide asks; the
                 # rest (labels, checkboxes) in BumpMesh's own words.
@@ -413,17 +418,19 @@ class SidebarWidget(unittest.TestCase):
 
     def test_buttons_call_runner_or_draft(self):
         d, sb = self.make()
-        sb.binds["exportStl"].widgets[0].click()
-        self.assertEqual(self.calls[-1], ("texture_export", {"format": "stl", "layer": 0}))
+        for k in ("undo", "redo", "exportStl"):   # FreeCAD's own: Edit > Undo, File > Export
+            self.assertNotIn(k, sb.binds)
+        sb.binds["export3mf"].widgets[0].click()
+        self.assertEqual(self.calls[-1], ("texture_export", {"format": "3mf", "layer": 0}))
         sb.binds["addToDocument"].widgets[0].click()
         self.assertEqual(self.calls[-1][0], "texture_apply")
         sb.binds["loadModel"].widgets[0].click()
         self.assertEqual(self.calls[-1][0], "texture_draft")
         n = len(self.calls)
         sb.binds["rotation"].box.setValue(30)
-        sb.binds["undo"].widgets[0].click()
+        sb.press("undo")   # without FreeCAD: the draft's own (with it: Std_Undo)
         self.assertEqual(d.get("rotation"), 0)
-        self.assertEqual(len(self.calls), n)  # undo is the draft's own
+        self.assertEqual(len(self.calls), n)
         sb.binds["exclusionTool"].buttons[0][1].click()  # Faces tool
         self.assertEqual(d.get("exclusionTool"), "faces")
         self.assertFalse(sb.binds["maskFaces"].row.isHidden())
@@ -514,8 +521,8 @@ class SidebarWidget(unittest.TestCase):
                     self.assertGreaterEqual(w.geom.x(), 0)
                     self.assertLessEqual(w.geom.right(), cw - 1, getattr(w, "text", lambda: w)())
             self.assertGreater(flow.heightForWidth(cw), 0)
-        load, undo = sb.binds["loadProject"].widgets[0], sb.binds["undo"].widgets[0]
-        self.assertGreater(load.geom.y(), undo.geom.y())  # the header row wrapped
+        load, reset = sb.binds["loadProject"].widgets[0], sb.binds["resetSettings"].widgets[0]
+        self.assertGreater(load.geom.y(), reset.geom.y())  # the header row wrapped
         tools = sb.layers.rows[-1]["tools"]   # S, Cover, up, down, remove: one group
         self.assertLessEqual(tools.geom.right(), cw - 1)  # a layer row's last button
         # The Mode combo can shrink: its minimum is a few characters, not its longest option.

@@ -30,12 +30,12 @@ class Tooltips(unittest.TestCase):
         self.assertIn("Stefan Hermann (CNC Kitchen)", texturizer.CREDIT)
 
     def test_bumpmesh_wording_kept(self):
-        self.assertIn("Widely compatible with all slicers", commands.tooltip("exportStl"))
+        self.assertIn("Widely compatible with all slicers", commands.tooltip("exportStl"))  # still in the table
+        self.assertIn("BumpMesh web app", commands.tooltip("saveProject"))   # shared with BumpMesh, saved with the document
 
     def test_view_commands_say_what_they_do(self):
         tips = {name: tip for name, _label, tip in commands.VIEW}
-        self.assertEqual(tips["Texturizer_Wireframe"], "Show the model as wireframe; press again for its normal look.")
-        self.assertEqual(tips["Texturizer_Perspective"], "Switch between perspective and orthographic camera.")
+        self.assertEqual(set(tips), {"Texturizer_Section"})   # Wireframe, Perspective: FreeCAD's own
         self.assertEqual(tips["Texturizer_Section"], "Cut the view with FreeCAD's clipping plane; press again to close it.")
         for tip in tips.values():
             self.assertNotIn("Std_", tip)  # no command ids in what the user reads

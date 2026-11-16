@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-<title>Texturizer_Wireframe</title>
-<defs><linearGradient id="Texturizer_Wireframe_g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eeeeec"/><stop offset="1" stop-color="#babdb6"/></linearGradient><linearGradient id="Texturizer_Wireframe_g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9b96e"/><stop offset="1" stop-color="#c17d11"/></linearGradient><linearGradient id="Texturizer_Wireframe_g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#729fcf"/><stop offset="1" stop-color="#204a87"/></linearGradient></defs>
-<path d="M8,20 L28,8 L56,20 V44 L28,56 L8,44 Z M8,20 L28,32 L56,20 M28,32 V56 M28,8 V32 M8,44 L28,32 L56,44" fill="none" stroke="#2e3436" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-</svg>
