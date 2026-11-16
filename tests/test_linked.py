@@ -281,6 +281,49 @@ class Linked(unittest.TestCase):
         self.assertEqual(sorted(self.mask_of(obj)["triangles"]), new_ft["Face4"][:1])
         self.assertIn("Layer 1: 1 of 3 painted triangles have no surface under them now; re-paint them.", obj.TextureState)
 
+    def test_precision_paint_follows_by_surface_and_lost_detail_is_flagged(self):
+        """The Precision brush's split triangles and soft paint move with the
+        triangles they sit on (by surface position); where those triangles
+        changed the detail is flagged, never guessed. A face-snapped mask
+        is a face name and follows as one."""
+        from texturizer import paint
+
+        obj = self.textured()
+        sh = self.body.Shape
+        srf = paint.surface_for(sh.pos)
+        d = live.draft()
+        br = paint.Brush(True, 3.0, 50.0, "precision")
+        below = [dict(paint.ray_hit(sh.pos, [x, 5.0, -10.0], [0, 0, 1]), view=[0, 0, 1]) for x in (6.0, 9.0)]
+        side = [dict(paint.ray_hit(sh.pos, [30.0, 5.0, z], [-1, 0, 0]), view=[-1, 0, 0]) for z in (3.0, 4.0)]
+        paint.commit(d, srf, 0, lambda st: paint.apply_stroke(st, below, br), sh.ft)
+        paint.commit(d, srf, 0, lambda st: paint.apply_stroke(st, side, br), sh.ft)
+        snap = paint.Brush(True, 1.0, 100.0, "precision", snap="faces")
+        hit5 = dict(paint.ray_hit(sh.pos, [10.0, 20.0, 4.0], [0, -1, 0]), view=[0, -1, 0])
+        paint.commit(d, srf, 0, lambda st: paint.apply_stroke(st, [hit5], snap, face_triangles=sh.ft), sh.ft)
+        m = d.mask(0)
+        self.assertEqual(m["faces"], ["Face5"])
+        bottom = set(sh.ft["Face1"])
+        split_bottom = sorted(r[0] for r in m["split"] if r[0] in bottom)
+        self.assertTrue(split_bottom and any(r[0] in set(sh.ft["Face4"]) for r in m["split"]))
+        self.assertTrue(any(r[3] for r in m["split"]))   # Hardness 50: soft coverage in the split rows
+        dd = json.loads(obj.TextureDraft)
+        dd["layers"][0]["mask"] = json.loads(json.dumps(m))
+        obj.TextureDraft = json.dumps(dd)
+        obj.MaskAnchors = json.dumps(linked.anchors(dd, sh, sh.pos, sh.ft))
+        self.body.Shape = Shape(h=12.0)      # taller: the bottom is the same, the sides are new triangles
+        self.recompute(obj)
+        got = self.mask_of(obj)
+        new_ft = self.body.Shape.ft
+        moved = [r for r in got["split"]]
+        self.assertTrue(moved and all(r[0] in set(new_ft["Face1"]) for r in moved))   # the bottom's detail kept
+        old_rows = {tuple(map(tuple, sh.pos.reshape(-1, 3, 3)[r[0]].tolist())): r[1:] for r in m["split"] if r[0] in bottom}
+        for r in moved:
+            key = tuple(map(tuple, self.body.Shape.pos.reshape(-1, 3, 3)[r[0]].tolist()))
+            self.assertEqual(old_rows[key], r[1:])   # the same tree on the same triangle
+        self.assertEqual(got["faces"], ["Face5"])   # the snapped face, by name
+        self.assertIn("brush detail on", obj.TextureState)   # the side's detail could not move: flagged
+        self.assertIn("re-paint them", obj.TextureState)
+
     def test_apply_yields_the_preview_and_says_what_it_ran(self):
         """Live: an Update after a CAD change took 26 s (5 s fresh), the preview
         subdividing the changed part beside it. The preview steps aside (it
