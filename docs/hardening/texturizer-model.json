@@ -1,0 +1,543 @@
+{
+ "tutorial": "No FreeCAD wiki tutorial covers Texturizer (an add-on). The part is the wiki's Part_Box.md primitive, 40 x 30 x 10 mm, textured as BumpMesh's own workflow goes (README.md of Texturizer-FreeCAD; guide_read { topic: \"texture\" }): one-call apply on the top face, then the draft with two layers, preview, apply, check, export, a CAD change and Update.",
+ "reference": null,
+ "conventions": {
+  "placeholders": "None: every call names its objects by label (Grip, Grip_hex, Grip_textured), so the calls do not depend on earlier answers. Run in order; chunks of 20 may be cut anywhere.",
+  "faces": "A Part box: Face1 x=0, Face2 x=40, Face3 y=0, Face4 y=30, Face5 z=0 (bottom), Face6 z=10 (top).",
+  "refused": "An expect starting REFUSED means the call must answer isError with that code; nothing in the document changes.",
+  "measuredHere": "The numbers marked as the plain-Python engine's were run on this box as 12 triangles outside FreeCAD (texturizer.engine): estimates are exact; triangle counts after decimation and repair may differ a little with FreeCAD's tessellation order."
+ },
+ "expected": {
+  "body": {
+   "volume_mm3": 12000,
+   "box": [
+    40,
+    30,
+    10
+   ],
+   "faces": 6,
+   "tessellationTriangles": 12
+  },
+  "estimate": {
+   "refineLength_1.0": {
+    "subdividedTriangles": 24576,
+    "memoryBytes": 10321920
+   },
+   "refineLength_0.5": {
+    "subdividedTriangles": 98304
+   },
+   "refineLength_0.02": {
+    "subdividedTriangles": 69206016,
+    "refusedOverGB": 4
+   }
+  },
+  "oneCallApply": {
+   "texture": "Hexagon",
+   "face": "Face6",
+   "textureHeight": 0.4,
+   "triangles": 29442,
+   "topZ": 10.4,
+   "bottomZ": 0.0,
+   "repair": {
+    "open": 0,
+    "nonManifold": 0
+   },
+   "seconds": "about 4 in plain Python on the build machine"
+  },
+  "check": {
+   "Grip_hex": {
+    "verdict": "ok",
+    "texturedFaces": [
+     "Face6"
+    ],
+    "depth_mm": 0.4
+   },
+   "Grip_textured": {
+    "plain": [
+     "Face5"
+    ]
+   }
+  },
+  "prepare": {
+   "triangles": 12,
+   "maskTriangles": 2
+  },
+  "afterHeight12": {
+   "box": [
+    40,
+    30,
+    12
+   ],
+   "Grip_hex": "OutOfDate until update",
+   "Grip_textured": "reruns by itself (TextureState updating… then up to date)"
+  }
+ },
+ "calls": [
+  {
+   "tool": "doc_new",
+   "arguments": {
+    "name": "TextureGrip"
+   },
+   "expect": "a new empty document"
+  },
+  {
+   "tool": "part_primitive",
+   "arguments": {
+    "kind": "box",
+    "size": [
+     40,
+     30,
+     10
+    ],
+    "name": "Grip"
+   },
+   "expect": "volume 12000; box [40, 30, 10]; faces 6 (Face5 is the bottom z = 0, Face6 the top z = 10)"
+  },
+  {
+   "tool": "guide_read",
+   "arguments": {
+    "topic": "texture"
+   },
+   "expect": "the texture guide, with the sections 'Following the body, and Update' and 'Size, time and limits'; credits BumpMesh by CNC Kitchen"
+  },
+  {
+   "tool": "texture_list",
+   "arguments": {
+    "category": "geometric"
+   },
+   "expect": "count > 0; every texture's category is geometric; each has id, name, credit, licence, defaults.scaleU; credit names Stefan Hermann, CNC Kitchen"
+  },
+  {
+   "tool": "texture_list",
+   "arguments": {
+    "search": "hexagon"
+   },
+   "expect": "count >= 3 (Hexagon, Hexagon Outline, Hexagons); ids usable as texture"
+  },
+  {
+   "tool": "texture_list",
+   "arguments": {
+    "category": "nope"
+   },
+   "expect": "REFUSED invalid_input: names the allowed categories"
+  },
+  {
+   "tool": "texture_settings",
+   "arguments": {},
+   "expect": "defaults.refineLength 1.0, defaults.maxTriangles 750000, defaults.textureHeight 0.5; mappingModes 0-8 by name; maxLayers 4; units; credit"
+  },
+  {
+   "tool": "texture_settings",
+   "arguments": {
+    "body": "Grip",
+    "texture": "Hexagon",
+    "settings": {
+     "refineLength": 1.0
+    }
+   },
+   "expect": "body.size [40, 30, 10]; body.estimate.inputTriangles 12, subdividedTriangles 24576, memoryBytes 10321920 (24576 x 420); body.suggest has refineLength and maxTriangles"
+  },
+  {
+   "tool": "texture_settings",
+   "arguments": {
+    "body": "Grip",
+    "settings": {
+     "refineLength": 0.02
+    }
+   },
+   "expect": "body.estimate.subdividedTriangles 69206016, outputTriangles 750000, safetyCap true; no body.suggest (no texture given)"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {
+    "body": "Grip",
+    "texture": "Hexagon",
+    "settings": {
+     "refineLength": 0.02
+    }
+   },
+   "expect": "REFUSED invalid_state: would make 69,206,016 triangles (~27.1 GB, over memoryLimitGB 4); says to raise settings.refineLength and names texture_settings and texture_preview; nothing added to the document"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {
+    "body": "Grip",
+    "texture": "Hexagon",
+    "faces": [
+     "Face6"
+    ],
+    "mode": "include",
+    "settings": {
+     "textureHeight": 0.4,
+     "scaleU": 5,
+     "mappingMode": "planarXY",
+     "refineLength": 0.5
+    },
+    "name": "Grip_hex"
+   },
+   "expect": "object set, label Grip_hex; inputTriangles 12; triangles about 29442 (the plain-Python engine made 29442 on the same box; FreeCAD's tessellation may order the 12 triangles differently, so within a few percent); repair.open 0 and nonManifold 0; warnings []; layers [{layer 1, mode include, faces [Face6]}]; bodyHidden true; engine.ms per stage; health ok; a few seconds"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "object": "Grip_hex"
+   },
+   "expect": "verdict ok; texturedFaces has only Face6 with moved > 0.2 and out about 0.4; depth about 0.4; no leaked, no bare, no mesh (closed)"
+  },
+  {
+   "tool": "view_snapshot",
+   "arguments": {},
+   "expect": "the block with a hexagon pattern on top only; the smooth Grip body is hidden"
+  },
+  {
+   "tool": "texture_draft",
+   "arguments": {
+    "part": "Grip",
+    "reset": true
+   },
+   "expect": "mesh { triangles 12, faces 6 }; draft.part is Grip's Name; one layer, mode exclude, faces []; the sidebar opens"
+  },
+  {
+   "tool": "texture_preview",
+   "arguments": {
+    "suggest": true
+   },
+   "expect": "suggest { refineLength, maxTriangles, pixelsPerEdge }; draft.settings shows them when they differ from the defaults; nothing built"
+  },
+  {
+   "tool": "texture_set",
+   "arguments": {
+    "texture": "Fine Leather",
+    "settings": {
+     "textureHeight": 0.3,
+     "scaleU": 8,
+     "mappingMode": "cubic",
+     "refineLength": 0.8
+    }
+   },
+   "expect": "layer 0; set.texture 'Fine Leather', set.textureHeight 0.3, set.scaleU 8, set.mappingMode 6, set.refineLength 0.8; draft.layers[0].texture is Fine Leather"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "mode": "exclude",
+    "add": [
+     "Face5"
+    ]
+   },
+   "expect": "layer 0, mode exclude, faces [Face5], triangles 0; note 'These faces stay plain.'"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "add_by": "direction",
+    "faces": [
+     "Face5"
+    ],
+    "angle": 10
+   },
+   "expect": "faces still [Face5] (no other face points down)"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "triangles": [
+     99999
+    ]
+   },
+   "expect": "REFUSED invalid_input: indices 0 to 11"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "add"
+   },
+   "expect": "draft has 2 layers; layer 1 active, mode include, faces [] (it textures nothing until it gets faces)"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "layer": 1,
+    "fill": {
+     "faces": [
+      "Face6"
+     ],
+     "maxAngle": 20
+    }
+   },
+   "expect": "layer 1, mode include, faces [Face6] (the box's edges are 90 degrees, so the fill stays on the top)"
+  },
+  {
+   "tool": "texture_set",
+   "arguments": {
+    "layer": 1,
+    "texture": "Hexagon",
+    "settings": {
+     "textureHeight": 0.4,
+     "scaleU": 5
+    }
+   },
+   "expect": "layer 1; set.texture Hexagon"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "blend",
+    "layer": 1,
+    "value": "add"
+   },
+   "expect": "draft.layers[1].blend add"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "blend",
+    "layer": 0,
+    "value": "add"
+   },
+   "expect": "REFUSED invalid_input: layer 0 always covers"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "name",
+    "layer": 1,
+    "value": "Top hexagons"
+   },
+   "expect": "draft.layers[1].name 'Top hexagons'"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "solo",
+    "layer": 1,
+    "value": true
+   },
+   "expect": "draft.layers[1].solo true"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "solo",
+    "layer": 1,
+    "value": false
+   },
+   "expect": "draft.layers[1].solo false"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "layer": 1,
+    "paint": {
+     "strokes": [
+      [
+       [
+        20,
+        15,
+        10
+       ]
+      ]
+     ],
+     "type": "circle",
+     "size": 6,
+     "mode": "standard",
+     "erase": true
+    }
+   },
+   "expect": "strokes 1; layer 1 still include; Face6's triangles under the 6 mm circle at the top's centre are erased from the mask or the answer says what the brush did (brush / triangles); one undo step"
+  },
+  {
+   "tool": "texture_mask",
+   "arguments": {
+    "layer": 1,
+    "clear": true,
+    "add": [
+     "Face6"
+    ]
+   },
+   "expect": "layer 1 faces [Face6], triangles 0 (the paint cleared)"
+  },
+  {
+   "tool": "texture_preview",
+   "arguments": {
+    "quality": "draft"
+   },
+   "expect": "part Grip, quality draft, inputTriangles 12, triangles > 1000, previewEdge >= 0.8, export { edge 0.8, triangles, memoryMB }; next names view_snapshot. A job id instead if it ran past 45 s (then job_status)"
+  },
+  {
+   "tool": "texture_preview",
+   "arguments": {
+    "turntable": 45
+   },
+   "expect": "turntable { spinning false, turned 45 }"
+  },
+  {
+   "tool": "view_snapshot",
+   "arguments": {},
+   "expect": "the preview: leather on the sides and top, hexagons added on top, the bottom plain"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {},
+   "expect": "object set (label Grip_textured), updated false, layers 2 entries (layer 1 exclude [Face5], layer 2 include [Face6]), repair.open 0, bodyHidden true, health ok; next names texture_check"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "object": "Grip_textured"
+   },
+   "expect": "verdict ok or check with reasons; texturedFaces lists Face1-Face4 and Face6, not Face5; no leaked (Face5 stays plain); angleMasked absent"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {},
+   "expect": "the same object, updated true (the draft's own object is updated, not a second one made)"
+  },
+  {
+   "tool": "texture_export",
+   "arguments": {
+    "format": "stl",
+    "object": "Grip_textured",
+    "path": "grip_textured.stl"
+   },
+   "expect": "path in the output folder, format stl, triangles as the object's, credit; next names texture_check"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "path": "grip_textured.stl"
+   },
+   "expect": "object is Grip_textured's Name (found from the file texture_export wrote); verdict as the check of the object"
+  },
+  {
+   "tool": "texture_export",
+   "arguments": {
+    "format": "3mf",
+    "path": "grip_draft.3mf"
+   },
+   "expect": "path, format 3mf, triangles > 1000, warnings, credit (the draft run by the engine; nothing added to the document). A job id if past 45 s"
+  },
+  {
+   "tool": "texture_export",
+   "arguments": {
+    "format": "bumpmesh",
+    "path": "grip.bumpmesh"
+   },
+   "expect": "path, format bumpmesh, files (the names inside the project); no dialog opened"
+  },
+  {
+   "tool": "texture_export",
+   "arguments": {
+    "format": "stl",
+    "object": "Grip",
+    "path": "no.stl"
+   },
+   "expect": "REFUSED invalid_input: Grip is not a mesh; says texture_apply makes a Textured object"
+  },
+  {
+   "tool": "texture_prepare",
+   "arguments": {
+    "body": "Grip",
+    "faces": [
+     "Face6"
+    ],
+    "mode": "include",
+    "path": "grip-for-texture.stl"
+   },
+   "expect": "stl and mask in the output folder (not FreeCAD's working folder), triangles 12, maskTriangles 2, mode include, faces [Face6]; next.tool bumpmesh_texture_file"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "body": "Grip",
+    "path": "grip-for-texture.stl",
+    "mask": "grip-for-texture-mask.json"
+   },
+   "expect": "verdict check: bare [Face6] (the prepared STL is not textured, so nothing moved); no leaked; mesh closed"
+  },
+  {
+   "tool": "object_set",
+   "arguments": {
+    "object": "Grip",
+    "values": {
+     "Height": 12
+    }
+   },
+   "expect": "Grip is 40 x 30 x 12. Grip_textured (made from the draft) textures itself again in the background; Grip_hex (made in one call) is only marked out of date"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "object": "Grip_hex"
+   },
+   "expect": "warnings say Grip_hex is out of date and name texture_apply { update }; the verdict is not asserted (the mesh is of the 10 mm body, measured against the 12 mm one)"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {
+    "update": "Grip_hex"
+   },
+   "expect": "updated true, outOfDate false, object Grip_hex; triangles close to the first apply's"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {
+    "update": "Grip_textured",
+    "include_new": true
+   },
+   "expect": "updated true, state 'up to date', no maskReport (the box's faces kept their names); included absent or [] (no new faces)"
+  },
+  {
+   "tool": "texture_check",
+   "arguments": {
+    "object": "Grip_textured"
+   },
+   "expect": "verdict ok or check with reasons; depth measured against the 12 mm high body; no leaked"
+  },
+  {
+   "tool": "texture_draft",
+   "arguments": {
+    "project": "grip.bumpmesh",
+    "mode": "settings"
+   },
+   "expect": "project { mode settings, warnings }; draft has the 2 layers saved before; no Mesh object added"
+  },
+  {
+   "tool": "texture_apply",
+   "arguments": {
+    "update": "NoSuchObject"
+   },
+   "expect": "REFUSED not_found: lists Grip_hex and Grip_textured"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "remove",
+    "layer": 1
+   },
+   "expect": "draft has 1 layer"
+  },
+  {
+   "tool": "texture_layer",
+   "arguments": {
+    "action": "remove",
+    "layer": 0
+   },
+   "expect": "REFUSED invalid_state: the last layer stays; names texture_draft { reset: true }"
+  },
+  {
+   "tool": "texture_preview",
+   "arguments": {
+    "cancel": true
+   },
+   "expect": "cancelled true"
+  }
+ ],
+ "notCovered": [
+  "texture_draft { project: \"ask\" }, texture_set { texture: { upload: true } }, stamp: \"place\", frame { face: \"selected\" }, texture_mask { add: \"selected\" }, texture_export without path: each waits for a person at the window (a dialog or a pick)",
+  "texture_set frame / cylinder / stamp { point, normal }: a box has no cylinder to fit; add a part_primitive cylinder and texture_set { cylinder: \"autofit\" } by hand to cover them",
+  "texture_apply { bake: true }: makes the result the draft's part; left out to keep the model's later calls independent",
+  "texture_preview { turntable: true } (a running spin) and the background rerun's timing: watch by eye",
+  "A Mesh part (triangles, fill { triangles }): needs an imported STL"
+ ]
+}

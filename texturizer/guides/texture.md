@@ -17,9 +17,21 @@ There is one draft per window, shared by the sidebar, the gallery and these tool
 6. Say back the texture, depth, tile and the plain faces, then `texture_apply` — a Textured Mesh object beside the body (the body is untouched). Applying the same draft again updates that object; `new: true` makes another; `bake: true` is Bake Textures: the result becomes the part, and with Mask just-baked faces on (`bakeMask`, the default) the fresh layer excludes what was just textured. Like PartDesign hiding the previous feature, the Body is hidden while its textured result is shown (`bodyHidden` in the answer; its flat faces would otherwise show through the texture, and faces left smooth are part of the result): hiding or deleting the result, or Undo, shows the Body again.
 7. `texture_export { format: stl | 3mf | bumpmesh, path }` — the file (3MF and STL carry the credit); `bumpmesh` is BumpMesh's Save Project.
 
-## Out of date and Update
+## Following the body, and Update
 
-A Textured object stores the draft it was made from. When its body changes it is marked `OutOfDate` and never reruns on its own: `texture_apply { update: "<object>" }` textures it again with its stored settings.
+A Textured object made from the draft is linked to its body (`Source`) and stores the draft. When the body changes it textures the body again by itself: with FreeCAD's window in the background (`TextureState` reads `updating…` until the new mesh is in), without a window inside the recompute. Its masks follow the faces by FreeCAD's stable names or their surface; a mask that no longer fits is left out and reported (`mask needs re-pick`), and faces a later CAD step made stay smooth until `texture_apply { update: "<object>", include_new: true }`. `texture_apply { update: "<object>" }` runs it again at once and answers `state`, `maskReport` and `newFaces`.
+
+A Textured object made in one call (`texture_apply { body, texture, ... }`, no draft) stores its arguments instead: when its body changes it is only marked `OutOfDate`, and `texture_apply { update: "<object>" }` runs the same arguments again. Its faces are names, so check them after a CAD change.
+
+## Size, time and limits
+
+- The engine refines the part's mesh until no edge is longer than `refineLength` (1 mm by default), displaces it, then reduces it to `maxTriangles` (750 000 by default). Halving `refineLength` makes about four times the triangles, the memory and the time.
+- `texture_settings { body, texture, settings }` and `texture_preview` answer the estimate before anything runs (`subdividedTriangles`, `memoryBytes`; about 420 bytes per refined triangle). `texture_apply` and `texture_export` refuse a run estimated over `memoryLimitGB` (4, about 10 million refined triangles) and say what to raise; the engine also stops refining at its own cap and says so in `warnings`.
+- `texture_apply` changes the document, so it cannot run as a job: it runs inside the call and FreeCAD's window is busy until it ends. `texture_preview`, `texture_export` and `texture_prepare` are long reads: past about 45 s the call answers with a job id and `job_status` gives the answer.
+- On a large part, a mask (only the faces that need texture) costs far less than a finer `refineLength`: plain faces are kept as they are (`preserveUntextured`).
+- `texture_export` without `path` (and without `ask: false`), `texture_draft { project: "ask" }`, `texture_set { texture: { upload: true } }`, `stamp: "place"`, `face: "selected"` and `add: "selected"` wait for a person at the window. Give paths, names and points instead.
+- Faces are `Face1`..`FaceN` of the part as it is now (from 1); triangles are indices from 0 of the part's tessellation at 0.02 mm (`texture_draft` answers the count). Both change when the CAD model changes.
+- The result is a mesh beside the body, never a solid: fillets, holes and booleans do not build on it. Texture last.
 
 ## Without the draft
 
