@@ -40,6 +40,11 @@ DEFAULT = LEFT_TAB
 TREE_MAX, TASK_MAX = 300, 360
 SLIDE_MAX, COMBO_SQUEEZE = 300, 220
 CONTENT_MIN = 240
+# At start FreeCAD gives each dock the width it was saved with: a panel
+# wider than START_TOO_WIDE (a content's size hint once grew one to ~640 px)
+# goes back to START_WIDTH, once, at the first placement after the window
+# shows. A width the person drags later in the session stays.
+START_WIDTH, START_TOO_WIDE = 354, 420
 # The Combo View dock: its object name in FreeCAD 1.x is Std_ComboView.
 COMBO_NAMES = ("Std_ComboView", "Combo View", "ComboView", "Std_TreeView", "Model", "Tree view")
 TASKS = "Tasks"
@@ -48,6 +53,14 @@ EVERYWHERE = "*"
 
 
 # ---- plain rules (no Qt) ----------------------------------------------------
+
+def start_width(width):
+    """The width a panel's dock goes back to at start, or None to leave it."""
+    try:
+        return START_WIDTH if float(width) > START_TOO_WIDE else None
+    except (TypeError, ValueError):
+        return None
+
 
 def normalise(value):
     """A PanelLayout value as one of LAYOUTS; anything else is the default."""
@@ -538,6 +551,8 @@ class Placer:
         self.active = None
         self.arrived_in = None
         self._watch = None
+        self._start_done = False
+        self._start_tries = 0
 
     # -- the window ------------------------------------------------------------
 
@@ -606,7 +621,39 @@ class Placer:
             self._right(e, True)
         self._unstick()
         self._keep_size(before, maxed)
+        if not self._start_done:
+            QtCore, _w = _qt()
+            QtCore.QTimer.singleShot(0, self._at_start)
         return e["where"]
+
+    def _at_start(self):
+        """Once, at the first placement after the window shows: a panel's
+        dock (on the right, or the Combo View it is a tab of) that came back
+        wider than START_TOO_WIDE goes to START_WIDTH."""
+        if self._start_done:
+            return
+        QtCore, _w = _qt()
+        mw = self._main()
+        if not mw.isVisible():
+            self._start_tries += 1
+            if self._start_tries < 40:
+                QtCore.QTimer.singleShot(250, self._at_start)
+            return
+        self._start_done = True
+        docks = [e["dock"] for e in self.entries.values() if e.get("where") == RIGHT]
+        if read() == LEFT_TAB:
+            c = combo_dock(mw)
+            if c is not None and c not in docks:
+                docks.append(c)
+        for d in docks:
+            try:
+                if not d.isVisible() or d.isFloating():
+                    continue
+                w = start_width(d.width())
+                if w:
+                    mw.resizeDocks([d], [w], QtCore.Qt.Horizontal)
+            except Exception:  # noqa: BLE001 — an older Qt without resizeDocks
+                pass
 
     def _keep_size(self, before, maxed):
         """The main window kept at its size once the docks settle."""
