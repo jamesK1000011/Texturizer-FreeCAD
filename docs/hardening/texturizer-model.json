@@ -175,7 +175,7 @@
     },
     "name": "Grip_hex"
    },
-   "expect": "object set, label Grip_hex; inputTriangles 12; triangles about 29442 (the plain-Python engine made 29442 on the same box; FreeCAD's tessellation may order the 12 triangles differently, so within a few percent); repair.open 0 and nonManifold 0; warnings []; layers [{layer 1, mode include, faces [Face6]}]; bodyHidden true; engine.ms per stage; health ok; a few seconds"
+   "expect": "object set, label Grip_hex; inputTriangles 12; triangles about 29442 to 29700 (the plain-Python engine made 29442 on the same box, FreeCAD 1.1.3 on the Mac 29666: its tessellation orders the 12 triangles differently); repair.open 0 and nonManifold 0; warnings []; layers [{layer 0, mode include, faces [Face6]}] (layer is the index from 0, as texture_mask takes it); bodyHidden true; engine.ms per stage; health ok; a few seconds"
   },
   {
    "tool": "texture_check",
@@ -344,7 +344,7 @@
      "erase": true
     }
    },
-   "expect": "strokes 1; layer 1 still include; Face6's triangles under the 6 mm circle at the top's centre are erased from the mask or the answer says what the brush did (brush / triangles); one undo step"
+   "expect": "strokes 1; layer 1 still include. On this box the top face is two triangles and the 6 mm circle at its centre lies on both, so mode standard (whole triangles) erases the whole face: faces [], triangles 0, facesBrushedOff [Face6], and the note says the brush took Face6 off the layer's faces; one undo step"
   },
   {
    "tool": "texture_mask",
@@ -362,7 +362,7 @@
    "arguments": {
     "quality": "draft"
    },
-   "expect": "part Grip, quality draft, inputTriangles 12, triangles > 1000, previewEdge >= 0.8, export { edge 0.8, triangles, memoryMB }; next names view_snapshot. A job id instead if it ran past 45 s (then job_status)"
+   "expect": "part Grip, quality draft, inputTriangles 12, triangles > 1000, previewEdge 0.5 (BumpMesh's preview edge is at most the part's largest size / 80 = 0.5 mm here, finer than the draft's refineLength 0.8), export { edge 0.8, triangles, memoryMB }; warnings has one sentence saying the preview is finer than the result will be and naming refineLength 0.5; next names view_snapshot. A job id instead if it ran past 45 s (then job_status)"
   },
   {
    "tool": "texture_preview",
@@ -379,14 +379,14 @@
   {
    "tool": "texture_apply",
    "arguments": {},
-   "expect": "object set (label Grip_textured), updated false, layers 2 entries (layer 1 exclude [Face5], layer 2 include [Face6]), repair.open 0, bodyHidden true, health ok; next names texture_check"
+   "expect": "object set (label Grip_textured), updated false, layers 2 entries (layer 0 'Layer 1' exclude [Face5], layer 1 'Top hexagons' include [Face6]: the draft's own indices), repair.open 0, bodyHidden true, health ok; next names texture_check"
   },
   {
    "tool": "texture_check",
    "arguments": {
     "object": "Grip_textured"
    },
-   "expect": "verdict ok or check with reasons; texturedFaces lists Face1-Face4 and Face6, not Face5; no leaked (Face5 stays plain); angleMasked absent"
+   "expect": "verdict ok or check with reasons; texturedFaces lists Face1-Face4 and Face6, not Face5; no leaked (Face5 stays plain); angleMasked absent. On the Mac: depth 0.904 and out 0.64 to 0.70 on the side faces, 0.988 on Face6, more than the layers' heights (0.3 on the sides, 0.3 + 0.4 on top): the points on the top's rim, where the engine moves a crease to where the displaced faces meet (not verified against BumpMesh: see the findings)"
   },
   {
    "tool": "texture_apply",
@@ -470,7 +470,7 @@
    "arguments": {
     "object": "Grip_hex"
    },
-   "expect": "warnings say Grip_hex is out of date and name texture_apply { update }; the verdict is not asserted (the mesh is of the 10 mm body, measured against the 12 mm one)"
+   "expect": "verdict check, outOfDate true (an out-of-date object is never ok); warnings and note say Grip_hex is out of date and name texture_apply { update }; the figures are not asserted (the mesh is of the 10 mm body, measured against the 12 mm one: about 1.6 to 2 mm under Face6)"
   },
   {
    "tool": "texture_apply",
@@ -485,7 +485,7 @@
     "update": "Grip_textured",
     "include_new": true
    },
-   "expect": "updated true, state 'up to date', no maskReport (the box's faces kept their names); included absent or [] (no new faces)"
+   "expect": "updated true, state 'up to date'. included [Face6]: a Part::Box carries no mapped (stable) face names (FreeCAD 1.1 source: src/Mod/Part/App/FeaturePartBox.cpp sets a plain shape), so the draft's masks follow its faces by their surface, and the top face, moved 2 mm, is no longer where it was: after call 42 it was a 'new face' left smooth (the background run answers maskReport for layer 1), and include_new puts it back in the include layer. On a PartDesign Body the face keeps its mapped name and included is absent"
   },
   {
    "tool": "texture_check",

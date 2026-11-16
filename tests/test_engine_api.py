@@ -255,7 +255,7 @@ class Handlers(unittest.TestCase):
     def test_apply(self):
         ctx = Ctx()
         out = self.apply(ctx, self.APPLY)
-        self.assertEqual(out["layers"][0], {"layer": 1, "mode": "exclude", "faces": ["Face2"]})
+        self.assertEqual(out["layers"][0], {"layer": 0, "mode": "exclude", "faces": ["Face2"]})
         self.assertGreater(out["triangles"], 12)
         self.assertTrue(os.path.isfile(out["export"]["path"]))
         self.assertIsNone(out["object"])  # the body is in no document: no mesh object, FreeCAD or not
@@ -268,17 +268,25 @@ class Handlers(unittest.TestCase):
             handlers.texture_apply(ctx, {"texture": "Dots", "settings": {"refineLength": 0.001}})
 
 
+    def test_apply_numbers_layers_from_0_as_the_draft_tools_take_them(self):
+        # Found live: texture_apply answered "layer": 1 for the layer that
+        # texture_mask and texture_layer call 0, so the next call went to
+        # the wrong layer.
+        out = self.apply(Ctx(), {"faces": ["Face6"], "mode": "include", "settings": {"refineLength": 2, "harvestFlatFaces": False},
+                                 "layers": [{"texture": "Knurling"}, {"texture": "Dots", "blendAdd": True}]})
+        self.assertEqual([L["layer"] for L in out["layers"]], [0, 1])
+
     def test_apply_layers_take_top_level_faces_and_mode(self):
         # The live check: layers given with top-level faces / mode textured
         # the whole body. A layer without them takes them; a layer that
         # differs, or a setting outside settings, is refused.
         base = {"faces": ["Face6"], "mode": "include", "settings": {"refineLength": 2, "harvestFlatFaces": False}}
         out = self.apply(Ctx(), {**base, "layers": [{"texture": "Knurling", "settings": {"textureHeight": 0.4}}]})
-        self.assertEqual(out["layers"], [{"layer": 1, "mode": "include", "faces": ["Face6"]}])
+        self.assertEqual(out["layers"], [{"layer": 0, "mode": "include", "faces": ["Face6"]}])
         out = self.apply(Ctx(), {**base, "layers": [{"texture": "Knurling", "faces": "Face6", "mode": "include"}]})
         self.assertEqual(out["layers"][0]["faces"], ["Face6"])
         out = self.apply(Ctx(), {"texture": "Knurling", "settings": {"refineLength": 2}, "layers": [{"faces": ["Face1"]}]})
-        self.assertEqual(out["layers"][0], {"layer": 1, "mode": "exclude", "faces": ["Face1"]})
+        self.assertEqual(out["layers"][0], {"layer": 0, "mode": "exclude", "faces": ["Face1"]})
         for bad, word in (({**base, "layers": [{"texture": "Knurling", "faces": ["Face2"]}]}, "faces"),
                           ({**base, "layers": [{"texture": "Knurling", "mode": "exclude"}]}, "mode"),
                           ({"texture": "Dots", "layers": [{"texture": "Knurling"}]}, "texture"),
@@ -300,6 +308,36 @@ class Handlers(unittest.TestCase):
             out = self.apply(Ctx(), self.APPLY)
         self.assertIsNone(out["object"])
         self.assertTrue(os.path.isfile(out["export"]["path"]))
+
+
+class Answers(unittest.TestCase):
+    """What the answers say, found on the live run of 16 Nov 2026 (FreeCAD
+    1.1.3): plain functions, no FreeCAD."""
+
+    def test_a_check_of_an_out_of_date_object_is_never_ok(self):
+        # A block made 2 mm taller: verdict "ok", "2 mm deep at most", every
+        # point 1.6 to 2 mm under its face, and a warning beside it.
+        out = {"verdict": "ok", "depth": 2.0, "note": "Textured on Face6 only, 2 mm deep at most; the mesh is closed."}
+        handlers.stale_check(out, "Grip_hex", "Textured")
+        self.assertEqual((out["verdict"], out["outOfDate"]), ("check", True))
+        self.assertTrue(out["note"].startswith("Out of date"))
+        self.assertIn('texture_apply { update: "Textured" }', out["note"])
+        self.assertIn("2 mm deep at most", out["note"])   # what was measured is still said
+        self.assertEqual(len(out["warnings"]), 1)
+
+    def test_a_preview_finer_than_the_result_says_so(self):
+        # previewEdge 0.5 (the part's largest size / 80) against refineLength 0.8.
+        said = handlers.preview_finer(0.5, 0.8)
+        self.assertIn("0.5 mm", said)
+        self.assertIn("refineLength 0.8", said)
+        self.assertIn("texture_set", said)
+        self.assertIsNone(handlers.preview_finer(0.8, 0.8))
+        self.assertIsNone(handlers.preview_finer(1.6, 0.8))   # coarser: previewEdge and the engine's note say that
+        self.assertIsNone(handlers.preview_finer(None, 0.8))
+
+    def test_faces_a_brush_took_off_are_named(self):
+        self.assertEqual(handlers.brushed_off(["Face5", "Face6"], ["Face5"]), ["Face6"])
+        self.assertEqual(handlers.brushed_off(["Face6"], ["Face6"]), [])
 
 
 class Plain(unittest.TestCase):
