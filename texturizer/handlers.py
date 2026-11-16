@@ -693,6 +693,16 @@ class Observer:
     """A FreeCAD document observer: a body recomputed marks its Textured
     objects out of date (FreeCAD.addDocumentObserver)."""
 
+    def slotChangedObject(self, obj, prop):  # noqa: N802 (FreeCAD)
+        if prop != "Visibility" or live.GUI is None:
+            return
+        try:
+            fn = getattr(live.GUI, "part_visibility", None)
+            if fn is not None:
+                fn(obj)
+        except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
+
     def slotRecomputedObject(self, obj):  # noqa: N802 (FreeCAD)
         try:
             doc = obj.Document
@@ -745,7 +755,16 @@ def _part(s, ref, d=None):
         o = live.find(doc, ref)
         if o is not None and (getattr(getattr(o, "Shape", None), "Faces", None) or getattr(o, "Mesh", None) is not None):
             return o
-    return s.body(ref)
+        return s.body(ref)
+    # No part named and none in the draft: the last one this document's draft
+    # used, else the one best visible solid; never a hidden object.
+    o = live.choose_part(doc)
+    if o is not None:
+        return o
+    cs = live.candidates(doc)
+    if not cs:
+        raise ToolError("not_found", "No visible body in the document: show or make one, or select it, then Load Model.")
+    raise ToolError("invalid_input", f"body: say which, or select it — {', '.join(o.Label for o in cs)}.")
 
 
 def _watch():

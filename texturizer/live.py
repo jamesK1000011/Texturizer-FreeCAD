@@ -110,6 +110,124 @@ def _doc():
         return None
 
 
+# -- which part a fresh draft takes ---------------------------------------------------
+LAST_PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer/LastPart"
+CONTAINERS = ("App::Part", "App::DocumentObjectGroup", "App::LinkGroup")
+_LAST = {}   # without FreeCAD's parameters (tests): doc key -> part
+
+
+def _doc_key(doc):
+    """A short key for a document: a hash of its file (or name), so no path is stored."""
+    import hashlib
+
+    ref = getattr(doc, "FileName", "") or getattr(doc, "Name", "") or ""
+    return "Doc" + hashlib.sha1(ref.encode("utf-8")).hexdigest()[:16]
+
+
+def _params():
+    try:
+        import FreeCAD
+
+        return FreeCAD.ParamGet(LAST_PARAMS)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def remember_part(doc, name):
+    """The part this document's draft is on, kept for the next session."""
+    if doc is None or not name:
+        return
+    key = _doc_key(doc)
+    _LAST[key] = name
+    p = _params()
+    if p is not None:
+        try:
+            p.SetString(key, str(name))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def last_part(doc):
+    if doc is None:
+        return None
+    key = _doc_key(doc)
+    p = _params()
+    if p is not None:
+        try:
+            got = p.GetString(key, "")
+            if got:
+                return got
+        except Exception:  # noqa: BLE001
+            pass
+    return _LAST.get(key)
+
+
+def visible(obj):
+    """Shown in the 3D view: its own eye, and every group it sits in."""
+    def own(o):
+        vo = getattr(o, "ViewObject", None)
+        if vo is not None and hasattr(vo, "Visibility"):
+            return bool(vo.Visibility)
+        return bool(getattr(o, "Visibility", True))
+
+    if not own(obj):
+        return False
+    seen, todo = set(), list(getattr(obj, "InList", None) or [])
+    while todo:
+        p = todo.pop()
+        if id(p) in seen:
+            continue
+        seen.add(id(p))
+        if getattr(p, "TypeId", "") in CONTAINERS or getattr(p, "TypeId", "") == "PartDesign::Body":
+            if not own(p):
+                return False
+            todo.extend(getattr(p, "InList", None) or [])
+    return True
+
+
+def _textureable(o):
+    return bool(getattr(getattr(o, "Shape", None), "Solids", None)) or getattr(o, "Mesh", None) is not None
+
+
+def candidates(doc):
+    """The visible solids a fresh draft may take, best first: never a hidden
+    object; PartDesign::Body, then other built-in features, then scripted
+    objects (Part::FeaturePython); a container whose shape repeats its
+    children's (one that holds another candidate) is left out."""
+    objs = [o for o in (getattr(doc, "Objects", None) or []) if _textureable(o) and visible(o)]
+    names = {o.Name for o in objs}
+
+    def holds(o):
+        return any(getattr(c, "Name", None) in names and c is not o for c in (getattr(o, "OutList", None) or []))
+
+    keep = [o for o in objs if not (holds(o) and getattr(o, "TypeId", "") != "PartDesign::Body")]
+    return sorted(keep, key=_rank)
+
+
+def choose_part(doc, selected=None):
+    """The part a draft with none takes: the selected solid, else the last
+    part this document's draft used (still there and shown), else the one
+    best visible solid (candidates). None when nothing, or several equally
+    good, qualify (the person says which)."""
+    if selected is not None:
+        o = find(doc, selected) if not hasattr(selected, "Name") else selected
+        if o is not None and _textureable(o):
+            return o
+    last = find(doc, last_part(doc))
+    if last is not None and _textureable(last) and visible(last):
+        return last
+    cs = candidates(doc)
+    if not cs:
+        return None
+    best = [o for o in cs if _rank(o) == _rank(cs[0])]
+    return best[0] if len(best) == 1 else None
+
+
+def _rank(o):
+    t = getattr(o, "TypeId", "") or ""
+    return 0 if t == "PartDesign::Body" else (1 if "Python" not in t else 2)
+
+
 def mesh_for(part, doc=None, tol=TOLERANCE):
     """(positions, face_triangles) of the draft's part, cached until its
     geometry changes. A Mesh object has no B-rep faces: {}."""

@@ -545,6 +545,17 @@ class SidebarWidget(unittest.TestCase):
         t = r["name"].fit(nw)
         self.assertTrue(t.startswith("Layer 1") and t.endswith("…"), t)
         self.assertEqual(r["name"].fit(r["name"].sizeHint().width()), "Layer 1 · Knurling")
+        # Found live: ".ayer 1 · Knu.." (the start clipped, two dots): the
+        # start stays, one ellipsis at the end, inside the contents width.
+        n = r["name"]
+        for w in range(n.minimumSizeHint().width(), n.sizeHint().width()):
+            t = n.fit(w)
+            self.assertTrue(t.startswith("Layer 1"), (w, t))
+            self.assertLessEqual(t.count("…"), 1, t)
+            self.assertNotIn("..", t)
+            if t != n.full:
+                self.assertTrue(t.endswith("…"), t)
+            self.assertLessEqual(n.fontMetrics().horizontalAdvance(t), max(n.room(w), n.fontMetrics().horizontalAdvance("Layer 1…")))
 
     def test_fit_line_and_elide(self):
         fit, el = self.sidebar.fit_line, self.sidebar.elide

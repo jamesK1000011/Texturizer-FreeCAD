@@ -301,8 +301,12 @@ class CoinView:
     def set_body_visible(self, on):
         vo = self._body()
         if vo is not None and bool(vo.Visibility) != bool(on):
-            with timing.stage("body visibility"):
-                vo.Visibility = bool(on)
+            self.w._own_vis += 1   # the preview's own change: not the person hiding the part
+            try:
+                with timing.stage("body visibility"):
+                    vo.Visibility = bool(on)
+            finally:
+                self.w._own_vis -= 1
 
     def progress(self, stage, fraction):
         sb = self.w.sidebar
@@ -384,6 +388,8 @@ class Window:
         self.gizmo = None
         self._frozen = 0
         self._drags = set()
+        self._own_vis = 0
+        self.user_hidden = False   # the person hid the draft's part: no preview, rings or brush on it
 
     # -- the part's mesh, read on the GUI thread only ------------------------------------------
     def snapshot(self):
@@ -532,6 +538,11 @@ class Window:
 
     # -- following the draft -------------------------------------------------------------------
     def _on_draft(self, ev):
+        if ev.get("kind") in ("part", "load", "reset"):
+            d = live.draft()
+            if d.part:
+                live.remember_part(live._doc(), d.part)
+            self.user_hidden = False
         if self.paint is not None:
             self.paint.on_draft(ev)
         if self.gizmo is not None:
@@ -551,14 +562,45 @@ class Window:
         size = (p.max(0) - p.min(0)).tolist() if len(p) else [0, 0, 0]
         sb.set_mesh_info(len(pos) // 9, size, len(pos) * 4 / 2 ** 20)
         self._estimate()
+        c = self.controller
+        if c is not None and c.showing is None and not self._part_shown():
+            self.user_hidden = True   # a hidden part: its preview and rings wait until it is shown
         if self.gizmo is not None:
             self.gizmo.sync()
-        c = self.controller
-        if c is not None:
+        if self.paint is not None:
+            self.paint.sync()
+        if c is not None and not self.user_hidden:
             if c.showing is None:
                 c.open()
             else:
                 c.request("subdivide")
+
+    def _part_shown(self):
+        o = self.view._body() if self.view is not None else None
+        return True if o is None else live.visible(o)
+
+    def part_visibility(self, obj):
+        """The document observer: an object's Visibility changed. The person
+        hiding the draft's part hides its preview, rings and brush with it;
+        showing it again brings them back. The preview's own hiding of the
+        body (it stands in for it) is not the person's."""
+        d = live.draft()
+        if self._own_vis or not d.part or getattr(obj, "Name", None) != d.part:
+            return
+        c = self.controller
+        if not live.visible(obj):
+            if self.user_hidden:
+                return
+            self.user_hidden = True
+            if c is not None and c.showing is not None:
+                c._body = False   # closing leaves it hidden, as the person left it
+                c.close()
+            for t in (self.gizmo, self.paint):
+                if t is not None:
+                    t.sync()
+        elif self.user_hidden:
+            self.user_hidden = False
+            self._part_changed()
 
     def _estimate(self):
         from . import engine
@@ -607,7 +649,8 @@ class Window:
     def selected_object(self):
         try:
             for o in _gui().Selection.getSelection():
-                if getattr(getattr(o, "Shape", None), "Faces", None) or getattr(o, "Mesh", None) is not None:
+                if (getattr(getattr(o, "Shape", None), "Faces", None) or getattr(o, "Mesh", None) is not None) \
+                        and live.visible(o):   # never a hidden object
                     return o.Name
         except Exception:  # noqa: BLE001
             pass
