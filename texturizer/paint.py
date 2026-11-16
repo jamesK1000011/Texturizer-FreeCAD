@@ -457,26 +457,116 @@ def split_marker(mask, n_tri):
     return p
 
 
+# The preview's samples of split triangles, kept between strokes: a stroke
+# changes a few split base triangles, so only their refined corners (and
+# their neighbours', which share midpoints on the common edge) are sampled
+# again; the rest are reused. Keyed by the part, the refined mesh (held, so
+# its buffer can't be reused under the same address), the mask's soft paint
+# and the mode.
+_SPLIT_KEEP = {}
+SPLIT_STATS = {}   # the last sample_split's: sampled / reused faces, sampled points (tests, probe)
+
+
+def _rec_hash(rec):
+    import hashlib
+
+    return hashlib.blake2b(repr(rec).encode(), digest_size=12).digest()
+
+
+def _sample_points(tree, faces, child_pos, rows_by_face):
+    """Paint per corner (len(rows), 3) for the rows of the given base faces,
+    each distinct (face, point) sampled once (corners are shared)."""
+    rows = np.concatenate([rows_by_face[f] for f in faces]) if faces else np.zeros(0, np.int64)
+    if not len(rows):
+        return rows, np.zeros((0, 3))
+    cp = child_pos[rows].reshape(-1, 3)
+    fr = np.repeat(np.concatenate([np.full(len(rows_by_face[f]), f, np.int64) for f in faces]), 3)
+    bits = cp.astype(F32).view(np.int32)   # the refined mesh's own float32 values: equal bits, equal points
+    o = np.lexsort((bits[:, 2], bits[:, 1], bits[:, 0], fr))
+    kb = np.column_stack([fr[o], bits[o]])
+    new = np.ones(len(o), bool)
+    new[1:] = (kb[1:] != kb[:-1]).any(axis=1)
+    grp = np.cumsum(new) - 1
+    inv = np.empty(len(o), np.int64)
+    inv[o] = grp
+    u = o[new]
+    vals = tree.sample_paint_many(0, fr[u], cp[u])
+    SPLIT_STATS["points"] = SPLIT_STATS.get("points", 0) + len(u)
+    return rows, vals[inv.reshape(-1)].reshape(-1, 3)
+
+
 def sample_split(positions, mask, include, child_pos, parents):
     """BumpMesh's _sampledPaint for one layer on a refinement of the source
     mesh (the 3D preview): for the refined triangles whose source triangle
     the Precision brush split, (rows, exclude per corner, hard flag) by the
-    layer's tree sampled at each corner; None when nothing is split."""
-    split = {int(r[0]) for r in mask.get("split") or []}
-    if not split:
+    layer's tree sampled at each corner; None when nothing is split.
+    Sampled in numpy (PaintTree.sample_paint_many, the same values as
+    sample_paint one point at a time), each shared corner once, and only for
+    the split triangles the last call on this refined mesh didn't sample
+    with the same record (or whose neighbour's record changed)."""
+    recs = {int(r[0]): r for r in mask.get("split") or []}
+    SPLIT_STATS.clear()
+    if not recs:
         return None
     parents = np.asarray(parents, np.int64)
-    rows = np.nonzero(np.isin(parents, np.fromiter(split, np.int64)))[0]
-    if not len(rows):
+    srf = surface_for(positions)
+    child = np.asarray(child_pos, F32)
+    ck = (_key(positions), _key(child_pos), len(parents), bool(include))
+    keep = _SPLIT_KEEP if _SPLIT_KEEP.get("key") == ck else None
+    if keep is None:
+        order = np.argsort(parents, kind="stable")
+        sp = parents[order]
+        starts = np.searchsorted(sp, np.arange(srf.n + 1))
+        _SPLIT_KEEP.clear()
+        _SPLIT_KEEP.update(key=ck, hold=(positions, child_pos), order=order, starts=starts, faces={},
+                           child=child.astype(np.float64).reshape(-1, 3, 3))
+        keep = _SPLIT_KEEP
+    order, starts = keep["order"], keep["starts"]
+    # A face's samples hang on its record, the soft paint at its corners
+    # and, through the vertices they share (corners, edge midpoints, set by
+    # whichever replay runs last), the records of the faces touching it.
+    cov = np.zeros(srf.vert_count, F32)
+    soft = mask.get("soft")
+    if soft and soft.get("corners"):
+        c = np.asarray(soft["corners"], np.int64)
+        v = np.asarray(soft["values"], F32)
+        ok = (c >= 0) & (c < srf.n * 3)
+        np.maximum.at(cov, srf.vert_id[c[ok]], v[ok])
+    hashes = {}
+    for f, r in recs.items():
+        corner = cov[srf.tri[f]].tobytes() if 0 <= f < srf.n else b""
+        hashes[f] = _rec_hash(r) + corner
+    old = keep["faces"]
+    changed = [f for f in set(old) | set(recs) if (old.get(f) or (None,))[0] != hashes.get(f)]
+    near = set()
+    ch = np.asarray([f for f in changed if 0 <= f < srf.n], np.int64)
+    if len(ch) and len(old):
+        mark = np.zeros(srf.vert_count, bool)
+        mark[srf.tri[ch].reshape(-1)] = True
+        near = set(np.nonzero(mark[srf.tri].any(axis=1))[0].tolist())
+    changed = set(changed)
+    redo = sorted(f for f in recs if (f in changed or f in near or f not in old) and 0 <= f < srf.n)
+    reuse = [f for f in recs if f not in redo and f in old]
+    rows_by_face = {f: order[starts[f]:starts[f + 1]] for f in redo}
+    if redo:
+        st = state_from_mask(srf, mask)
+        rows, paint = _sample_points(st.tree, redo, keep["child"], rows_by_face)
+        at = 0
+        for f in redo:
+            k = len(rows_by_face[f])
+            old[f] = (hashes[f], rows_by_face[f], paint[at:at + k])
+            at += k
+    for f in list(old):
+        if f not in recs:
+            del old[f]
+    SPLIT_STATS.update(sampled=len(redo), reused=len(reuse))
+    got = [old[f] for f in sorted(recs) if f in old and len(old[f][1])]
+    if not got:
         return None
-    st = state_from_mask(surface_for(positions), mask)
-    t = st.tree
-    cp = np.asarray(child_pos, F32).astype(np.float64).reshape(-1, 3, 3)[rows].tolist()
-    pr = parents[rows].tolist()
-    paint = np.zeros((len(rows), 3))
-    for i, (f, tri) in enumerate(zip(pr, cp)):
-        for k in range(3):
-            paint[i, k] = t.sample_paint(0, f, *tri[k])
+    rows = np.concatenate([g[1] for g in got])
+    paint = np.concatenate([g[2] for g in got])
+    srt = np.argsort(rows, kind="stable")
+    rows, paint = rows[srt], paint[srt]
     hard = (paint >= 1).all(axis=1)
     if include:
         cover = paint

@@ -585,6 +585,27 @@ def _subdivided(key, make, cache_dir=None):
             busy.set()
 
 
+# A full subdivision's key without the faces Preserve Untextured keeps
+# coarse: a mask change (a brush stroke, a face picked) with Preserve
+# Untextured on needs a new subdivision, but the last one of the same part
+# and settings shows the textured result at once (the masked faces only
+# denser than they will be); the exact one replaces it when made.
+_BASE = {}
+
+
+def _sibling(key):
+    """A kept full subdivision of the same part and settings as key, made
+    for other untextured faces (the most recent), or None."""
+    base = _BASE.get(key)
+    if base is None:
+        return None
+    with _SUB_LOCK:
+        for k in reversed(list(_SUBDIVIDED)):
+            if k != key and not k[4] and _BASE.get(k) == base:
+                return _SUBDIVIDED[k]
+    return None
+
+
 def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit, coarse=False):
     """What a preview subdivision is made from: the part's triangles, the
     subdivide settings, the edge the budget and memory limit come to (not
@@ -605,6 +626,11 @@ def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit, coarse=False):
         h.update(np.ascontiguousarray(hard).tobytes())
     edge = _preview_edge(pos, s, tri_budget, memory_limit)[0]
     key = (h.hexdigest(), len(pos), keep, repr(edge), bool(coarse))
+    if hard is not None or not coarse:
+        hb = hashlib.blake2b(np.ascontiguousarray(pos, F32).tobytes(), digest_size=16).hexdigest()
+        _BASE[key] = (hb, len(pos), tuple(x for x in keep if x[0] != "preserveUntextured"), repr(edge))
+        while len(_BASE) > 64:
+            _BASE.pop(next(iter(_BASE)))
     import hashlib as _h
 
     LAST_SUBDIVIDE.clear()
@@ -762,17 +788,26 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     ran = {}
     first = STAGES.index(start)
     note = None
+    provisional = False
     lap("inputs")
 
     # subdivide: in the part's own frame (rotation and centring are rigid).
     if first <= 0 or "subdivide" not in cache:
         _check(should_abort)
         tb, ml = si.get("tri_budget") or 500_000, si.get("memory_limit") or (1 << 30)
+        full = _subdivide_key(pos, s, specs, n, tb, ml, False) if coarse else None
         key = _subdivide_key(pos, s, specs, n, tb, ml, coarse)
         sub_abort = should_abort if coarse else (si.get("subdivide_abort") or should_abort)
         made = []
-        hit = _subdivided(key, lambda: _preview_subdivide(pos, s, specs, tb, ml, prog, sub_abort, coarse=coarse, times=made),
-                          None if coarse else si.get("cache_dir"))
+        hit = None
+        if coarse:
+            hit = _sibling(full)
+            if hit is not None:   # the last full subdivision of this part: the textured look at once
+                provisional = True
+                LAST_SUBDIVIDE.update(how="sibling")
+        if hit is None:
+            hit = _subdivided(key, lambda: _preview_subdivide(pos, s, specs, tb, ml, prog, sub_abort, coarse=coarse, times=made),
+                              None if coarse else si.get("cache_dir"))
         if hit is not None:
             prog("subdivide", 1.0)
         T.extend(made)
@@ -909,7 +944,7 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     lap("drawable")
     if coarse:
         ran = {}   # nothing of it is reused by the full run
-    return {"stages": ran, "mesh": drawable, "note": note, "coarse": coarse, "timings": T}
+    return {"stages": ran, "mesh": drawable, "note": note, "coarse": coarse, "provisional": provisional, "timings": T}
 
 
 class Engine:

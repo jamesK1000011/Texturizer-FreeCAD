@@ -45,6 +45,13 @@ one that reruns from a later stage lets the cold subdivide finish and keep
 its mesh (inputs["subdivide_abort"] follows only subdivide changes), so the
 rerun after it is warm. An engine without kept() gets no coarse pass.
 
+A mask change with Preserve Untextured on (a brush stroke, a face picked)
+needs a new subdivision too (the untextured faces stay coarse), about a
+second of work; its first look is not coarse: the engine runs it on the
+part's last full subdivision (result["provisional"]), which shows the
+textured result as it will be within a few hundred ms, and the exact one
+replaces it from the same job.
+
 and the threads and timers through run_async(fn) (the worker),
 post(fn) (back to the GUI thread: a Qt signal) and schedule(seconds, fn) ->
 cancel(). The defaults use threading, for headless use and tests.
@@ -61,6 +68,10 @@ DEBOUNCE_S = 0.150
 DRAG_DEBOUNCE_S = 0.120   # held (a ring, stamp or brush drag) with no Quick look to carry it
 NO_QUICKLOOK = "Quick look not available on this graphics setup"
 COARSE_NOTE = "First look (coarse): refining…"
+# The first look on the part's last subdivision (a mask change with Preserve
+# Untextured on): the textured result as it will be, the untextured faces
+# denser until the exact subdivision replaces it.
+PROVISIONAL_NOTE = "Preview: finishing the untextured faces…"
 
 # Design 3.2: the stage each setting reruns from. Keys not listed (and not
 # ui ones) rerun from subdivide, the safe end.
@@ -441,7 +452,7 @@ class PreviewController:
         self.coarse_shown += 1
         with timing.stage("preview show_cpu coarse (Coin mesh rebuild)"):
             self._v("show_cpu", result.get("mesh"))
-        self._v("note", COARSE_NOTE)
+        self._v("note", PROVISIONAL_NOTE if result.get("provisional") else COARSE_NOTE)
         self._v("set_cpu_stale", False)
         self._show("cpu")
 

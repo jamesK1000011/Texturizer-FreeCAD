@@ -595,6 +595,86 @@ class PaintTree:
         b = n * 3
         return (u * L.cov[self.nv[b]] + v * L.cov[self.nv[b + 1]] + w * L.cov[self.nv[b + 2]]) / s
 
+    def _bary_many(self, nodes, P, NV, X):
+        """barycentric() for many (node, point) pairs at once: the same
+        float64 operations in the same order, so the same values."""
+        A, B, C = NV[nodes * 3], NV[nodes * 3 + 1], NV[nodes * 3 + 2]
+        a = X[A]
+        e0 = X[B] - a
+        e1 = X[C] - a
+        d00 = e0[:, 0] * e0[:, 0] + e0[:, 1] * e0[:, 1] + e0[:, 2] * e0[:, 2]
+        d01 = e0[:, 0] * e1[:, 0] + e0[:, 1] * e1[:, 1] + e0[:, 2] * e1[:, 2]
+        d11 = e1[:, 0] * e1[:, 0] + e1[:, 1] * e1[:, 1] + e1[:, 2] * e1[:, 2]
+        den = d00 * d11 - d01 * d01
+        q = P - a
+        d20 = q[:, 0] * e0[:, 0] + q[:, 1] * e0[:, 1] + q[:, 2] * e0[:, 2]
+        d21 = q[:, 0] * e1[:, 0] + q[:, 1] * e1[:, 1] + q[:, 2] * e1[:, 2]
+        ok = den > 1e-18 * d00 * d11
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v = (d11 * d20 - d01 * d21) / den
+            w = (d00 * d21 - d01 * d20) / den
+        u = 1 - v - w
+        third = 1 / 3
+        return (np.where(ok, u, third), np.where(ok, v, third), np.where(ok, w, third))
+
+    def leaf_at_many(self, faces, P):
+        """leaf_at for many points at once (numpy): faces (k,) base faces,
+        P (k, 3) float64 points; the leaves, the same ones leaf_at picks
+        (the first child with the largest smallest barycentric)."""
+        faces = np.asarray(faces, np.int64)
+        P = np.asarray(P, np.float64).reshape(-1, 3)
+        child = np.asarray(self.child, np.int64)
+        code = np.asarray(self.code, np.int64)
+        m7 = code & 7
+        cc = np.where(m7 == 0, 0, 1 + (m7 & 1) + ((m7 >> 1) & 1) + ((m7 >> 2) & 1))
+        NV = np.asarray(self.nv, np.int64)
+        X = np.stack([np.asarray(self.vx), np.asarray(self.vy), np.asarray(self.vz)], 1)
+        n = faces.copy()
+        for _ in range(64):
+            act = np.nonzero(child[n] != NO_CHILD)[0]
+            if not len(act):
+                break
+            first = child[n[act]]
+            cnt = cc[n[act]]
+            best = np.full(len(act), -np.inf)
+            pick = first.copy()
+            for k in range(4):
+                has = np.nonzero(cnt > k)[0]
+                if not len(has):
+                    break
+                u, v, w = self._bary_many(first[has] + k, P[act[has]], NV, X)
+                m = np.minimum(np.minimum(u, v), w)   # min(u, v, w), NaN never wins (as m > best_min)
+                better = m > best[has]
+                best[has[better]] = m[better]
+                pick[has[better]] = first[has[better]] + k
+            n[act] = pick
+        return n
+
+    def sample_paint_many(self, slot, faces, P):
+        """sample_paint for many points at once: (k,) float64, value for
+        value what sample_paint returns point by point."""
+        P = np.asarray(P, np.float64).reshape(-1, 3)
+        L = self.layers[slot] if 0 <= slot < len(self.layers) else None
+        if L is None or not len(P):
+            return np.zeros(len(P))
+        n = self.leaf_at_many(faces, P)
+        st = np.asarray(L.state, np.int64)[n] != 0
+        out = st.astype(np.float64)
+        if L.cov is None:
+            return out
+        soft = np.nonzero(~st)[0]
+        if len(soft):
+            NV = np.asarray(self.nv, np.int64)
+            X = np.stack([np.asarray(self.vx), np.asarray(self.vy), np.asarray(self.vz)], 1)
+            ns = n[soft]
+            u, v, w = self._bary_many(ns, P[soft], NV, X)
+            u, v, w = (np.where(c > 0, c, 0.0) for c in (u, v, w))
+            s = u + v + w
+            s = np.where(s == 0, 1, s)
+            cov = np.asarray(L.cov, np.float64)
+            out[soft] = (u * cov[NV[ns * 3]] + v * cov[NV[ns * 3 + 1]] + w * cov[NV[ns * 3 + 2]]) / s
+        return out
+
     def base_paint(self, slot):
         """basePaint: per base corner paint and per base face hard flag from the roots."""
         L = self.layers[slot]
