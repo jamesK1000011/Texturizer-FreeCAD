@@ -281,6 +281,26 @@ class Linked(unittest.TestCase):
         self.assertEqual(sorted(self.mask_of(obj)["triangles"]), new_ft["Face4"][:1])
         self.assertIn("Layer 1: 1 of 3 painted triangles have no surface under them now; re-paint them.", obj.TextureState)
 
+    def test_apply_yields_the_preview_and_says_what_it_ran(self):
+        """Live: an Update after a CAD change took 26 s (5 s fresh), the preview
+        subdividing the changed part beside it. The preview steps aside (it
+        reruns after), and the answer says what the run was made of."""
+        class C:
+            running, gen, _pending = 3, 3, False
+
+        class G:
+            controller = C()
+        live.GUI = G()
+        obj = self.textured(include=["Face4"])
+        self.assertEqual((G.controller.gen, G.controller._pending), (4, True))
+        out = self.ok("texture_apply", {"update": obj.Name})
+        e = out["engine"]
+        self.assertTrue(e["previewYielded"])
+        self.assertGreater(e["subdivided"], 0)
+        self.assertEqual(e["output"], out["triangles"])
+        self.assertIn("displace", e["ms"])
+        self.assertEqual(e["pointsOnEdges"], 0)
+
     def test_renaming_the_body_keeps_the_link(self):
         obj = self.textured(include=["Face4"])
         self.body.Label = "Handle"

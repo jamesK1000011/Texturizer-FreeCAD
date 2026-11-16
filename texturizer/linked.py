@@ -63,37 +63,7 @@ def tolerance(T):
     return max(4 * live.TOLERANCE, 1e-4 * diag)
 
 
-def closest_on_triangles(p, T):
-    """The closest point to p on each triangle of T (m, 3, 3) (Ericson's
-    regions), and its distance."""
-    a, b, c = T[:, 0], T[:, 1], T[:, 2]
-    ab, ac, ap = b - a, c - a, p - a
-    d1, d2 = (ab * ap).sum(1), (ac * ap).sum(1)
-    bp = p - b
-    d3, d4 = (ab * bp).sum(1), (ac * bp).sum(1)
-    cp = p - c
-    d5, d6 = (ab * cp).sum(1), (ac * cp).sum(1)
-    va = d3 * d6 - d5 * d4
-    vb = d5 * d2 - d1 * d6
-    vc = d1 * d4 - d3 * d2
-    with np.errstate(all="ignore"):
-        den = 1 / (va + vb + vc)
-        v, w = vb * den, vc * den
-        out = a + ab * v[:, None] + ac * w[:, None]
-        # Edges and corners.
-        r_ab = (vc <= 0) & (d1 >= 0) & (d3 <= 0)
-        t = d1 / (d1 - d3)
-        out = np.where(r_ab[:, None], a + ab * t[:, None], out)
-        r_ac = (vb <= 0) & (d2 >= 0) & (d6 <= 0)
-        t = d2 / (d2 - d6)
-        out = np.where(r_ac[:, None], a + ac * t[:, None], out)
-        r_bc = (va <= 0) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0)
-        t = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-        out = np.where(r_bc[:, None], b + (c - b) * t[:, None], out)
-    out = np.where(((d1 <= 0) & (d2 <= 0))[:, None], a, out)
-    out = np.where(((d3 >= 0) & (d4 <= d3))[:, None], b, out)
-    out = np.where(((d6 >= 0) & (d5 <= d6))[:, None], c, out)
-    return out, np.linalg.norm(out - p, axis=1)
+from .engine.untangle import closest_on_triangles  # noqa: E402 (shared with the engine)
 
 
 def _pack(a):

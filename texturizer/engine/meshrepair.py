@@ -131,51 +131,145 @@ def resolve_t_junctions(positions, weld_quant=1e4, on_seg_tol=0.02, max_iters=16
             "normal": np.repeat(n.astype(F32), 3, axis=0).reshape(-1)}
 
 
-def fix_caps(positions, tol=1e-4, Q=1e4):
-    """Cap triangles (a corner within tol mm of the opposite edge, inside
-    it: FreeCAD's Mesh evaluation calls them points on edges) taken out by
-    splitting the neighbour across that edge at the corner: the cap and its
-    neighbour become two triangles, the same edges seen from outside, so
-    the mesh stays closed. Not in BumpMesh. Returns (positions, how many)."""
+def fix_caps(positions, tol=1e-3, Q=1e5, rounds=10, flat=0.005):
+    """FreeCAD's "points on edges" (MeshEvalPointOnEdge: a point within
+    0.001 mm of a facet edge, in its box, not one of its corners) taken out.
+    Where the point is the apex of a cap across that edge, the cap and the
+    facet become the facet split at the point (the same surface, still
+    closed). Where splitting can't (a chain of nearly collinear points on a
+    flat patch, each split making the next cap), the point is collapsed onto
+    the end of that edge it is joined to, when the mesh stays manifold
+    (link condition), nothing turns over and the surface moves under flat
+    (0.005 mm, the decimation's own flat tolerance). Not in BumpMesh.
+    Returns (positions, how many fixed)."""
+    from .untangle import closest_on_triangles, near_edges
+
     p = np.asarray(positions, F32).reshape(-1, 3).astype(np.float64)
     vid, _, firsts = weld(p, Q)
     V = p[firsts]
     F = vid.reshape(-1, 3).copy()
-    A, B, C = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
-    caps = []
-    for k, (x, y, z) in enumerate(((A, B, C), (B, C, A), (C, A, B))):
-        e = y - x
-        L2 = (e * e).sum(1)
-        cr = np.cross(e, z - x)
-        h = np.sqrt((cr * cr).sum(1) / np.maximum(L2, 1e-300))
-        t = ((z - x) * e).sum(1) / np.maximum(L2, 1e-300)
-        for i in np.nonzero((h < tol) & (t > 1e-6) & (t < 1 - 1e-6) & (L2 > tol * tol))[0].tolist():
-            caps.append((i, k))
-    if not caps:
+    alive = np.ones(len(F), bool)
+    fixed = 0
+
+    def nrm(ts):
+        a, b, c = V[F[ts, 0]], V[F[ts, 1]], V[F[ts, 2]]
+        return np.cross(b - a, c - a)
+
+    for _ in range(rounds):
+        idx = np.nonzero(alive)[0]
+        hits = near_edges(V, F[idx], tol=tol)
+        if not len(hits):
+            break
+        hits[:, 1] = idx[hits[:, 1]]
+        owner, around = {}, {}
+        for i in idx.tolist():
+            f = F[i].tolist()
+            for j in range(3):
+                owner[(f[j], f[(j + 1) % 3])] = i
+                around.setdefault(f[j], set()).add(i)
+        done, touched = set(), set()
+        for v, f, k in hits.tolist():
+            if f in done or v in touched:
+                continue
+            g = F[f].tolist()
+            a, b = g[k], g[(k + 1) % 3]
+            t = owner.get((b, a))   # the facet across that edge
+            if t is not None and t not in done and v in F[t].tolist():
+                s_ = g[(k + 2) % 3]
+                F[f], F[t] = [a, v, s_], [v, b, s_]   # facet (a, b, s) split at v; the cap (b, a, v) gone
+                done.update((f, t))
+                touched.update((a, b, v, s_))
+                fixed += 1
+                continue
+            # A collinear chain: v onto the end of the edge it is joined to.
+            for u in (a, b):
+                both = [x for x in around.get(v, set()) & around.get(u, set()) if x not in done]
+                if len(both) != 2 or touched & {u, v}:
+                    continue
+                ring_v = {y for x in around[v] for y in F[x].tolist()} - {v}
+                ring_u = {y for x in around[u] for y in F[x].tolist()} - {u}
+                if len(ring_v & ring_u) != 2:
+                    continue
+                moved = np.array([x for x in around[v] if x not in both and x not in done], np.int64)
+                if not len(moved):
+                    continue
+                before = nrm(moved)
+                F[moved] = np.where(F[moved] == v, u, F[moved])
+                after = nrm(moved)
+                _q, dist = closest_on_triangles(V[v], V[F[moved]])
+                if (np.einsum("ij,ij->i", before, after) <= 0).any() or dist.min() > flat:
+                    F[moved] = np.where(F[moved] == u, v, F[moved])   # undo
+                    continue
+                alive[both] = False
+                done.update(both)
+                done.update(moved.tolist())
+                touched.update((u, v))
+                fixed += 1
+                break
+        if not done:
+            break
+    out = V[F[alive]].astype(F32).reshape(-1)
+    return out, fixed
+
+
+def points_on_edges(positions, tol=1e-3, Q=1e5):
+    """How many (point, facet) pairs FreeCAD's MeshEvalPointOnEdge would flag."""
+    from .untangle import near_edges
+
+    p = np.asarray(positions, F32).reshape(-1, 3).astype(np.float64)
+    vid, _, firsts = weld(p, Q)
+    return len(near_edges(p[firsts], vid.reshape(-1, 3), tol=tol))
+
+
+def collapse_short_edges(positions, tol=1e-3, Q=1e5):
+    """Edges shorter than tol (two corners FreeCAD's evaluation sees as a
+    point on the other's edges) collapsed onto their first end, where the
+    link condition holds (the two ends share exactly the two corners across
+    the edge, so the mesh stays manifold and closed) and no triangle round
+    it turns over. Not in BumpMesh. Returns (positions, how many)."""
+    p = np.asarray(positions, F32).reshape(-1, 3).astype(np.float64)
+    vid, _, firsts = weld(p, Q)
+    V = p[firsts]
+    F = vid.reshape(-1, 3).copy()
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
+    short = E[L < tol]
+    if not len(short):
         return np.asarray(positions, F32), 0
-    owner = {}
+    alive = np.ones(len(F), bool)
+    around = {}
     for i, f in enumerate(F.tolist()):
-        for j in range(3):
-            owner[(f[j], f[(j + 1) % 3])] = i
-    done, fixed = set(), 0
-    for i, k in caps:
-        if i in done:
+        for x in f:
+            around.setdefault(x, set()).add(i)
+
+    def ring(x):
+        return {y for t in around.get(x, ()) if alive[t] for y in F[t].tolist()} - {x}
+
+    def normal(t):
+        a, b, c = V[F[t]]
+        return np.cross(b - a, c - a)
+
+    n = 0
+    for u, v in short.tolist():
+        if u == v or v not in around or u not in around:
             continue
-        f = F[i].tolist()
-        pq, r = (f[k], f[(k + 1) % 3]), f[(k + 2) % 3]
-        u = owner.get((pq[1], pq[0]))
-        if u is None or u in done or u == i:
+        both = [t for t in around[u] & around[v] if alive[t]]
+        if len(both) != 2 or len(ring(u) & ring(v)) != 2:
+            continue   # the link condition: else the collapse would pinch the mesh
+        moved = [t for t in around[v] if alive[t] and t not in both]
+        before = {t: normal(t) for t in moved}
+        for t in moved:
+            F[t][F[t] == v] = u
+        if any(np.dot(before[t], normal(t)) <= 0 for t in moved):
+            for t in moved:
+                F[t][F[t] == u] = v   # undo: a triangle would turn over
             continue
-        s = next(x for x in F[u].tolist() if x not in pq)
-        a, b = pq
-        # The neighbour (b, a, s) split at r; the cap gone. In their places,
-        # so every other triangle keeps its index.
-        F[i], F[u] = [r, a, s], [b, r, s]
-        done.update((i, u))
-        fixed += 1
-    if not fixed:
+        for t in both:
+            alive[t] = False
+        around[u] |= set(moved)
+        around[u] -= set(both)
+        del around[v]
+        n += 1
+    if not n:
         return np.asarray(positions, F32), 0
-    out = np.asarray(positions, F32).reshape(-1, 9).copy()
-    for i in done:
-        out[i] = V[F[i]].astype(F32).reshape(-1)
-    return out.reshape(-1), fixed
+    return V[F[alive]].astype(F32).reshape(-1), n
