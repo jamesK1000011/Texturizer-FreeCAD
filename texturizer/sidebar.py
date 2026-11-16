@@ -472,6 +472,45 @@ if QtWidgets is not None:
             self.rows = []
             self.refresh()
 
+        def update(self):
+            """The rows from the draft: each row set in place when the layers
+            are the same in number (an undo, a texture pick, a name, the eye),
+            only rows whose texture or name changed get a new thumbnail and
+            label; else the strip is rebuilt (refresh)."""
+            d = self.sb.draft
+            if len(self.rows) != len(d.layers):
+                return self.refresh()
+            by_id = None
+            for i, (L, r) in enumerate(zip(d.layers, self.rows)):
+                r["eye"].setChecked(L["visible"])
+                r["eye"].setText("👁" if L["visible"] else "–")
+                r["eye"].setToolTip(S("layers.hide") if L["visible"] else S("layers.show"))
+                r["solo"].setChecked(L.get("solo", False))
+                r["blend"].setText(S("layers.blendAdd") if L["blendAdd"] else S("layers.blendCover"))
+                r["blend"].setToolTip(S("layers.blendAddTitle") if L["blendAdd"] else S("layers.blendCoverTitle"))
+                name = r["name"]
+                name.setChecked(i == d.active)
+                f = name.font()
+                f.setBold(i == d.active)
+                name.setFont(f)
+                key = (L["texture"], L["name"], len(d.layers))
+                if r.get("shown") != key:
+                    if by_id is None:
+                        by_id = {e["id"]: e for e in self.sb.textures()}
+                    e = by_id.get(L["texture"])
+                    if e is not None:
+                        r["thumb"].setPixmap(gallery.thumb_icon(e, 24).pixmap(24, 24))
+                        r["thumb"].setToolTip(gallery.credit_line(e))
+                    full = L["name"] + (" · " + e["name"] if e else "")
+                    name.full = full
+                    name.setToolTip(full + "\n" + S("layers.rowTitle", n=i + 1))
+                    if name.width() > 0:
+                        name.fit(name.width())
+                    else:
+                        name.setText(full)
+                    name.updateGeometry()
+                    r["shown"] = key
+
         def refresh(self):
             d = self.sb.draft
             while self.list.count():
@@ -528,7 +567,7 @@ if QtWidgets is not None:
                 blend = QtWidgets.QToolButton()
                 blend.setText(S("layers.blendAdd") if L["blendAdd"] else S("layers.blendCover"))
                 blend.setToolTip(S("layers.blendAddTitle") if L["blendAdd"] else S("layers.blendCoverTitle"))
-                blend.clicked.connect(lambda *_, i=i, b=L["blendAdd"]: d.set_layer(i, blendAdd=not b))
+                blend.clicked.connect(lambda *_, i=i: d.set_layer(i, blendAdd=not d.layers[i]["blendAdd"]))
                 th.addWidget(blend)
                 up, down = QtWidgets.QToolButton(), QtWidgets.QToolButton()
                 up.setText("▲")
@@ -548,7 +587,8 @@ if QtWidgets is not None:
                 h.addWidget(tools)
                 self.list.addWidget(row)
                 self.rows.append({"row": row, "eye": eye, "name": name, "solo": solo, "blend": blend, "remove": rm,
-                                  "up": up, "down": down, "tools": tools, "flow": h})
+                                  "up": up, "down": down, "tools": tools, "flow": h, "thumb": thumb,
+                                  "shown": (L["texture"], L["name"], len(d.layers))})
             full = len(d.layers) >= controls.MAX_LAYERS
             self.add.setEnabled(not full)
             self.add.setToolTip(S("layers.max", n=controls.MAX_LAYERS) if full else S("layers.addTitle"))
@@ -1221,8 +1261,8 @@ if QtWidgets is not None:
             self.favgrid.set_active(tid)
             e = next((e for e in self.textures() if e["id"] == tid), None)
             self.credit_line.setText(gallery.credit_line(e) if e else (tid or ""))
-            with timing.stage("sidebar layer strip rebuild"):
-                self.layers.refresh()
+            with timing.stage("sidebar layer strip update"):
+                self.layers.update()   # rows in place; rebuilt when layers come or go
             n = len(self.textures())
             g = self.binds["textureGallery"].widgets[0]
             g.setText(title_case(controls.BY_KEY["textureGallery"]["label"]) + (f"  {n}" if n else ""))  # BumpMesh's count
