@@ -162,12 +162,16 @@ installed.
 - Exports and `.bumpmesh` projects are yours to keep: they go where you
   save them (or to `~/Texturizer` when an agent gives no folder). Export a
   Textured object as STL or 3MF first if you want it without Texturizer.
+- The preview keeps a few refined copies of recently previewed parts in
+  `Texturizer/cache` inside FreeCAD's user data folder (the newest 8, so a
+  part opens fast after a restart); delete that folder to clear them.
 
 ## Privacy
 
 Texturizer has no telemetry and makes no network connection: the texture
 library ships with it, and images you add are read from your own disk. Your
-part, its textures and exports stay on your computer. With Agent Link, what
+part, its textures and exports stay on your computer (the preview's cache
+of refined parts too, in FreeCAD's user data folder). With Agent Link, what
 the agent reads goes to the AI provider your MCP client uses, under that
 provider's terms.
 

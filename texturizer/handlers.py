@@ -13,7 +13,7 @@ import functools
 import math
 import os
 
-from . import live, mesh
+from . import live, mesh, timing
 
 
 class Refusal(Exception):
@@ -259,6 +259,12 @@ def _numbers(d, where):
         elif mode not in range(9):
             raise ToolError("invalid_input", f"{where}.mappingMode: 0-8 (texture_settings lists them).")
     return out
+
+
+# BumpMesh names the depth textureHeight (its settings and .bumpmesh projects;
+# the engine signs it into amplitude with invertDisplacement); the draft's
+# slider is amplitude, the unsigned height. texture_set takes either.
+SET_ALIASES = {"textureHeight": "amplitude"}
 
 
 def texture_settings(s, a):
@@ -1148,8 +1154,16 @@ def texture_set(s, a):
         if not isinstance(sets, dict):
             raise ToolError("invalid_input", "settings: {name: value} by BumpMesh's names (texture_settings lists them).")
         for k, v in sets.items():
+            name = k
+            if k in SET_ALIASES:   # texture_apply's (and a .bumpmesh project's) name for the same control
+                k, v = SET_ALIASES[k], abs(num(v, f"settings.{k}"))
             c = controls.BY_KEY.get(k)
             if c is None or c["scope"] not in ("layer", "global", "frame") or c["type"] in ("button", "heading", "note"):
+                from . import engine
+
+                if k in set(engine.LAYER_KEYS) | set(engine.GLOBAL_KEYS):
+                    raise ToolError("invalid_input", f"settings.{k}: an engine tuning setting the draft does not hold "
+                                                     "(texture_apply's settings take it).")
                 raise ToolError("invalid_input", f"settings.{k}: not a BumpMesh setting (texture_settings lists them).")
             if k == "mappingMode" and isinstance(v, str):
                 from . import engine
@@ -1158,7 +1172,7 @@ def texture_set(s, a):
                     raise ToolError("invalid_input", f"settings.mappingMode: 0-8 or one of {', '.join(engine.MAPPING_MODES)}.")
                 v = engine.MAPPING_MODES[v]
             try:
-                done[k] = d.set(k, v, layer=i)
+                done[name] = d.set(k, v, layer=i)
             except (TypeError, ValueError) as e:
                 raise ToolError("invalid_input", f"settings.{k}: {e}") from None
         fr = a.get("frame")
@@ -1478,7 +1492,8 @@ def texture_preview(s, a):
             live.GUI.cancel_preview()
         return {"cancelled": True}
     o = _part(s, None, d)
-    pos, ft = live.mesh_for(o)
+    with timing.stage("texture_preview mesh_for (tessellation, cached by shape)"):
+        pos, ft = live.mesh_for(o)
     if a.get("suggest"):
         run = run_settings(d, ft)
         L = run["layers"][d.active] if d.active < len(run["layers"]) else run["layers"][0]
@@ -1490,15 +1505,20 @@ def texture_preview(s, a):
     if q not in preview.TRI_BUDGET:
         raise ToolError("invalid_input", "quality: draft (500 k) or fine (1.5 M).")
     t0 = time.time()
-    res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT},
-                         mesh=pos, face_triangles=ft)
+    res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT,
+                          "cache_dir": live.cache_dir()}, mesh=pos, face_triangles=ft)
     if res is None:
         raise ToolError("failed", "Stopped before it finished.")
     ms = int((time.time() - t0) * 1000)
+    for name, t in res.get("timings") or ():
+        timing.report(f"texture_preview {name} (engine)", t)
+    timing.report("texture_preview engine (total)", ms)
     m = res["mesh"]
     if live.GUI is not None:
-        live.GUI.show_result(res)
-    est = engine.estimate(pos, run_settings(d, ft))
+        with timing.stage(f"texture_preview show ({len(m['faces'])} triangles)"):
+            live.GUI.show_result(res)
+    with timing.stage("texture_preview estimate"):
+        est = engine.estimate(pos, run_settings(d, ft))
     out = {"part": o.Label, "quality": q, "previewEdge": round(float(m["edge"]), 4), "triangles": int(len(m["faces"])),
            "vertices": int(len(m["vertices"])), "inputTriangles": len(pos) // 9, "ms": ms,
            "export": {"edge": est["edge"], "triangles": est["outputTriangles"], "memoryMB": round(est["memoryBytes"] / 2 ** 20)},

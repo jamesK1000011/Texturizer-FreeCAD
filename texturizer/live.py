@@ -11,7 +11,8 @@ the gallery, the commands and the agent's texture_* tools:
                        document object: a B-rep body tessellated face by face
                        (mesh.face_triangles), or a Mesh object's facets
     adapter(shape)     the same for one Part shape (no document)
-    engine()           BumpMesh's engine with mesh_for wired in
+    engine()           BumpMesh's engine with mesh_for wired in (and the
+                       preview's subdivision cache on disk, cache_dir())
     list_textures()    the engine's library (BumpMesh's presets we ship, and
                        your own maps from the user data folder)
     signature(obj)     a short geometry fingerprint: a Textured object is out
@@ -277,7 +278,14 @@ def engine_with(fn):
     """BumpMesh's engine with its mesh from fn(part) -> (positions, face_triangles)."""
     from . import engine as _engine
 
-    return _engine.Engine(mesh_for=fn)
+    return _engine.Engine(mesh_for=fn, cache_dir=cache_dir())
+
+
+def cache_dir():
+    """Where the preview keeps subdivided parts between sessions (the user
+    data folder's cache); None without one."""
+    d = user_dir()
+    return os.path.join(d, "cache") if d else None
 
 
 # -- the library ------------------------------------------------------------------

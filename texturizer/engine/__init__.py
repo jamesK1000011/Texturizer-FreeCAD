@@ -432,12 +432,20 @@ def _check(should_abort):
         raise Aborted()
 
 
-def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_abort):
-    n = len(pos) // 9
-    b = bounds_of(pos)
-    max_dim = max(b["size"])
-    max_edge = max(PREVIEW_MIN_EDGE, max_dim / 80)
+def _preview_edge(pos, s, tri_budget, memory_limit):
+    """(edge, predicted triangles, note): previewPipeline.js choosePreviewEdge,
+    coarsened further to stay under memory_limit. Kept per input, so a kept
+    subdivision is found without simulating the count again."""
+    import hashlib
+
     floor_edge = float(s.get("refineLength") or DEFAULTS["refineLength"])
+    h = hashlib.blake2b(np.ascontiguousarray(pos, F32).tobytes(), digest_size=16).hexdigest()
+    k = (h, len(pos), repr(floor_edge), int(tri_budget), int(memory_limit))
+    hit = _EDGES.get(k)
+    if hit is not None:
+        return hit
+    b = bounds_of(pos)
+    max_edge = max(PREVIEW_MIN_EDGE, max(b["size"]) / 80)
     te = compute_tri_edges(pos)
     edge = choose_preview_edge(pos, floor_edge, max_edge, tri_budget, te)
     note = None
@@ -447,18 +455,59 @@ def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_ab
             edge *= max(1.05, math.sqrt(est * BYTES_PER_TRIANGLE / memory_limit))
             est = simulate_from_edges(te, edge)
         note = f"Preview coarsened to {edge:.2f} mm edges to stay under {memory_limit / 2 ** 30:.1f} GiB."
+    out = (float(edge), int(est), note)
+    if len(_EDGES) > 32:
+        _EDGES.clear()
+    _EDGES[k] = out
+    return out
+
+
+_EDGES = {}
+# The coarse first look (a part not yet subdivided): edges COARSE_MUL x the
+# preview's, longer still to stay under COARSE_TRIS, and no sliver clean-up
+# (regularize, the cold preview's slow step). It is a preview of the preview:
+# the full one replaces it.
+COARSE_MUL = 3.0
+COARSE_TRIS = 20_000
+
+
+def coarse_edge(pos, edge):
+    """The coarse first look's edge for a preview edge."""
+    te = compute_tri_edges(pos)
+    from .subdivisionestimate import solve_budget_edge
+
+    return float(max(edge * COARSE_MUL, solve_budget_edge(te, COARSE_TRIS, edge * COARSE_MUL)))
+
+
+def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_abort, coarse=False, times=None):
+    """The preview's subdivide stage: subdivide, regularize, subdivide again
+    (BumpMesh's preview), or with coarse a single coarse subdivide. times, a
+    list, gets (stage, ms) for the timing probe."""
+    import time as _t
+
+    n = len(pos) // 9
+    edge, est, note = _preview_edge(pos, s, tri_budget, memory_limit)
+    times = times if times is not None else []
+    if coarse:
+        edge = coarse_edge(pos, edge)
+        est = simulate_from_edges(compute_tri_edges(pos), edge)
+        note = None
     prog("subdivide", 0.05)
+    t = _t.perf_counter()
     sub = subdivide(pos, edge, lambda p, *_: prog("subdivide", 0.05 + 0.5 * p), None, fast=True,
                     should_abort=should_abort)
     if sub is None:
         raise Aborted()
+    times.append(("subdivide1", (_t.perf_counter() - t) * 1000.0))
     parents = sub["faceParentId"]
-    if s.get("regularizeEnabled", DEFAULTS["regularizeEnabled"]):
+    if not coarse and s.get("regularizeEnabled", DEFAULTS["regularizeEnabled"]):
         g = {**DEFAULTS, **s}
         from .index import regularize_opts
+        t = _t.perf_counter()
         reg = regularize_mesh(sub["position"], parents, edge, regularize_opts(g), should_abort=should_abort)
         if reg is None:
             raise Aborted()
+        times.append(("regularize", (_t.perf_counter() - t) * 1000.0))
         _check(should_abort)
         weights = None
         if g.get("preserveUntextured"):
@@ -466,15 +515,17 @@ def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_ab
             if hard is not None:
                 weights = np.repeat(hard[np.asarray(reg["faceParentId"])].astype(F32), 3)
         prog("subdivide", 0.7)
+        t = _t.perf_counter()
         resub = subdivide(reg["position"], edge * g["regularizeSecondPassMul"], None, weights, fast=True,
                           should_abort=should_abort)
         if resub is None:
             raise Aborted()
+        times.append(("subdivide2", (_t.perf_counter() - t) * 1000.0))
         parents = np.asarray(reg["faceParentId"])[resub["faceParentId"]].astype(np.int32)
         sub = resub
     prog("subdivide", 1.0)
     return {"positions": sub["position"], "normals": sub["normal"], "excludeWeight": sub.get("excludeWeight"),
-            "faceParentId": parents, "edge": edge, "predictedTriangles": est, "note": note}
+            "faceParentId": parents, "edge": edge, "predictedTriangles": est, "note": note, "coarse": bool(coarse)}
 
 
 # Subdivided meshes kept by what they are made from: the part's triangles,
@@ -484,7 +535,7 @@ def _preview_subdivide(pos, s, layers, tri_budget, memory_limit, prog, should_ab
 # second preview of the same part reuses it instead of subdividing again.
 SUBDIVIDED_KEEP = 4
 _SUBDIVIDED = {}
-_SUBDIVIDE_KEYS = ("refineLength", "preserveUntextured", "previewQuality", "maxTriangles", "harvestFlatFaces", "harvestTol")
+_SUBDIVIDE_KEYS = ("refineLength", "preserveUntextured", "maxTriangles", "harvestFlatFaces", "harvestTol")
 
 
 _SUB_LOCK = threading.Lock()
@@ -492,10 +543,11 @@ _SUB_BUSY = {}   # key -> Event: a subdivide of that key running on another thre
 LAST_SUBDIVIDE = {}   # the probe's: key hash, hit / miss / waited, the parts of the key
 
 
-def _subdivided(key, make):
-    """The kept subdivision for key; else made once: a second thread asking
-    for the same key while it is made waits for it instead of making it
-    again beside it (two at once split the CPU and both take twice as long)."""
+def _subdivided(key, make, cache_dir=None):
+    """The kept subdivision for key (in memory, else in cache_dir); else
+    made once: a second thread asking for the same key while it is made
+    waits for it instead of making it again beside it (two at once split
+    the CPU and both take twice as long)."""
     while True:
         with _SUB_LOCK:
             hit = _SUBDIVIDED.get(key)
@@ -514,12 +566,18 @@ def _subdivided(key, make):
             LAST_SUBDIVIDE.update(how="waited")
             continue
         try:
-            hit = make()
+            hit = disk_load(cache_dir, key)
+            how = "disk"
+            if hit is None:
+                hit = make()
+                how = "miss"
+                if not hit.get("coarse"):
+                    disk_save(cache_dir, key, hit)
             with _SUB_LOCK:
                 _SUBDIVIDED[key] = hit
                 while len(_SUBDIVIDED) > SUBDIVIDED_KEEP:
                     _SUBDIVIDED.pop(next(iter(_SUBDIVIDED)))
-            LAST_SUBDIVIDE.update(how="miss")
+            LAST_SUBDIVIDE.update(how=how)
             return hit
         finally:
             with _SUB_LOCK:
@@ -527,7 +585,12 @@ def _subdivided(key, make):
             busy.set()
 
 
-def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit):
+def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit, coarse=False):
+    """What a preview subdivision is made from: the part's triangles, the
+    subdivide settings, the edge the budget and memory limit come to (not
+    the budget itself: Draft and Fine share one mesh when they reach the
+    same edge), with Preserve Untextured the faces no layer textures, and
+    whether it is the coarse first look."""
     import hashlib
 
     g = {**DEFAULTS, **s}
@@ -540,14 +603,97 @@ def _subdivide_key(pos, s, specs, n, tri_budget, memory_limit):
     if hard is not None:
         h.update(b"hard")
         h.update(np.ascontiguousarray(hard).tobytes())
-    key = (h.hexdigest(), len(pos), keep, int(tri_budget), int(memory_limit))
+    edge = _preview_edge(pos, s, tri_budget, memory_limit)[0]
+    key = (h.hexdigest(), len(pos), keep, repr(edge), bool(coarse))
     import hashlib as _h
 
     LAST_SUBDIVIDE.clear()
     LAST_SUBDIVIDE.update(key=_h.blake2b(repr(key).encode(), digest_size=4).hexdigest(), mesh=key[0][:8],
                           settings=_h.blake2b(repr(keep).encode(), digest_size=4).hexdigest(),
-                          hard=hard is not None and int(hard.sum()), budget=int(tri_budget))
+                          hard=hard is not None and int(hard.sum()), budget=int(tri_budget), edge=round(edge, 4),
+                          coarse=bool(coarse))
     return key
+
+
+# Kept on disk too (Engine(cache_dir=...): the user data folder's cache), so
+# the first preview of a part already seen, after a restart, is warm. One
+# .npz a key, named by its hash, the key stored inside and compared; the
+# newest DISK_KEEP kept.
+DISK_KEEP = 8
+_DISK_FIELDS = ("positions", "normals", "excludeWeight", "faceParentId")
+
+
+def _key_name(key):
+    import hashlib
+
+    return "preview-" + hashlib.blake2b(repr(key).encode(), digest_size=10).hexdigest() + ".npz"
+
+
+def disk_load(cache_dir, key):
+    import os
+
+    if not cache_dir:
+        return None
+    path = os.path.join(cache_dir, _key_name(key))
+    try:
+        with np.load(path, allow_pickle=False) as z:
+            if str(z["key"]) != repr(key):
+                return None
+            out = {k: (z[k] if k in z.files else None) for k in _DISK_FIELDS}
+            out.update(edge=float(z["edge"]), predictedTriangles=int(z["predictedTriangles"]),
+                       note=str(z["note"]) or None, coarse=bool(z["coarse"]))
+        os.utime(path)
+        return out
+    except (OSError, KeyError, ValueError):
+        return None
+
+
+def disk_save(cache_dir, key, sub):
+    import os
+
+    if not cache_dir:
+        return
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        path = os.path.join(cache_dir, _key_name(key))
+        arrays = {k: np.asarray(sub[k]) for k in _DISK_FIELDS if sub.get(k) is not None}
+        tmp = path + ".tmp.npz"
+        np.savez(tmp, key=np.asarray(repr(key)), edge=np.asarray(sub["edge"]),
+                 predictedTriangles=np.asarray(sub["predictedTriangles"]), note=np.asarray(sub.get("note") or ""),
+                 coarse=np.asarray(bool(sub.get("coarse"))), **arrays)
+        os.replace(tmp, path)
+        files = sorted((f for f in os.listdir(cache_dir) if f.startswith("preview-") and f.endswith(".npz")),
+                       key=lambda f: os.path.getmtime(os.path.join(cache_dir, f)))
+        for f in files[:-DISK_KEEP]:
+            os.remove(os.path.join(cache_dir, f))
+    except OSError:
+        pass
+
+
+def kept(stage_inputs, mesh=None):
+    """True when this preview's subdivision is kept (in memory or in the
+    disk cache): the full preview is quick and needs no coarse first look.
+    Also True when the part is small enough that the full one is as quick
+    as a coarse one would be."""
+    mesh = mesh if mesh is not None else stage_inputs.get("mesh")
+    if mesh is None:
+        return False
+    pos = as_positions(mesh)
+    s = _draft_settings(stage_inputs.get("draft") or {})
+    specs = _resolve_masks(layer_specs(s), stage_inputs.get("face_triangles") or
+                           (mesh.get("face_triangles") if isinstance(mesh, dict) else None))
+    tb, ml = stage_inputs.get("tri_budget") or 500_000, stage_inputs.get("memory_limit") or (1 << 30)
+    edge, est, _note = _preview_edge(pos, s, tb, ml)
+    if est <= COARSE_TRIS:
+        return True
+    key = _subdivide_key(pos, s, specs, len(pos) // 9, tb, ml)
+    with _SUB_LOCK:
+        if key in _SUBDIVIDED:
+            return True
+    import os
+
+    cd = stage_inputs.get("cache_dir")
+    return bool(cd) and os.path.exists(os.path.join(cd, _key_name(key)))
 
 
 def _excluded_faces(layers, n):
@@ -571,9 +717,13 @@ def _excluded_faces(layers, n):
 def preview(stage_inputs, progress=None, should_abort=None, mesh=None, face_triangles=None):
     """The staged CPU preview (GUI design 3.1-3.3). stage_inputs: {"draft", "rerun_from",
     "cache", "tri_budget", "memory_limit"} and the part's mesh as stage_inputs["mesh"]
-    (or the mesh argument), face names to triangles in "face_triangles". Returns
-    {"stages", "mesh": {"vertices", "faces", "normals", "colours", "weights"}, "note"}
-    or None when aborted."""
+    (or the mesh argument), face names to triangles in "face_triangles". Optional:
+    "coarse" (the quick first look: coarser edges, no sliver clean-up),
+    "subdivide_abort" (a should_abort for the subdivide stage alone, so a
+    change that reruns from a later stage lets a cold subdivide finish and
+    keeps it), "cache_dir" (the subdivision kept on disk). Returns
+    {"stages", "mesh": {"vertices", "faces", "normals", "colours", "weights"},
+    "note", "coarse", "timings": [(stage, ms)]} or None when aborted."""
     prog = progress or (lambda *a: None)
     try:
         return _preview(stage_inputs, prog, should_abort, mesh, face_triangles)
@@ -582,11 +732,24 @@ def preview(stage_inputs, progress=None, should_abort=None, mesh=None, face_tria
 
 
 def _preview(si, prog, should_abort, mesh, face_triangles):
+    import time as _t
+
+    T = []   # (stage, ms): the timing probe's stage lines
+    tick = [_t.perf_counter()]
+
+    def lap(name):
+        now = _t.perf_counter()
+        T.append((name, (now - tick[0]) * 1000.0))
+        tick[0] = now
+
     draft = si.get("draft") or {}
     start = si.get("rerun_from") or "subdivide"
     if start not in STAGES:
         raise ValueError(f"rerun_from is one of {STAGES}.")
+    coarse = bool(si.get("coarse"))
     cache = dict(si.get("cache") or {})
+    if coarse:
+        cache = {}   # its own subdivision: nothing of a full run's stages
     mesh = mesh if mesh is not None else si.get("mesh")
     if mesh is None:
         raise ValueError("preview needs the part's mesh (stage_inputs['mesh']).")
@@ -599,15 +762,21 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     ran = {}
     first = STAGES.index(start)
     note = None
+    lap("inputs")
 
     # subdivide: in the part's own frame (rotation and centring are rigid).
     if first <= 0 or "subdivide" not in cache:
         _check(should_abort)
         tb, ml = si.get("tri_budget") or 500_000, si.get("memory_limit") or (1 << 30)
-        key = _subdivide_key(pos, s, specs, n, tb, ml)
-        hit = _subdivided(key, lambda: _preview_subdivide(pos, s, specs, tb, ml, prog, should_abort))
+        key = _subdivide_key(pos, s, specs, n, tb, ml, coarse)
+        sub_abort = should_abort if coarse else (si.get("subdivide_abort") or should_abort)
+        made = []
+        hit = _subdivided(key, lambda: _preview_subdivide(pos, s, specs, tb, ml, prog, sub_abort, coarse=coarse, times=made),
+                          None if coarse else si.get("cache_dir"))
         if hit is not None:
             prog("subdivide", 1.0)
+        T.extend(made)
+        lap(f"subdivide total ({LAST_SUBDIVIDE.get('how', '?')}{', coarse' if coarse else ''})")
         ran["subdivide"] = dict(hit)
         first = 0
     sub = ran.get("subdivide") or cache["subdivide"]
@@ -632,6 +801,7 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
                       "layers": [{"texture": x.get("texture"), "settings": x.get("settings") or {}} for x in visible]}
         prog("map", 1.0)
         first = 1
+        lap("map")
     mp = ran.get("map") or cache["map"]
     _check(should_abort)
 
@@ -699,6 +869,7 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
         ran["displace"] = {"positions": pa, "normals": na, "vid": vid, "weights": W, "maps": maps_out}
         prog("displace", 1.0)
         first = 2
+        lap("displace")
     dp = ran.get("displace") or cache["displace"]
     _check(should_abort)
 
@@ -712,6 +883,7 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     col = (TEAL[None, :] * a[:, None] + other[None, :] * (1 - a[:, None])).astype(F32)
     ran["colours"] = {"colours": col}
     prog("colours", 1.0)
+    lap("colours")
 
     vid = dp["vid"]
     nv = W.shape[0]
@@ -733,8 +905,11 @@ def _preview(si, prog, should_abort, mesh, face_triangles):
     drawable = {"vertices": V, "faces": vid.reshape(-1, 3).astype(np.int32), "normals": Nn,
                 "face_parent": np.asarray(sub["faceParentId"], np.int64),
                 "colours": ran["colours"]["colours"], "weights": W, "maps": dp["maps"],
-                "bounds": mp["bounds"], "edge": sub["edge"]}
-    return {"stages": ran, "mesh": drawable, "note": note}
+                "bounds": mp["bounds"], "edge": sub["edge"], "coarse": coarse}
+    lap("drawable")
+    if coarse:
+        ran = {}   # nothing of it is reused by the full run
+    return {"stages": ran, "mesh": drawable, "note": note, "coarse": coarse, "timings": T}
 
 
 class Engine:
@@ -742,14 +917,29 @@ class Engine:
     PreviewController, with the mesh supplied by mesh_for(part) ->
     (positions, {face name: [triangle indices]}): the engine imports no FreeCAD."""
 
-    def __init__(self, mesh_for=None):
+    def __init__(self, mesh_for=None, cache_dir=None):
         self.mesh_for = mesh_for
+        self.cache_dir = cache_dir
+
+    def _inputs(self, stage_inputs):
+        si = dict(stage_inputs)
+        if self.cache_dir and not si.get("cache_dir"):
+            si["cache_dir"] = self.cache_dir
+        mesh, ft = si.get("mesh"), si.get("face_triangles")
+        if mesh is None and self.mesh_for is not None:
+            mesh, ft = self.mesh_for((si.get("draft") or {}).get("part"))
+        return si, mesh, ft
 
     def preview(self, stage_inputs, progress=None, should_abort=None):
-        mesh, ft = stage_inputs.get("mesh"), stage_inputs.get("face_triangles")
-        if mesh is None and self.mesh_for is not None:
-            mesh, ft = self.mesh_for((stage_inputs.get("draft") or {}).get("part"))
-        return preview(stage_inputs, progress, should_abort, mesh, ft)
+        si, mesh, ft = self._inputs(stage_inputs)
+        return preview(si, progress, should_abort, mesh, ft)
+
+    def kept(self, stage_inputs):
+        """The full preview is quick (its subdivision kept, or a small part):
+        the controller skips the coarse first look."""
+        si, mesh, ft = self._inputs(stage_inputs)
+        si["face_triangles"] = ft
+        return kept(si, mesh)
 
     estimate = staticmethod(estimate)
     export = staticmethod(export)

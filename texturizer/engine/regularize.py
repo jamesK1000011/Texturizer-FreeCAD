@@ -141,52 +141,47 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
         dx, dy, dz = X[u] - X[v], Y[u] - Y[v], Z[u] - Z[v]
         return dx * dx + dy * dy + dz * dz
 
-    def alive_tris(v):
-        return {s // 3 for s in vf[v] if not deleted[s // 3]}
-
+    # vf holds alive corner slots only (a collapse discards its two wings'
+    # slots and moves v's to u), so a vertex's triangles need no deleted check.
     def try_collapse(u, v):
         if u == v:
             return False
         if frozen[u] or frozen[v]:
             stats["frozen"] += 1
             return False
-        tu = alive_tris(u)
-        tv = alive_tris(v)
-        wings = [t for t in tu if v in (corners[t * 3], corners[t * 3 + 1], corners[t * 3 + 2])]
+        tu = {s // 3 for s in vf[u]}
+        tv = {s // 3 for s in vf[v]}
+        wings = [t for t in tu if t in tv]
         if len(wings) != 2:
             stats["wingCount"] += 1
             return False
-
-        def third(t):
-            a, b, c = corners[t * 3], corners[t * 3 + 1], corners[t * 3 + 2]
-            if a != u and a != v:
-                return a
-            if b != u and b != v:
-                return b
-            return c
-        w1, w2 = third(wings[0]), third(wings[1])
+        t0, t1 = wings
+        b0, b1 = t0 * 3, t1 * 3
+        w1 = corners[b0] if corners[b0] != u and corners[b0] != v else (
+            corners[b0 + 1] if corners[b0 + 1] != u and corners[b0 + 1] != v else corners[b0 + 2])
+        w2 = corners[b1] if corners[b1] != u and corners[b1] != v else (
+            corners[b1 + 1] if corners[b1 + 1] != u and corners[b1 + 1] != v else corners[b1 + 2])
         if w1 == w2:
             stats["foldedApex"] += 1
             return False
-        a1, a2 = aspect(wings[0]), aspect(wings[1])
+        a1, a2 = aspect(t0), aspect(t1)
         either = a1 > ext2 or a2 > ext2
         both = a1 > ext2 and a2 > ext2
         eff_len = agg_len if either else base_len
         eff_cos = agg_ncos if both else max_ncos
         nb_v = set()
         for t in tv:
-            b3 = t * 3
-            for x in corners[b3:b3 + 3]:
-                if x != v:
-                    nb_v.add(x)
+            nb_v.update(corners[t * 3:t * 3 + 3])
+        nb_v.discard(v)
+        skip = (u, v, w1, w2)
         for t in tu:
             b3 = t * 3
             for x in corners[b3:b3 + 3]:
-                if x != u and x != v and x != w1 and x != w2 and x in nb_v:
+                if x in nb_v and x not in skip:
                     stats["linkCondition"] += 1
                     return False
         mx, my, mz = (X[u] + X[v]) / 2, (Y[u] + Y[v]) / 2, (Z[u] + Z[v]) / 2
-        aff = (tu | tv) - {wings[0], wings[1]}
+        aff = (tu | tv) - {t0, t1}
         for t in aff:
             onx, ony, onz = ONX[t], ONY[t], ONZ[t]
             if abs(onx * mx + ony * my + onz * mz - OD[t]) > max_plane:
@@ -209,9 +204,8 @@ def regularize_mesh(positions, face_parent_id, max_edge, opts=None, exclude_weig
             e1x, e1y, e1z = bx - ax, by - ay, bz - az
             e2x, e2y, e2z = cx - ax, cy - ay, cz - az
             fx, fy, fz = cx - bx, cy - by, cz - bz
-            gx, gy, gz = ax - cx, ay - cy, az - cz
             if (e1x * e1x + e1y * e1y + e1z * e1z > eff_len or fx * fx + fy * fy + fz * fz > eff_len
-                    or gx * gx + gy * gy + gz * gz > eff_len):
+                    or e2x * e2x + e2y * e2y + e2z * e2z > eff_len):
                 stats["edgeCap"] += 1
                 return False
             nx = e1y * e2z - e1z * e2y

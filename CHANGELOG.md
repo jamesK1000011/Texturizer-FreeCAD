@@ -14,6 +14,10 @@ being prepared.
 
 ### Added
 
+- Progressive first preview (roadmap v19 item 5): when a part's subdivision isn't kept yet, the sidebar's 3D Preview first shows a coarse look (edges 3x the preview's, about 20 k triangles, no sliver clean-up; ~0.13 s offline on a 40 x 30 x 10 box with a 3.8 mm hole) and the full preview replaces it on the same worker job. A change drops both; a change from a later stage (scale, rotation, texture, depth) lets the cold subdivide finish and keep it, so the rerun after it is warm instead of starting over; a subdivide change or Cancel stops it. Warm edits are unchanged (one run, no coarse pass).
+- The preview's subdivision is kept by the part's triangles and the edge it comes to (Draft and Fine share it when they reach the same edge) and, through `Engine(cache_dir=...)`, on disk in the user data folder's `Texturizer/cache` (the newest 8), so the first preview of a part already seen is warm after a restart.
+- Timing probe on the preview path: the engine's own stages (`subdivide1`, `regularize`, `subdivide2`, `subdivide total (miss|hit|disk|waited)`, `map`, `displace`, `colours`, `drawable`) for the sidebar's worker (`preview … (engine)`, `preview coarse … (engine)`) and for `texture_preview` (`texture_preview … (engine)`, plus `mesh_for`, `show`, `estimate`); before, the cold `texture_preview` printed no stage times.
+
 - Precision brush, ported from BumpMesh's paint tree: Mode Precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle on any tessellation, with Hardness for a soft edge; Standard paints whole triangles and hides Hardness. The 3D view shows BumpMesh's hover preview of what a click marks (Standard, Single, Fill). Split paint reaches the preview (sampled per refined corner), the export (the flattened tree, as BumpMesh's) and `.bumpmesh` projects both ways; `texture_mask { paint { mode } }`.
 - Projection gizmos in the 3D view, as BumpMesh's: with Rotate on, X / Y / Z rings on the part turn the projection as they are dragged (one undo step a drag; the part stays put, so the projection turns with the cursor); a stamp's patch is dragged over the surface from where it was grabbed (Surface normal follows the surface and stops at an edge), Position on model arms a click that places it and drags on, and after a press on the stamp the wheel resizes it until the next press elsewhere.
 - Turntable in the Texture Gallery as BumpMesh's: the view spins about Z through the model's centre, one turn every 24 s, from the moment the gallery opens unless switched off (the choice sticks); a press, the wheel or a SpaceMouse in the view hands it back.
@@ -36,6 +40,8 @@ being prepared.
   tests for all of it (`tests/test_release.py`).
 
 ### Changed
+
+- `regularize` (the sliver clean-up after subdividing, shared with the export) does less per collapse (a vertex's triangles need no deleted check, wings found by set membership): about 5-10 % faster, outputs and reject counts bit-identical (BumpMesh parity unchanged). On the cold preview it collapses ~120 k edges of the ~340 k-triangle first subdivision, one by one as the JS does: still the cold preview's main cost (~5.7 s of ~7 s offline).
 
 - "Points on edges" now judged by FreeCAD's own rule (MeshEvalPointOnEdge: a point within 0.001 mm of a facet edge and inside that edge's box, not one of its corners), which the earlier cap check (0.1 µm) missed: printable() splits caps out, collapses a chain of nearly collinear points on a flat patch onto its end (manifold, nothing turned over, surface moved under 0.005 mm), and the export's untangling keeps displaced walls 0.01 mm apart (vertices included), so the decimation after can't bring them within FreeCAD's 0.001 mm. Offline: 3.8 mm round hole 15 -> 0, 3.6 mm hole on a 24 mm pad 5 -> 0, 4 mm square hole 13 -> 0; still closed, manifold, no self-intersections. texture_apply answers `engine` (refine length, triangles subdivided / displaced / out, ms per stage, points on edges left) and, with the timing probe, prints it; a running preview steps aside during texture_apply and reruns after (live, an Update after a CAD change took 26 s against 5 s with the preview subdividing the changed part beside it).
 - The textured mesh evaluates clean in FreeCAD's Mesh evaluation on parts with holes: where the surface is concave (a hole's wall, a pocket's inner corner) or creased, displaced walls that would cross, or land on one another, have their displacement pulled back (halved per round) until they don't (engine/untangle.py, export only; flat and convex regions are untouched, so the BumpMesh parity cases stay bit-identical), and cap triangles (a corner on the opposite edge: "points on edges", which BumpMesh's own output has too) are split out before the mesh reaches FreeCAD or a file (engine.printable). Offline, 40 x 30 x 20 box, Knurling: 3.6 mm round hole 96 self-intersecting pairs and 1 cap -> 0 and 0; 4 mm square hole 35 pairs, 18 non-manifold edges and 1 cap -> 0, 0 and 0.
@@ -71,6 +77,10 @@ being prepared.
   flat list; regularize no longer recomputes normals nothing reads; the
   T-junction repair finds open edges with numpy. Decimation is about 1.7-2x
   faster, regularize about 1.5x, a whole run about 1.45x.
+
+### Fixed
+
+- `texture_set` takes `textureHeight` (BumpMesh's name for the depth, used by `texture_apply`, `.bumpmesh` projects and the texture guide's own example) as the height slider (`amplitude`); engine tuning settings only `texture_apply` takes are refused in words that say so. A test checks every setting name in the guide's and the tool descriptions' examples against both tools.
 
 ## 0.3.0 — 2026-11-14
 
