@@ -1797,9 +1797,7 @@ def texture_preview(s, a):
         if stopped is False:
             out["note"] = ("The preview's worker had not stopped within 2 s: it ends at its next check and its result is dropped; "
                            "no timer of the preview is left waiting.")
-        home = live.draft_doc()
-        t = live.find(home, live.TARGET["object"]) if home is not None else None
-        return _view_facts(home, out, getattr(t, "Name", None), d.part)
+        return _preview_facts(d, out)
     if "turntable" in a:
         return _turntable(a["turntable"])
     o = _part(s, None, d)
@@ -1824,7 +1822,7 @@ def texture_preview(s, a):
             d.update({"previewQuality": q})   # the sidebar's Quality shows what is built
         got = live.GUI.build_preview(budget)
         if got is not None:
-            return _preview_answer(s, d, o, pos, ft, q, got)
+            return _preview_facts(d, _preview_answer(s, d, o, pos, ft, q, got))
     t0 = time.time()
     res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT,
                           "cache_dir": live.cache_dir()}, mesh=pos, face_triangles=ft)
@@ -1849,7 +1847,15 @@ def texture_preview(s, a):
         out["warnings"].append(finer)
     out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
                    else "texture_apply adds it to the document.")
-    return out
+    return _preview_facts(d, out)
+
+
+def _preview_facts(d, out):
+    """texture_preview's answer with the window's facts (out["window"]):
+    the draft's document, its Textured result (this draft's) and part."""
+    home = live.draft_doc()
+    t = live.find(home, live.TARGET["object"]) if home is not None and live.TARGET["object"] else None
+    return _view_facts(home, out, getattr(t, "Name", None), d.part)
 
 
 # texture_preview waits this long for the preview, then answers with what
@@ -1886,12 +1892,13 @@ def _preview_answer(s, d, o, pos, ft, q, got):
         out["note"] = (f"The preview was not done within {out['ms'] / 1000:.0f} s: it goes on building and shows in the 3D view when it "
                        "is done" + (" (a coarse first look shows now)." if got.get("coarse") else "."))
         return out
-    m = res.get("mesh") or {}
+    m = res.get("mesh")
+    m = m if isinstance(m, dict) else {}
     for name, t in res.get("timings") or ():
         timing.report(f"texture_preview {name} (engine)", t)
     est = engine.estimate(pos, run_settings(d, ft))
-    out.update({"previewEdge": round(float(m.get("edge") or 0), 4), "triangles": int(len(m.get("faces") or ())),
-                "vertices": int(len(m.get("vertices") or ())), "reused": bool(got.get("reused")),
+    out.update({"previewEdge": round(float(_or(m.get("edge"), 0)), 4), "triangles": _count(m.get("faces")),
+                "vertices": _count(m.get("vertices")), "reused": bool(got.get("reused")),
                 "export": {"edge": est["edge"], "triangles": est["outputTriangles"], "memoryMB": round(est["memoryBytes"] / 2 ** 20)},
                 "warnings": [w for w in [res.get("note")] if w]})
     finer = preview_finer(out["previewEdge"], est["edge"])
@@ -1899,6 +1906,19 @@ def _preview_answer(s, d, o, pos, ft, q, got):
         out["warnings"].append(finer)
     out["next"] = "Agent Link's view_snapshot shows it; texture_apply adds it to the document."
     return out
+
+
+def _count(v):
+    """len() of a mesh's faces or vertices: a numpy array or a list (None:
+    0). Never a truth test on it: `arr or ()` raised "The truth value of an
+    array with more than one element is ambiguous" for every preview the
+    window built (texture_preview, texture_set; live 17 Nov 12:26)."""
+    return 0 if v is None else int(len(v))
+
+
+def _or(v, default):
+    """v, or default when v is None (v may be a numpy scalar or array)."""
+    return default if v is None else v
 
 
 def _follow_preview(out):
@@ -1913,11 +1933,12 @@ def _follow_preview(out):
     if getattr(c, "showing", None) is None or not getattr(c, "cpu_mode", False):
         return out
     got = g.build_preview(FOLLOW_BUDGET_S, show=False)
-    if not got:
+    if not isinstance(got, dict):
         return out
     res = got.get("result") if got.get("done") else None
     if isinstance(res, dict):
-        out["preview"] = {"triangles": int(len((res.get("mesh") or {}).get("faces") or ())), "ms": got.get("ms", 0)}
+        m = res.get("mesh")
+        out["preview"] = {"triangles": _count(m.get("faces") if isinstance(m, dict) else None), "ms": got.get("ms", 0)}
     elif got.get("error"):
         out["preview"] = {"error": got["error"]}
     else:
@@ -2078,8 +2099,77 @@ HANDLERS = {
 
 def bound(ctx, handlers=None):
     """{tool_name: fn(args)} for one context: handlers (default all) with
-    ctx given."""
-    return {k: functools.partial(fn, ctx) for k, fn in (HANDLERS if handlers is None else handlers).items()}
+    ctx given, each guarded (guarded: a bug's ValueError is refused as
+    failed, with where it came from)."""
+    return {k: guarded(functools.partial(fn, ctx)) for k, fn in (HANDLERS if handlers is None else handlers).items()}
+
+
+_PKG = os.path.dirname(os.path.abspath(__file__))
+
+
+# numpy's own words for a bug in the caller (a truth test on an array, a
+# shape that does not fit), whether numpy raised them in C or in Python.
+NUMPY_BUG_WORDS = ("truth value of an array", "cannot reshape array", "could not be broadcast",
+                   "setting an array element with a sequence", "inhomogeneous shape")
+
+
+def _in_numpy(filename):
+    return (os.sep + "numpy" + os.sep) in os.path.abspath(filename)
+
+
+def bug_value_error(e):
+    """Whether e is a ValueError from a bug, not a refusal: numpy's words
+    for a truth test on an array ("The truth value of an array with more
+    than one element is ambiguous") or a shape that does not fit, or any
+    ValueError raised inside numpy's own Python code. A ValueError
+    Texturizer raises on purpose (a setting out of range, a file that is not
+    a PNG) is a refusal and stays one (Agent Link answers it invalid_input)."""
+    if not isinstance(e, ValueError) or (hasattr(e, "code") and hasattr(e, "message")):
+        return False
+    if any(w in str(e) for w in NUMPY_BUG_WORDS):
+        return True
+    tb, last = e.__traceback__, None
+    while tb is not None:
+        last, tb = tb, tb.tb_next
+    return last is not None and _in_numpy(last.tb_frame.f_code.co_filename)
+
+
+def cause_of(e):
+    """Where e came from, as "texturizer/<file>.py:<line> in <function>":
+    the innermost frame outside numpy (the line that handed numpy what it
+    could not take), its path from the package's folder (no person's folder
+    in an answer; a file outside the package by its name alone)."""
+    import traceback
+
+    frames = [f for f in traceback.extract_tb(e.__traceback__) if not _in_numpy(f.filename)]
+    if not frames:
+        return "unknown"
+    f = frames[-1]
+    path = os.path.abspath(f.filename)
+    if path.startswith(_PKG + os.sep):
+        path = "texturizer/" + os.path.relpath(path, _PKG).replace(os.sep, "/")
+    else:
+        path = os.path.basename(path)
+    return f"{path}:{f.lineno} in {f.name}"
+
+
+def guarded(fn):
+    """fn(args), a bug's ValueError (bug_value_error) refused with code
+    failed and the file:line it came from (a host turns a bare ValueError
+    into invalid_input, with no traceback: live 17 Nov 12:26 texture_preview
+    and texture_set said only "The truth value of an array ... is
+    ambiguous"). Every other answer and refusal passes as it was."""
+    @functools.wraps(fn, assigned=("__doc__",), updated=())
+    def call(args, *more, **kw):
+        try:
+            return fn(args, *more, **kw)
+        except ValueError as e:
+            if not bug_value_error(e):
+                raise
+            raise ToolError("failed", f"Texturizer failed: {type(e).__name__}: {e} (at {cause_of(e)}). This is a "
+                                      "Texturizer bug, not the arguments: report it with this line.") from e
+
+    return call
 
 
 def lend(**names):
@@ -2145,7 +2235,7 @@ def local_runner(ctx=None):
         if doc is not None and hasattr(doc, "openTransaction"):
             doc.openTransaction(f"Texturizer: {tool}")
         try:
-            return True, fn(ctx, dict(args or {}))
+            return True, guarded(functools.partial(fn, ctx))(dict(args or {}))
         except Exception as e:  # noqa: BLE001 — a refusal is an answer
             if doc is not None and hasattr(doc, "abortTransaction"):
                 doc.abortTransaction()
