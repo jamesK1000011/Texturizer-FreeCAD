@@ -236,6 +236,54 @@ class CoinView:
         self._maps, self._sizes = {}, {}
         return bool(nodes)
 
+    def hide(self):
+        """The CPU node and the Quick look switched off where they are (in
+        the draft's own view): kept, not taken out. Taking them out at the
+        end of a sequence (62f0dff) left the draft's view empty from
+        texture_apply on (window round 6, 0010-2002), while switching them
+        off was what every earlier round did and showed. The nodes go only
+        when the view itself goes (detach). True when any was there."""
+        _v, nodes = self.nodes()
+        for n in nodes:
+            try:
+                n.whichChild = -1   # SO_SWITCH_NONE
+            except Exception:  # noqa: BLE001 — a view closed with its document
+                pass
+        return bool(nodes)
+
+    def facts(self, view=None):
+        """What the preview has in a view's scene graph now (a headless fact
+        for texture_apply's answer): its nodes found there by name, and
+        whether each is switched on. view: the active view by default."""
+        v = view if view is not None else _active_view()
+        out = {"own": self._view is not None and v is self._view}
+        try:
+            g = v.getSceneGraph() if v is not None else None
+        except Exception:  # noqa: BLE001
+            g = None
+        if g is None:
+            out["scene"] = None
+            return out
+        found = {}
+        try:
+            n = g.getNumChildren()
+            kids = [g.getChild(i) for i in range(n)]
+        except Exception:  # noqa: BLE001 — a stand-in graph
+            kids = list(getattr(g, "children", None) or [])
+            n = len(kids)
+        for k in kids:
+            try:
+                name = k.getName() if hasattr(k, "getName") else getattr(k, "name", "")
+                name = name.getString() if hasattr(name, "getString") else str(name)
+            except Exception:  # noqa: BLE001
+                name = ""
+            if name in ("TexturizerPreview", "TexturizerQuickLook"):
+                on = getattr(k, "whichChild", None)
+                on = getattr(on, "getValue", lambda: on)()
+                found[name] = found.get(name, []) + [int(on) != -1 if on is not None else None]
+        out["scene"] = {"children": n, "previewNodes": found}
+        return out
+
     def _cpu(self):
         if self.cpu is None:
             from pivy import coin
@@ -733,8 +781,20 @@ class Window:
         self._last_geometry = (_part, id(pos))
 
     def _part_shown(self):
+        """The draft's part counts as shown: its eye is on, or Texturizer
+        hid it for its Textured result (linked.behind_result: the preview
+        still stands in for it; only the person's hiding holds it back)."""
         o = self.view._body() if self.view is not None else None
-        return True if o is None else live.visible(o)
+        if o is None or live.visible(o):
+            return True
+        return self._behind_result()
+
+    def _behind_result(self):
+        from . import linked
+
+        doc, part = live.draft_doc(), live.draft().part
+        body = live.find(doc, part) if doc is not None and part else None
+        return linked.behind_result(body, doc)
 
     def part_visibility(self, obj):
         """The document observer: an object's Visibility changed. The person
@@ -746,8 +806,8 @@ class Window:
             return
         c = self.controller
         if not live.visible(obj):
-            if self.user_hidden:
-                return
+            if self.user_hidden or self._behind_result():
+                return   # hidden for its Textured result: Texturizer's, not the person's
             self.user_hidden = True
             if c is not None and c.showing is not None:
                 c._body = False   # closing leaves it hidden, as the person left it
@@ -822,15 +882,22 @@ class Window:
     # -- the preview belongs to its document --------------------------------------------------
     _aside = False   # stepped aside for another document: shown again when the draft's comes back
 
-    def _drop_nodes(self):
-        """The preview's nodes out of the scene graph; the controller then
-        draws its CPU mesh afresh when next shown (its stage cache stays)."""
+    def _drop_nodes(self, remove=False):
+        """The preview's nodes switched off in the draft's own view (kept
+        there: the CPU mesh shows again at once, stale-tinted, when the
+        preview comes back). remove: taken out of the scene graph (its view
+        or document is going); the controller then draws its CPU mesh afresh
+        when next shown (its stage cache stays)."""
+        if self.view is None:
+            return False
+        if not remove:
+            return self.view.hide()
         c = self.controller
         if c is not None and c.has_cpu:
             c.has_cpu = False
             if c.dirty is None:
                 c.dirty = "colours"   # the mesh again from the cache's last stage
-        return self.view.detach() if self.view is not None else False
+        return self.view.detach()
 
     def step_aside(self):
         """Another document came to the front, or the draft's is closing:
@@ -880,6 +947,7 @@ class Window:
         if not live.document_closed(doc):
             return False
         self.step_aside()
+        self._drop_nodes(remove=True)   # its view goes with it: no reference kept to its graph
         self._aside = False
         self._snap, self._last_geometry = None, None
         c = self.controller
@@ -896,8 +964,10 @@ class Window:
 
     def end_preview(self):
         """The tool sequence ended (texture_apply, texture_export): the
-        preview closed and its nodes taken out of the view; the next draft
-        tool (or the sidebar) opens it again. True when one was showing."""
+        preview closed and its nodes switched off in the draft's view (kept
+        there, see CoinView.hide); the part shown or hidden as the preview
+        found it (or as its Textured result wants it); the next draft tool
+        (or the sidebar) opens it again. True when one was showing."""
         if not guithread.on_gui_thread():
             _post(self.end_preview)
             return None
@@ -919,11 +989,83 @@ class Window:
             return None
         self.open()
         c = self.controller
+        if self.user_hidden and self.snapshot() is not None and self._part_shown():
+            self.user_hidden = False   # shown again, or hidden only for its Textured result
         if c is None or self.snapshot() is None or self.user_hidden:
             return None
         if show:
             c.forced = True
         return c.build_now(budget)
+
+    def view_facts(self, doc=None, result=None, source=None):
+        """Headless facts on what the 3D view can show now (texture_apply's
+        and texture_preview { cancel }'s answers), so one live run tells why
+        a view is empty: which document is in front and which is the
+        draft's, the preview's state and its nodes in the active view's
+        scene graph, the result's and the source's eyes, and whether the
+        result's box centre is inside the view (the camera). Never raises;
+        {"thread": "job"} off the GUI thread (the view is not read there)."""
+        if not guithread.on_gui_thread():
+            return {"thread": "job"}
+        out = {}
+
+        def step(key, fn):
+            try:
+                got = fn()
+                if got is not None:
+                    out[key] = got
+            except Exception as e:  # noqa: BLE001 — facts only
+                out[key + "Error"] = f"{type(e).__name__}: {e}"
+
+        gd = getattr(_gui(), "ActiveDocument", None)
+        step("activeDocument", lambda: getattr(getattr(gd, "Document", None), "Name", None))
+        step("draftDocument", lambda: live.DRAFT_DOC["name"])
+        step("draftInFront", lambda: bool(live.in_front()))
+        c = self.controller
+        out["previewShowing"] = c.showing if c is not None else None
+        out["userHidden"] = bool(self.user_hidden)
+        if self.view is not None:
+            step("preview", lambda: self.view.facts())
+        doc = doc or live.draft_doc()
+
+        def eye(name):
+            o = live.find(doc, name) if doc is not None and name else None
+            if o is None:
+                return None
+            vo = getattr(o, "ViewObject", None)
+            return {"name": o.Name, "visible": bool(getattr(vo, "Visibility", getattr(o, "Visibility", True))),
+                    "shown": bool(live.visible(o))}
+
+        step("result", lambda: eye(result))
+        step("source", lambda: eye(source))
+        step("resultInView", lambda: self._in_view(live.find(doc, result) if doc is not None and result else None))
+        return out
+
+    @staticmethod
+    def _in_view(o):
+        """Whether o's box centre lands inside the active 3D view (the
+        camera looks at it), with the pixel; None when it cannot be told."""
+        if o is None:
+            return None
+        bb = None
+        for attr in ("Mesh", "Shape"):
+            g = getattr(o, attr, None)
+            bb = getattr(g, "BoundBox", None) if g is not None else None
+            if bb is not None:
+                break
+        if bb is None:
+            return None
+        gd = getattr(_gui(), "ActiveDocument", None)
+        v = getattr(gd, "ActiveView", None) if gd is not None else None
+        if v is None or not hasattr(v, "getPointOnViewport") and not hasattr(v, "getPointOnScreen"):
+            return None
+        import FreeCAD
+
+        p = FreeCAD.Vector(bb.Center.x, bb.Center.y, bb.Center.z)
+        x, y = (v.getPointOnViewport if hasattr(v, "getPointOnViewport") else v.getPointOnScreen)(p)[:2]
+        w, h = v.getSize()[:2]
+        return {"inside": bool(0 <= x <= w and 0 <= y <= h), "pixel": [int(x), int(y)], "size": [int(w), int(h)],
+                "diagonal": round(float(getattr(bb, "DiagonalLength", 0.0)), 3)}
 
     def preview_showing(self):
         """What the preview shows now: "cpu", "quicklook", "body" or None."""

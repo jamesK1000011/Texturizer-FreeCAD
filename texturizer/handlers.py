@@ -650,16 +650,14 @@ def texture_apply(s, a):
             out = _apply_args(s, args, target=target)
             out["updated"] = True
         out["outOfDate"] = False
-        _end_preview(out)
-        _hide_source(doc, out)
+        _after_apply(doc, out)
         out["next"] = (f"texture_check {{ object: \"{out['object']}\" }} measures it face by face against its body; "
                        "texture_export for an STL / 3MF.")
         return remember("texture_apply", out)
     if a.get("texture") or a.get("layers") is not None:
         out = _apply_args(s, a)
         _draft_follows_args(s, a, d, out)
-        _end_preview(out)
-        _hide_source(doc, out)
+        _after_apply(doc, out)
         out["next"] = ((f"texture_check {{ object: \"{out['object']}\" }}" if out.get("object") else
                         f"texture_check {{ body: \"{out['body']}\", path: <the export> }}")
                        + " measures the depth face by face; slice the export or the mesh object.")
@@ -700,11 +698,55 @@ def texture_apply(s, a):
         live.TARGET["object"] = None
         out["baked"] = obj.Name
         out["maskedTriangles"] = len(baked or []) if bake_mask else 0
-    _end_preview(out)
-    _hide_source(doc, out)
+    _after_apply(doc, out)
     out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check { object: \"%s\" } "
                    "measures it face by face; texture_export for an STL / 3MF." % (out["object"] or "", out["object"] or ""))
     return remember("texture_apply", out)
+
+
+def _after_apply(doc, out):
+    """What texture_apply leaves in the window: the preview closed and
+    switched off (its nodes kept in the draft's view), a new Textured
+    result shown, its source hidden behind it; and out["window"], the facts a
+    live run reads when the view looks wrong (Window.view_facts: the
+    document in front, the eyes, the preview's nodes, the camera)."""
+    _end_preview(out)
+    obj = live.find(doc, out.get("object")) if out.get("object") else None
+    if obj is not None and not out.get("updated"):
+        from . import linked
+
+        try:
+            if not linked.shown(obj):
+                linked._show(obj, True)   # a new result is made to be seen (Update keeps the person's eye)
+                out["resultShown"] = True
+        except Exception:  # noqa: BLE001 — the result is made: the view never fails it
+            pass
+    _hide_source(doc, out)
+    _view_facts(doc, out, out.get("object"), _source_name(obj))
+    return out
+
+
+def _source_name(obj):
+    from . import linked
+
+    try:
+        src = linked.source_of(obj) if obj is not None else None
+    except Exception:  # noqa: BLE001
+        src = None
+    return getattr(src, "Name", None)
+
+
+def _view_facts(doc, out, result=None, source=None):
+    """out["window"]: the window's facts (no window: nothing). Not "view":
+    Agent Link's echo reads that key as a drawing view it made."""
+    fn = getattr(live.GUI, "view_facts", None)
+    if fn is None:
+        return out
+    try:
+        out["window"] = fn(doc, result, source)
+    except Exception as e:  # noqa: BLE001 — facts only
+        out["window"] = {"error": f"{type(e).__name__}: {e}"}
+    return out
 
 
 def _end_preview(out):
@@ -1755,7 +1797,9 @@ def texture_preview(s, a):
         if stopped is False:
             out["note"] = ("The preview's worker had not stopped within 2 s: it ends at its next check and its result is dropped; "
                            "no timer of the preview is left waiting.")
-        return out
+        home = live.draft_doc()
+        t = live.find(home, live.TARGET["object"]) if home is not None else None
+        return _view_facts(home, out, getattr(t, "Name", None), d.part)
     if "turntable" in a:
         return _turntable(a["turntable"])
     o = _part(s, None, d)
