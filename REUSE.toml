@@ -29,7 +29,7 @@ SPDX-FileCopyrightText = "CNC Kitchen (Stefan Hermann) and contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
 [[annotations]]
-path = "texturizer/data/*.json"
+path = ["texturizer/data/*.json", "scripts/ste_originals.json"]
 SPDX-FileCopyrightText = "Texturizer contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 # The data files and their schemas: CC BY 4.0, as LICENSE-DATA says.

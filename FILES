@@ -16,6 +16,8 @@ docs/hardening/texturizer-findings.md
 docs/hardening/texturizer-model.json
 docs/linked-texture.md
 package.xml
+scripts/ste_check.py
+scripts/ste_originals.json
 tests/_fakeqt.py
 tests/_fc.py
 tests/reference/make_refs.mjs
@@ -48,6 +50,7 @@ tests/test_regularize_batched.py
 tests/test_release.py
 tests/test_shared.py
 tests/test_sidebar.py
+tests/test_ste_lint.py
 tests/test_texture.py
 tests/test_theme_loop.py
 tests/test_threads.py
