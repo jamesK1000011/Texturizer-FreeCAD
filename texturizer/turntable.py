@@ -221,11 +221,10 @@ def _active_view():
 def _model_centre():
     """The draft's part's bounding-box centre (BumpMesh's pivot: the model's centre)."""
     try:
-        import FreeCAD
-
         from . import live
 
-        o = FreeCAD.ActiveDocument.getObject(live.draft().part or "")
+        doc = live.draft_doc() if live.in_front() else None   # never another document's object of the same Name
+        o = doc.getObject(live.draft().part or "")
         bb = o.Shape.BoundBox if hasattr(o, "Shape") and not o.Shape.isNull() else o.Mesh.BoundBox
         return (bb.Center.x, bb.Center.y, bb.Center.z)
     except Exception:  # noqa: BLE001

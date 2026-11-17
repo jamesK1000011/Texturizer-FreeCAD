@@ -87,10 +87,37 @@ def _gui():
     return FreeCADGui
 
 
-def _view():
+def _active_view():
+    """The active document's view, whichever document it is."""
     try:
         d = _gui().ActiveDocument
         return d.ActiveView if d is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _view():
+    """The 3D view the preview, the rings and the brush may draw in: the
+    active document's, and only while that is the draft's own document
+    (live.in_front), else None. A preview made for one document's part once
+    stayed in whatever document came to the front (the Tutor's TutorRest
+    and BikeStem, window round 4)."""
+    try:
+        d = _gui().ActiveDocument
+        if d is None or not live.in_front(getattr(d, "Document", None)):
+            return None
+        return d.ActiveView
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _gui_doc():
+    """The draft's own document's view side (FreeCADGui's document), or None."""
+    doc = live.draft_doc()
+    if doc is None:
+        return None
+    try:
+        return _gui().getDocument(doc.Name)
     except Exception:  # noqa: BLE001
         return None
 
@@ -183,10 +210,31 @@ class CoinView:
     def _graph(self):
         v = _view()
         if v is None:
-            raise RuntimeError("no 3D view")
+            raise RuntimeError("no 3D view of the draft's document in front")
         if v is not self._view:
-            self._view, self.cpu, self.ql, self._ql_part = v, None, None, None
+            self.detach()   # never left in another view's scene graph
+            self._view = v
         return v.getSceneGraph()
+
+    def nodes(self):
+        """The preview's own nodes now in a scene graph: (view, [nodes])."""
+        return self._view, [n for n in (self.cpu, getattr(self.ql, "root", None)) if n is not None]
+
+    def detach(self):
+        """The CPU node and the Quick look taken out of the scene graph they
+        were added to (made again, on the draft's own view, when next
+        shown). True when any was there."""
+        v, nodes = self.nodes()
+        if v is not None:
+            for n in nodes:
+                try:
+                    v.getSceneGraph().removeChild(n)
+                except Exception:  # noqa: BLE001 — a view closed with its document: its graph went with it
+                    pass
+        self._view, self.cpu, self.ql, self._ql_part, self._ql_key = None, None, None, None, None
+        self.face_parent = None
+        self._maps, self._sizes = {}, {}
+        return bool(nodes)
 
     def _cpu(self):
         if self.cpu is None:
@@ -310,12 +358,14 @@ class CoinView:
 
     # -- the body and the sidebar --------------------------------------------------------------
     def _body(self):
-        snap = self.w.snapshot()
-        doc = getattr(_gui(), "ActiveDocument", None)
-        if snap is None or doc is None:
+        """The draft's part in its own document (never an object of the same
+        Name in the document in front: the Tutor's PointBox was hidden)."""
+        part = live.draft().part
+        doc = _gui_doc()
+        if not part or doc is None:
             return None
         try:
-            return doc.getObject(snap[0])
+            return doc.getObject(part)
         except Exception:  # noqa: BLE001
             return None
 
@@ -424,13 +474,13 @@ class Window:
         geometry check (its volume, area and box) runs once an event, not
         once for each of the tool's questions."""
         d = live.draft()
-        if not d.part:
-            return None
+        if not d.part or not live.in_front():
+            return None   # another document in front: its objects are never the draft's part
         if self._frozen and self._snap is not None and self._snap[0] == d.part and self._snap_ok:
             return self._snap
         try:
             with timing.stage("snapshot (geometry check)"):
-                pos, ft = live.mesh_for(d.part)
+                pos, ft = live.mesh_for(d.part, doc=live.draft_doc())
         except LookupError:
             self._snap_ok = False
             return None
@@ -538,7 +588,7 @@ class Window:
             log = FreeCAD.Console.PrintLog
         except Exception:  # noqa: BLE001
             params, ver, log = None, "", None
-        return quicklook.detect(_view(), params, ver, log=log)["ok"]
+        return quicklook.detect(_active_view(), params, ver, log=log)["ok"]
 
     def _load_selection(self):
         d = live.draft()
@@ -560,6 +610,7 @@ class Window:
         for t in (self.paint, self.gizmo):
             if t is not None:
                 t._detach()
+        self._drop_nodes()
 
     def _visibility(self, visible):
         c = self.controller
@@ -754,16 +805,130 @@ class Window:
 
     def cancel_preview(self, wait=2.0):
         """Cancel the preview: its job stopped and its worker thread waited
-        for (at most wait seconds), its debounce timer cancelled. True when
-        no worker runs any more. From another thread it is handed to the
-        GUI thread (False: not waited for)."""
+        for (at most wait seconds), its debounce timer cancelled, its nodes
+        taken out of the view. True when no worker runs any more. From
+        another thread it is handed to the GUI thread (False: not waited
+        for)."""
         c = self.controller
         if c is None:
             return True
         if not guithread.on_gui_thread():
             _post(lambda: self.cancel_preview(0))
             return False
-        return c.cancel(wait=wait)
+        done = c.cancel(wait=wait)
+        self._drop_nodes()
+        return done
+
+    # -- the preview belongs to its document --------------------------------------------------
+    _aside = False   # stepped aside for another document: shown again when the draft's comes back
+
+    def _drop_nodes(self):
+        """The preview's nodes out of the scene graph; the controller then
+        draws its CPU mesh afresh when next shown (its stage cache stays)."""
+        c = self.controller
+        if c is not None and c.has_cpu:
+            c.has_cpu = False
+            if c.dirty is None:
+                c.dirty = "colours"   # the mesh again from the cache's last stage
+        return self.view.detach() if self.view is not None else False
+
+    def step_aside(self):
+        """Another document came to the front, or the draft's is closing:
+        the preview closed (the part shown again in its own document as it
+        was), its nodes, the rings and the brush taken out of the draft's
+        view, the turntable stopped. True when a preview was showing."""
+        c = self.controller
+        was = c is not None and c.showing is not None
+        if was:
+            c.close()
+        for t in (self.paint, self.gizmo):
+            if t is not None:
+                t._detach()
+        dropped = self._drop_nodes()
+        try:
+            from . import turntable
+
+            turntable.shared().stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self._aside = self._aside or was
+        return was or dropped
+
+    def document_changed(self, doc=None):
+        """FreeCAD's active document changed (doc, the one now in front):
+        another document steps the preview aside; the draft's own coming
+        back shows it again when it was showing before."""
+        if not guithread.on_gui_thread():
+            _post(lambda: self.document_changed(doc))
+            return
+        if not live.in_front(doc):
+            self.step_aside()
+            return
+        if self._aside:
+            self._aside = False
+            self._snap = None
+            if self._alive() and live.draft().part:
+                self._part_changed()
+        for t in (self.gizmo, self.paint):
+            if t is not None:
+                t.sync()
+
+    def document_closed(self, doc):
+        """doc is being closed: when it held the draft's part, the preview
+        and its nodes go, and the draft lets go of the part (posted: the
+        document is mid-close)."""
+        if not live.document_closed(doc):
+            return False
+        self.step_aside()
+        self._aside = False
+        self._snap, self._last_geometry = None, None
+        c = self.controller
+        if c is not None:
+            c.cache.clear()
+            c.dirty = "subdivide"
+        d = live.draft()
+
+        def let_go():
+            if d.part and live.DRAFT_DOC["name"] == live.CLOSED:
+                d.set_part(None)
+        _post(let_go)
+        return True
+
+    def end_preview(self):
+        """The tool sequence ended (texture_apply, texture_export): the
+        preview closed and its nodes taken out of the view; the next draft
+        tool (or the sidebar) opens it again. True when one was showing."""
+        if not guithread.on_gui_thread():
+            _post(self.end_preview)
+            return None
+        c = self.controller
+        was = c is not None and c.showing is not None
+        if was:
+            c.close()
+        self._aside = False
+        self._drop_nodes()
+        return was
+
+    def build_preview(self, budget, show=True):
+        """The CPU preview of the draft built now (texture_preview, and the
+        draft tools while it shows): the worker does the maths, its results
+        are drawn here as they come, for at most budget seconds
+        (PreviewController.build_now). None when there is nothing to show
+        it on (another document in front, the part hidden, no part)."""
+        if not guithread.on_gui_thread():
+            return None
+        self.open()
+        c = self.controller
+        if c is None or self.snapshot() is None or self.user_hidden:
+            return None
+        if show:
+            c.forced = True
+        return c.build_now(budget)
+
+    def preview_showing(self):
+        """What the preview shows now: "cpu", "quicklook", "body" or None."""
+        c = self.controller
+        return c.showing if c is not None else None
 
     def pending_timers(self):
         """Timers of the window's queue not yet fired or cancelled."""

@@ -37,6 +37,8 @@ tests/test_paint.py
 tests/test_paint_line.py
 tests/test_preview.py
 tests/test_preview_budget.py
+tests/test_preview_document.py
+tests/test_preview_wait.py
 tests/test_progressive.py
 tests/test_project.py
 tests/test_projection_extras.py

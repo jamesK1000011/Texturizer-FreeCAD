@@ -388,8 +388,10 @@ class Draft:
         finally:
             self._batch -= 1
 
-    def set_part(self, name):
-        if name != self.part:
+    def set_part(self, name, force=False):
+        """force: say so even when the name is the same (the same Name in
+        another document is another part)."""
+        if name != self.part or force:
             self._push()
             self.part = name
             self._emit("part", value=name)

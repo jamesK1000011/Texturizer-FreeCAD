@@ -39,6 +39,7 @@ def draft():
     global _DRAFT
     if _DRAFT is None:
         _DRAFT = _draft.Draft()
+        _DRAFT.subscribe(_bind_on_part)
         from . import docdraft
 
         docdraft.attach(_DRAFT, _doc)   # in FreeCAD: the draft in the document, Edit > Undo undoes it
@@ -60,6 +61,7 @@ def reset():
         f.detach()
     _DRAFT = None
     LAST_DOC["doc"] = None
+    DRAFT_DOC["name"] = None
     _CACHE.clear()
     TARGET["object"] = None
 
@@ -126,6 +128,89 @@ def _doc():
         return FreeCAD.ActiveDocument
     except ImportError:
         return None
+
+
+# -- the document the draft belongs to ---------------------------------------------------
+# The draft names its part by the object's Name ("Box"), and another
+# document can hold an object of the same Name: the Tutor's PointBox in
+# TutorRest was taken for the draft's Grip, its preview drawn there and the
+# box hidden (window round 4, Tutor 0001-0013). The draft is bound to the
+# document its part was taken from; the preview, the rings and the brush show
+# only while that document is the active one. name: that document's Name;
+# None: no part taken yet; CLOSED: its document was closed (the part is gone).
+CLOSED = ""
+DRAFT_DOC = {"name": None}
+
+
+def bind_doc(doc):
+    """The draft's part is taken from doc (a document, or None to unbind)."""
+    DRAFT_DOC["name"] = getattr(doc, "Name", None) if doc is not None else None
+
+
+def _bind_on_part(ev):
+    """The draft's subscriber: a part taken with no document bound yet is
+    bound to the document in front (the tools bind theirs before they set
+    the part); a draft with no part has no document."""
+    if ev.get("kind") not in ("part", "load", "reset"):
+        return
+    d = _DRAFT
+    if d is None:
+        return
+    if not d.part:
+        DRAFT_DOC["name"] = None
+    elif not DRAFT_DOC["name"]:
+        bind_doc(LAST_DOC["doc"] or _doc())
+
+
+def document_named(name):
+    """The open document called name, or None."""
+    if not name:
+        return None
+    try:
+        import FreeCAD
+
+        docs = FreeCAD.listDocuments()
+    except Exception:  # noqa: BLE001 — no FreeCAD, or a stand-in without documents
+        docs = None
+    if isinstance(docs, dict):
+        return docs.get(name)
+    for d in (LAST_DOC["doc"], _doc()):   # without FreeCAD (the tests): the documents in hand
+        if d is not None and getattr(d, "Name", None) == name:
+            return d
+    return None
+
+
+def draft_doc():
+    """The document the draft's part is in, or None (none bound, or it was
+    closed). Without a binding: the document in front."""
+    name = DRAFT_DOC["name"]
+    if name is None:
+        return _doc()
+    return document_named(name)
+
+
+def in_front(doc=None):
+    """Whether the draft's document is the one in front (doc: the document
+    in front, else FreeCAD's ActiveDocument). True with no part bound yet;
+    False once its document was closed."""
+    name = DRAFT_DOC["name"]
+    if name is None:
+        return True
+    if name == CLOSED:
+        return False
+    doc = doc if doc is not None else _doc()
+    return doc is not None and getattr(doc, "Name", None) == name
+
+
+def document_closed(doc):
+    """doc is being closed: when it is the draft's, the draft lets go of it
+    (its part is gone with it). True when it was the draft's."""
+    name = getattr(doc, "Name", None)
+    if not name or DRAFT_DOC["name"] != name:
+        return False
+    DRAFT_DOC["name"] = CLOSED
+    TARGET["object"] = None
+    return True
 
 
 # -- which part a fresh draft takes ---------------------------------------------------

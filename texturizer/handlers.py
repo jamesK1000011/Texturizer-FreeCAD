@@ -650,12 +650,15 @@ def texture_apply(s, a):
             out = _apply_args(s, args, target=target)
             out["updated"] = True
         out["outOfDate"] = False
+        _end_preview(out)
         _hide_source(doc, out)
         out["next"] = (f"texture_check {{ object: \"{out['object']}\" }} measures it face by face against its body; "
                        "texture_export for an STL / 3MF.")
         return remember("texture_apply", out)
     if a.get("texture") or a.get("layers") is not None:
         out = _apply_args(s, a)
+        _draft_follows_args(s, a, d, out)
+        _end_preview(out)
         _hide_source(doc, out)
         out["next"] = ((f"texture_check {{ object: \"{out['object']}\" }}" if out.get("object") else
                         f"texture_check {{ body: \"{out['body']}\", path: <the export> }}")
@@ -667,9 +670,9 @@ def texture_apply(s, a):
         except (ValueError, KeyError, TypeError) as e:
             raise ToolError("invalid_input", f"draft: {e}") from None
     if a.get("body") is not None:
-        d.set_part(_part(s, a["body"], d).Name)
-    if d.part is None:
-        d.set_part(_part(s, None, d).Name)
+        _take_part(d, _part(s, a["body"], d), doc)
+    if d.part is None or _draft_home(doc) is None:
+        _take_part(d, _part(s, None, None), doc)
     target = None
     if not a.get("new") and not a.get("bake"):
         t = live.find(doc, live.TARGET["object"])
@@ -697,10 +700,69 @@ def texture_apply(s, a):
         live.TARGET["object"] = None
         out["baked"] = obj.Name
         out["maskedTriangles"] = len(baked or []) if bake_mask else 0
+    _end_preview(out)
     _hide_source(doc, out)
     out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check { object: \"%s\" } "
                    "measures it face by face; texture_export for an STL / 3MF." % (out["object"] or "", out["object"] or ""))
     return remember("texture_apply", out)
+
+
+def _end_preview(out):
+    """The sequence ends with texture_apply or texture_export: the preview
+    is taken out of the 3D view (its nodes stayed over the new Textured
+    object), the part shown as before; the next draft tool or the sidebar
+    brings it back. out["previewClosed"] when one was showing."""
+    g = live.GUI
+    fn = getattr(g, "end_preview", None)
+    if fn is None:
+        return out
+    try:
+        if fn():
+            out["previewClosed"] = True
+    except Exception:  # noqa: BLE001 — the result is made: the view never fails it
+        pass
+    return out
+
+
+def _draft_follows_args(s, a, d, out):
+    """texture_apply with its own texture or layers: the draft (and so the
+    sidebar, its layer list and texture) takes what was applied, so the
+    panel shows the texture just used, not the draft's old one (Knurling
+    beside a Hexagon result, round 4 0010). One undo step, in the call's
+    transaction. The Textured object keeps its own arguments for Update."""
+    from . import engine
+
+    def names(sets):
+        got = {}
+        for k, v in (sets if isinstance(sets, dict) else {}).items():
+            if k in SET_ALIASES:
+                k, v = SET_ALIASES[k], abs(v) if isinstance(v, (int, float)) else v
+            if k == "mappingMode" and isinstance(v, str):
+                v = engine.MAPPING_MODES.get(v, v)
+            got[k] = v
+        return got
+
+    o = s.body(a.get("body"))
+    top = names(a.get("settings"))
+    layers = []
+    for row, spec in zip(out.get("layers") or [], _layer_specs(a, lambda q: pick_faces(o.Shape, q))):
+        ls = {**top, **names(spec.get("settings"))}
+        layers.append({"texture": _texture_id(spec.get("texture")), "settings": ls,
+                       "includeOnly": row.get("mode") == "include", "blendAdd": bool(spec.get("blendAdd")) and row["layer"] > 0,
+                       "visible": spec.get("visible", True) is not False,
+                       "mask": {"faces": list(row.get("faces") or []), "triangles": []}})
+    if not layers:
+        return
+    data = {"part": o.Name, "layers": layers, "active": 0, "settings": top}
+    if a.get("rotation") is not None:
+        data["frame"] = {"rotation": list(a["rotation"])}
+    try:
+        live.bind_doc(getattr(o, "Document", None) or _doc(s))
+        d.load(data)
+    except (ValueError, KeyError, TypeError):
+        return
+    live.TARGET["object"] = None   # made from its own arguments: the draft's Add to Document makes a new one
+    out["draft"] = summary(d, s)
 
 
 def _update_linked(s, a, target):
@@ -903,6 +965,27 @@ class Observer:
         except Exception:  # noqa: BLE001
             pass
 
+    # The preview belongs to the draft's document (window round 4: it stayed
+    # in the Tutor's documents and hid their PointBox): another document in
+    # front steps it aside, its own closing takes it away.
+    def slotActivateDocument(self, doc):  # noqa: N802 (FreeCAD)
+        fn = getattr(live.GUI, "document_changed", None)
+        try:
+            if fn is not None:
+                fn(doc)
+        except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
+
+    def slotDeletedDocument(self, doc):  # noqa: N802 (FreeCAD)
+        fn = getattr(live.GUI, "document_closed", None)
+        try:
+            if fn is not None:
+                fn(doc)
+            else:
+                live.document_closed(doc)
+        except Exception:  # noqa: BLE001 — never raise into FreeCAD
+            pass
+
     # The preview stands in for the body by hiding it; a save meanwhile
     # would keep the body hidden in the file, so it is saved shown.
     _hid = None
@@ -938,12 +1021,29 @@ def _doc(s):
     return doc
 
 
+def _draft_home(doc):
+    """Where the draft's part is: doc when the draft is bound to it (or to
+    none yet), else the draft's own document (None when that was closed):
+    another document's object of the same Name is never taken for it."""
+    return doc if live.in_front(doc) else live.draft_doc()
+
+
+def _take_part(d, o, doc=None):
+    """The draft takes o as its part, bound to o's document (the same Name
+    in another document is another part: said as a part change)."""
+    home = getattr(o, "Document", None) or doc
+    moved = home is not None and not live.in_front(home)
+    live.bind_doc(home)
+    d.set_part(o.Name, force=moved)
+
+
 def _part(s, ref, d=None):
     """The object a draft textures: ref (a body, or a Mesh object), else the
-    draft's part, else the one body shown."""
+    draft's part (in the draft's own document), else the one body shown."""
     doc = _doc(s)
     if ref is None and d is not None and d.part:
-        o = live.find(doc, d.part)
+        home = _draft_home(doc)
+        o = live.find(home, d.part) if home is not None else None
         if o is not None:
             return o
     if ref is not None:
@@ -1063,7 +1163,7 @@ def _load_project(s, d, path, mode):
         if res.get("model") is not None and res["mode"] == "all":
             obj = _add_plain_mesh(s, os.path.splitext(os.path.basename(path))[0], res["model"])
             if obj is not None:
-                d.set_part(obj.Name)
+                _take_part(d, obj, _doc(s))
                 note.append(f"Model loaded as {obj.Label}.")
     return {"mode": res["mode"], "warnings": res.get("warnings") or [], "note": " ".join(note)}
 
@@ -1115,12 +1215,13 @@ def texture_draft(s, a):
             # A Textured object: its settings back in the draft, its body the part.
             data = json.loads(stored)
             data["part"] = o.SourceBody
+            live.bind_doc(getattr(o, "Document", None) or _doc(s))
             d.load(data)
             live.TARGET["object"] = o.Name
         else:
-            if o.Name != d.part:
+            if o.Name != d.part or not live.in_front(getattr(o, "Document", None) or _doc(s)):
                 live.TARGET["object"] = None
-            d.set_part(o.Name)
+            _take_part(d, o, _doc(s))
     out = {}
     pj = a.get("project")
     if pj:
@@ -1144,6 +1245,9 @@ def texture_draft(s, a):
         pos, ft = live.mesh_for(_part(s, None, d))
         out["mesh"] = {"triangles": len(pos) // 9, "faces": len(ft)}
     out["draft"] = summary(d, s)
+    out.update(_part_word(s, d))
+    if out.get("part"):
+        out["label"] = out["part"]   # the part's label (the words: an argument's part would come first)
     out["note"] = ("The sidebar shows this draft. texture_set (texture, settings), texture_mask (faces), texture_layer, "
                    "then texture_preview to look and texture_apply to add it to the document.")
     return out
@@ -1347,7 +1451,26 @@ def texture_set(s, a):
             else:
                 raise ToolError("invalid_input", "stamp: on, off, place, or {point, normal}.")
             done["stamp"] = projection_extras.apply(d, up, layer=i)
-    return {"layer": i, "set": done, "draft": summary(d, s)}
+    out = {"layer": i, "set": done, "draft": summary(d, s), **_part_word(s, d)}
+    if done.get("texture"):
+        out["texture"] = done["texture"]
+    names = [k for k in done if k != "texture"]
+    if names:
+        out["setNames"] = names
+    return _follow_preview(out)
+
+
+def _part_word(s, d):
+    """{"part": the draft's part's label} for the window's words and
+    selection (Agent Link's echo: PHRASES {part}, SELECTS part), or {}."""
+    if not d.part:
+        return {}
+    try:
+        home = _draft_home(_doc(s))
+        o = live.find(home, d.part) if home is not None else None
+    except Exception:  # noqa: BLE001 — words only
+        o = None
+    return {"part": o.Label if o is not None else d.part}
 
 
 def _faces_by(shape, how, ref_faces, a):
@@ -1495,7 +1618,7 @@ def texture_mask(s, a):
     m = d.mask(i)
     L = d.layer(i)
     counts = mask_counts(m)
-    out = {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts,
+    out = {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts, "part": o.Label,
            **({"strokes": strokes} if strokes else {}),
            "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or counts["triangles"] else
                    ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
@@ -1506,7 +1629,7 @@ def texture_mask(s, a):
                         + (f" ({counts['triangles']} of the part's triangles stay masked)" if counts["triangles"] else " and none of their triangles stays masked")
                         + ": mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two), "
                           "mode precision splits them under the brush's rim.")
-    return out
+    return _follow_preview(out)
 
 
 def brushed_off(before, after):
@@ -1612,7 +1735,9 @@ def texture_layer(s, a):
             d.set_active(i)
         else:
             raise ToolError("invalid_input", "action: add, remove, move, solo, visible, blend, name or active.")
-    return {"draft": summary(d, s)}
+    out = {"draft": summary(d, s), "layer": j if act == "add" else d.active if act == "active" else i,
+           "layerCount": len(d.layers), **_part_word(s, d)}
+    return _follow_preview(out)
 
 
 def texture_preview(s, a):
@@ -1646,6 +1771,16 @@ def texture_preview(s, a):
     q = a.get("quality") or d.settings.get("previewQuality") or "draft"
     if q not in preview.TRI_BUDGET:
         raise ToolError("invalid_input", f"quality {q!r}: draft (up to 500 000 triangles) or fine (up to 1 500 000).")
+    budget = num(a.get("wait", PREVIEW_BUDGET_S), "wait")
+    if not 0 <= budget <= PREVIEW_BUDGET_MAX_S:
+        raise ToolError("invalid_input", f"wait: 0 to {PREVIEW_BUDGET_MAX_S:g} seconds (the call answers within the client's time; "
+                        "the preview goes on building past it and shows itself when it is done).")
+    if live.GUI is not None and hasattr(live.GUI, "build_preview") and _on_gui():
+        if q != d.settings.get("previewQuality"):
+            d.update({"previewQuality": q})   # the sidebar's Quality shows what is built
+        got = live.GUI.build_preview(budget)
+        if got is not None:
+            return _preview_answer(s, d, o, pos, ft, q, got)
     t0 = time.time()
     res = engine.preview({"draft": d.to_dict(), "tri_budget": preview.TRI_BUDGET[q], "memory_limit": preview.MEMORY_LIMIT,
                           "cache_dir": live.cache_dir()}, mesh=pos, face_triangles=ft)
@@ -1670,6 +1805,80 @@ def texture_preview(s, a):
         out["warnings"].append(finer)
     out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
                    else "texture_apply adds it to the document.")
+    return out
+
+
+# texture_preview waits this long for the preview, then answers with what
+# it has (the client gives a call about 80 s; Agent Link's own echo and the
+# draw come on top). The build goes on past it and shows itself when done.
+PREVIEW_BUDGET_S = 45.0
+PREVIEW_BUDGET_MAX_S = 60.0
+# texture_set, texture_mask and texture_layer, while the CPU preview shows:
+# how long they wait for it to follow the draft before they answer.
+FOLLOW_BUDGET_S = 20.0
+
+
+def _on_gui():
+    from . import guithread
+
+    return guithread.on_gui_thread()
+
+
+def _preview_answer(s, d, o, pos, ft, q, got):
+    """texture_preview's answer from the window's build (Window.build_preview):
+    what it made, or, past the time budget, that it is still building and
+    how to go on."""
+    from . import engine
+
+    out = {"part": o.Label, "quality": q, "inputTriangles": len(pos) // 9, "ms": got.get("ms", 0)}
+    if got.get("error"):
+        raise ToolError("failed", f"The preview failed: {got['error']}. texture_preview {{ suggest: true }} sets a refine length "
+                        "and triangle budget the part can take; then call texture_preview again.")
+    res = got.get("result")
+    if not got.get("done") or not isinstance(res, dict):
+        out.update({"building": True, "verdict": "still building",
+                    "warnings": [], "next": "texture_preview {} again waits for it and says what it made; texture_preview "
+                                            "{ cancel: true } stops it; texture_preview { quality: \"draft\" } builds a coarser one sooner."})
+        out["note"] = (f"The preview was not done within {out['ms'] / 1000:.0f} s: it goes on building and shows in the 3D view when it "
+                       "is done" + (" (a coarse first look shows now)." if got.get("coarse") else "."))
+        return out
+    m = res.get("mesh") or {}
+    for name, t in res.get("timings") or ():
+        timing.report(f"texture_preview {name} (engine)", t)
+    est = engine.estimate(pos, run_settings(d, ft))
+    out.update({"previewEdge": round(float(m.get("edge") or 0), 4), "triangles": int(len(m.get("faces") or ())),
+                "vertices": int(len(m.get("vertices") or ())), "reused": bool(got.get("reused")),
+                "export": {"edge": est["edge"], "triangles": est["outputTriangles"], "memoryMB": round(est["memoryBytes"] / 2 ** 20)},
+                "warnings": [w for w in [res.get("note")] if w]})
+    finer = preview_finer(out["previewEdge"], est["edge"])
+    if finer:
+        out["warnings"].append(finer)
+    out["next"] = "Agent Link's view_snapshot shows it; texture_apply adds it to the document."
+    return out
+
+
+def _follow_preview(out):
+    """While the CPU preview shows, it follows the draft before a draft
+    tool answers (texture_set, texture_mask, texture_layer: the picture
+    after the call showed the old texture, round 4 0015-0019); the shader's
+    Quick look follows at once by itself. out["preview"] says how it went."""
+    g = live.GUI
+    c = getattr(g, "controller", None)
+    if g is None or c is None or not hasattr(g, "build_preview") or not _on_gui():
+        return out
+    if getattr(c, "showing", None) is None or not getattr(c, "cpu_mode", False):
+        return out
+    got = g.build_preview(FOLLOW_BUDGET_S, show=False)
+    if not got:
+        return out
+    res = got.get("result") if got.get("done") else None
+    if isinstance(res, dict):
+        out["preview"] = {"triangles": int(len((res.get("mesh") or {}).get("faces") or ())), "ms": got.get("ms", 0)}
+    elif got.get("error"):
+        out["preview"] = {"error": got["error"]}
+    else:
+        out["preview"] = {"building": True, "ms": got.get("ms", 0),
+                          "note": "The preview is still catching up with the draft; it shows in the 3D view when it is done."}
     return out
 
 
@@ -1763,7 +1972,7 @@ def texture_export(s, a):
 
         names = project.save(path, d, model=model, include_model=model is not None, include_texture=a.get("texture", True) is not False,
                              texture_png=png, face_triangles=lambda f: ft.get(f, []))
-        return {"path": path, "format": "bumpmesh", "files": names,
+        return {"path": path, "file": os.path.basename(path), "format": "bumpmesh", "files": names,
                 "note": "BumpMesh's Save Project format: Load Project opens it here or in BumpMesh."}
     obj = live.find(doc, a["object"]) if a.get("object") else None
     if a.get("object") and obj is None:
@@ -1786,13 +1995,14 @@ def texture_export(s, a):
                 else writers.threemf_bytes(pos, {"Application": "Texturizer for FreeCAD", "Copyright": credit}))
         with open(path, "wb") as fh:
             fh.write(data)
-        out = {"path": path, "format": fmt, "triangles": len(pos) // 9, "object": obj.Name, "credit": credit}
+        out = {"path": path, "file": os.path.basename(path), "format": fmt, "triangles": len(pos) // 9, "object": obj.Name,
+               "label": obj.Label, "credit": credit}
         if fmt == "stl":
             EXPORTED[os.path.realpath(path)] = obj.Name
             out["next"] = f"texture_check {{ object: \"{obj.Name}\" }} (or {{ path }} of this STL) measures it face by face."
         if getattr(obj, "OutOfDate", False):
             out["warnings"] = [f"{obj.Label} is out of date: its body changed (Update first)."]
-        return out
+        return _end_preview(out)
     o = _part(s, None, d)
     pos, ft = live.mesh_for(o)
     run = run_settings(d, ft)
@@ -1804,7 +2014,8 @@ def texture_export(s, a):
     e = engine.export(pos, run, None, path, fmt)
     if e is None:
         raise ToolError("failed", "The engine stopped before it finished (cancelled): no file was written; call texture_export again.")
-    return {"path": e["path"], "format": fmt, "triangles": e["triangles"], "warnings": e["warnings"], "credit": e["credit"]}
+    return _end_preview({"path": e["path"], "file": os.path.basename(e["path"]), "format": fmt, "triangles": e["triangles"],
+                         "object": o.Name, "label": o.Label, "warnings": e["warnings"], "credit": e["credit"]})
 
 HANDLERS = {
     "texture_list": texture_list,

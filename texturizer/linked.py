@@ -735,6 +735,16 @@ def convert(doc):
 
 
 # -- the live draft follows its body too ------------------------------------------------------
+def _draft_doc():
+    """The document the draft's part is in (live.DRAFT_DOC): never another
+    document's object of the same Name (the Tutor's PointBox was followed as
+    the draft's part: "2 new faces since texturing", its masks moved onto
+    it). With no document bound yet: the one in front, else the tools' last."""
+    if live.DRAFT_DOC["name"] is None:
+        return live._doc() or live.LAST_DOC["doc"]
+    return live.draft_doc()
+
+
 class DraftFollower:
     """The draft the sidebar shows, kept on its body: a snapshot of the
     part's geometry (tessellation, mapped names) the masks were made on;
@@ -750,7 +760,7 @@ class DraftFollower:
 
     def __init__(self, draft, doc_fn=None):
         self.draft = draft
-        self.doc_fn = doc_fn or (lambda: live._doc() or live.LAST_DOC["doc"])
+        self.doc_fn = doc_fn or _draft_doc
         self.snap = None
         self.new_faces, self.report = [], []
         self._applying = False
