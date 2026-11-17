@@ -947,6 +947,20 @@ def results_of(body, doc=None, without=None):
     return out
 
 
+def behind_result(body, doc=None):
+    """Whether body is hidden because a Textured result of it is shown
+    (sync_source hid it, this session or an earlier one): Texturizer's own
+    hiding, never the person's. The preview may still stand in for it (a
+    draft tool after texture_apply, window round 6: 0013-0019 drew nothing
+    because the hidden body was taken as hidden by the person)."""
+    if body is None or shown(body):
+        return False
+    try:
+        return any(shown(t) for t in results_of(body, doc))
+    except Exception:  # noqa: BLE001 — a closing document: not known, so not Texturizer's
+        return False
+
+
 def _preview_on(body):
     """The window's preview controller when it is open on this body (it
     hides the body itself and puts it back as it found it on close)."""

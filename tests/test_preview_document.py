@@ -8,8 +8,9 @@ views, hid their PointBox and broke the Tutor's pointing). Two stand-in
 documents, each with an object named Box (Grip in A, PointBox in B), and a
 FreeCAD / FreeCADGui stand-in whose active document the test switches:
 another document in front never shows the preview or loses an object to
-it; the preview's nodes leave the draft's view when it steps aside, when
-the view changes, when the document closes and when the sequence ends; the
+it; the preview's nodes are switched off in the draft's view when it steps
+aside and when the sequence ends, and leave it when the view changes or the
+document closes; the
 tools and the draft's follower find the part in the draft's own document."""
 import os
 import sys
@@ -181,6 +182,10 @@ class TwoDocuments(unittest.TestCase):
     def nodes(self, g):
         return [n for n in g.ActiveView.graph.children if isinstance(n, Node)]
 
+    def on(self, g):
+        """Each preview node in g's view: switched on or not."""
+        return [n.whichChild != -1 for n in self.nodes(g)]
+
     # -- the binding ---------------------------------------------------------------------------
     def test_the_draft_is_bound_to_its_document(self):
         self.assertTrue(live.in_front(self.A))
@@ -202,7 +207,7 @@ class TwoDocuments(unittest.TestCase):
         self.showing()
         self.front(self.gB)
         self.assertIsNone(self.c.showing)
-        self.assertEqual(self.nodes(self.gA), [])              # out of the draft's own view
+        self.assertEqual(self.on(self.gA), [False])            # switched off in the draft's own view (kept there)
         self.assertEqual(self.nodes(self.gB), [])              # never in the other one
         self.assertTrue(self.gA.getObject("Box").Visibility)   # Grip shown again, in its document
         self.assertTrue(self.gB.getObject("Box").Visibility)   # PointBox never hidden
@@ -212,7 +217,7 @@ class TwoDocuments(unittest.TestCase):
         self.front(self.gA)                                    # the draft's own document back
         self.worker.run_all()
         self.assertEqual(self.c.showing, "cpu")
-        self.assertEqual(len(self.nodes(self.gA)), 1)
+        self.assertEqual(self.on(self.gA), [True])             # the same node, on again
         self.assertEqual(self.nodes(self.gB), [])
 
     def test_a_document_never_previewed_stays_aside_on_return(self):
@@ -241,22 +246,144 @@ class TwoDocuments(unittest.TestCase):
         self.showing()
         self.assertTrue(self.w.end_preview())
         self.assertIsNone(self.c.showing)
-        self.assertEqual(self.nodes(self.gA), [])
+        self.assertEqual(self.on(self.gA), [False])   # off, not taken out (taken out: an empty view, round 6 0010)
         self.assertTrue(self.gA.getObject("Box").Visibility)
         self.assertFalse(self.w.end_preview())       # nothing more to end
 
-    def test_cancel_takes_the_nodes_out(self):
+    def test_cancel_switches_the_nodes_off(self):
         self.showing()
         self.w.cancel_preview(wait=0)
-        self.assertEqual(self.nodes(self.gA), [])
-        self.assertFalse(self.c.has_cpu)
-        self.assertEqual(self.c.dirty, "colours")    # drawn again from the cache when shown again
+        self.assertEqual(self.on(self.gA), [False])
+        self.assertTrue(self.c.has_cpu)              # the mesh stays in its node: shown again at once, stale-tinted
 
     def test_apply_and_export_end_the_preview(self):
         self.showing()
         out = handlers._end_preview({})
         self.assertTrue(out["previewClosed"])
-        self.assertEqual(self.nodes(self.gA), [])
+        self.assertEqual(self.on(self.gA), [False])
+
+    # -- texture_apply leaves the result in view (window round 6, 0010-2002) ----------------------
+    def result(self):
+        """A Textured result of Grip in A (Grip_hex), shown; the App
+        objects' eyes are the Gui document's view providers."""
+        r = tl.LObj(self.A, "Mesh", "Grip_hex", tl.Shape(h=8.4))
+        r.PropertiesList.append("SourceBody")
+        r.SourceBody = "Box"
+        self.A.Objects.append(r)
+        for o in self.A.Objects:
+            o.ViewObject = self.gA.getObject(o.Name)
+        return r
+
+    def eye(self, name):
+        return self.gA.getObject(name).Visibility
+
+    def applied(self):
+        """The preview up, then texture_apply's end: _after_apply."""
+        self.result()
+        self.showing()
+        out = handlers._after_apply(self.A, {"object": "Mesh", "updated": False})
+        return out
+
+    def test_apply_leaves_the_result_shown_and_the_preview_off(self):
+        out = self.applied()
+        self.assertTrue(out["previewClosed"])
+        self.assertIsNone(self.c.showing)
+        self.assertEqual(self.on(self.gA), [False])   # kept in the draft's view, switched off
+        self.assertTrue(self.eye("Mesh"))              # the result shows
+        self.assertFalse(self.eye("Box"))              # its body hidden behind it
+        self.assertTrue(out["bodyHidden"])
+        self.assertFalse(self.w.user_hidden)
+
+    def test_apply_answers_the_window_facts(self):
+        f = self.applied()["window"]
+        self.assertEqual((f["activeDocument"], f["draftDocument"], f["draftInFront"]), ("GripDoc", "GripDoc", True))
+        self.assertIsNone(f["previewShowing"])
+        self.assertEqual(f["preview"]["scene"]["previewNodes"], {"TexturizerPreview": [False]})
+        self.assertTrue(f["preview"]["own"])
+        self.assertEqual(f["result"], {"name": "Mesh", "visible": True, "shown": True})
+        self.assertEqual(f["source"], {"name": "Box", "visible": False, "shown": False})
+
+    def test_a_new_result_left_hidden_is_shown(self):
+        self.result()
+        self.gA.getObject("Mesh").Visibility = False
+        out = handlers._after_apply(self.A, {"object": "Mesh", "updated": False})
+        self.assertTrue(out["resultShown"])
+        self.assertTrue(self.eye("Mesh"))
+        self.assertFalse(self.eye("Box"))
+
+    def test_an_update_keeps_the_persons_eye_on_the_result(self):
+        self.result()
+        self.gA.getObject("Mesh").Visibility = False
+        out = handlers._after_apply(self.A, {"object": "Mesh", "updated": True})
+        self.assertNotIn("resultShown", out)
+        self.assertFalse(self.eye("Mesh"))
+        self.assertTrue(self.eye("Box"))
+
+    def test_a_draft_tool_after_apply_brings_the_preview_back(self):
+        self.applied()
+        # texture_draft { part: "Grip", reset: true }: the window follows the draft.
+        self.w._on_draft({"kind": "reset"})
+        self.worker.run_all()
+        self.assertFalse(self.w.user_hidden)   # hidden for its result: Texturizer's, not the person's
+        self.assertEqual(self.c.showing, "cpu")
+        self.assertEqual(self.on(self.gA), [True])
+        self.assertTrue(self.eye("Mesh"))      # the result stays shown
+        self.w.end_preview()
+        self.assertFalse(self.eye("Box"))      # closing leaves the body behind its result
+        self.assertTrue(self.eye("Mesh"))
+
+    def test_the_bodys_hiding_for_its_result_is_not_the_persons(self):
+        self.applied()
+        self.w.part_visibility(self.A.getObject("Box"))
+        self.assertFalse(self.w.user_hidden)
+
+    def test_the_person_hiding_the_part_still_holds_the_preview_back(self):
+        for o in self.A.Objects:
+            o.ViewObject = self.gA.getObject(o.Name)
+        self.gA.getObject("Box").Visibility = False   # no result: the person hid it
+        self.w._part_changed()
+        self.assertTrue(self.w.user_hidden)
+        self.assertIsNone(self.c.showing)
+
+    def test_build_preview_lets_go_of_a_stale_hidden_mark(self):
+        self.applied()
+        self.w.user_hidden = True   # set before the result hid it (an older event)
+        self.w.open = lambda *a, **k: None
+        got = self.w.build_preview(0.0)
+        self.assertIsNotNone(got)
+        self.assertFalse(self.w.user_hidden)
+
+    def test_the_facts_say_whether_the_camera_sees_the_result(self):
+        r = self.result()
+        r.Shape.BoundBox.Center = types.SimpleNamespace(x=10.0, y=5.0, z=4.2)
+        self.fc.Vector = lambda x, y, z: (x, y, z)
+        v = self.gA.ActiveView
+        v.getSize = lambda: (800, 600)
+        v.getPointOnViewport = lambda p: (400, 300)
+        self.assertEqual(self.w._in_view(r)["inside"], True)
+        v.getPointOnViewport = lambda p: (-2000, 300)   # the camera looks elsewhere
+        got = self.w.view_facts(self.A, "Mesh", "Box")["resultInView"]
+        self.assertEqual((got["inside"], got["pixel"]), (False, [-2000, 300]))
+
+    def test_the_facts_are_not_read_off_the_gui_thread(self):
+        import threading
+
+        got = []
+        t = threading.Thread(target=lambda: got.append(self.w.view_facts(self.A, "Box", None)))
+        t.start()
+        t.join()
+        self.assertEqual(got, [{"thread": "job"}])
+
+    def test_cancel_answers_the_window_facts(self):
+        self.result()
+        self.showing()
+        live.TARGET["object"] = "Mesh"
+        out = handlers.texture_preview(handlers.Context(doc=self.A, out_dir=""), {"cancel": True})
+        self.assertTrue(out["cancelled"])
+        f = out["window"]
+        self.assertEqual(f["preview"]["scene"]["previewNodes"], {"TexturizerPreview": [False]})
+        self.assertEqual(f["result"]["name"], "Mesh")
+        self.assertEqual(f["source"]["name"], "Box")
 
     # -- the tools and the follower ----------------------------------------------------------------
     def test_tools_find_the_part_in_the_drafts_document(self):
