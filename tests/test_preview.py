@@ -88,6 +88,9 @@ class View:
     def set_quicklook_visible(self, on):
         self.ql = on
 
+    def set_results_hidden(self, on):
+        self.results_hidden = on
+
     def set_cpu_visible(self, on):
         self.cpu = on
 
@@ -356,3 +359,18 @@ class RealThreads(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResultsStepAside(unittest.TestCase):
+    def test_results_hidden_while_open_and_back_on_close_and_cancel(self):
+        # Review 3 (17-017, tex2-0-02/03): the open preview z-fought with the
+        # part's shown Textured result.
+        c, _d, _clock, _worker, view, _eng = make()
+        c.open()
+        self.assertTrue(view.results_hidden)
+        c.close()
+        self.assertFalse(view.results_hidden)
+        c.open()
+        self.assertTrue(view.results_hidden)
+        c.cancel()
+        self.assertFalse(view.results_hidden)

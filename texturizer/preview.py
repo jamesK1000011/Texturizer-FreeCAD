@@ -253,6 +253,12 @@ class PreviewController:
 
     def _show(self, what):
         self.showing = what
+        # The part's shown Textured results step aside while the preview
+        # stands on the same place, and come back when it closes (review 3,
+        # 17-017, tex2-0-02/03: the open preview z-fought with the shown
+        # result). Before the body's own visibility, so a closing preview
+        # finds the result shown again (the body then stays behind it).
+        self._v("set_results_hidden", what is not None)
         self._v("set_quicklook_visible", what == "quicklook")
         self._v("set_cpu_visible", what == "cpu")
         self._v("set_body_visible", what == "body" or (what is None and bool(self._body)))

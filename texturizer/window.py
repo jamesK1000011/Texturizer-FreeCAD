@@ -421,6 +421,43 @@ class CoinView:
         vo = self._body()
         return bool(vo.Visibility) if vo is not None else True
 
+    _results_hid = ()   # (document, name) of Textured results the open preview hid
+
+    def set_results_hidden(self, on):
+        """The draft part's shown Textured results hidden while the preview
+        is open (on), shown again when it closes (only those it hid; one
+        deleted since is skipped). View state, Texturizer's
+        own change (linked._show): the source body is not shown for it.
+        Returns the names changed. Never raises."""
+        from . import linked
+
+        done = []
+        try:
+            if on:
+                doc = live.draft_doc()
+                part = live.draft().part
+                body = live.find(doc, part) if doc is not None and part else None
+                if body is None:
+                    return done
+                hid = list(self._results_hid)
+                for t in linked.results_of(body, doc):
+                    if linked.shown(t):
+                        linked._show(t, False)
+                        hid.append((doc.Name, t.Name))
+                        done.append(t.Name)
+                self._results_hid = tuple(hid)
+                return done
+            hid, self._results_hid = self._results_hid, ()
+            for doc_name, name in hid:
+                doc = live.document_named(doc_name)
+                t = doc.getObject(name) if doc is not None else None
+                if t is not None and not linked.shown(t):
+                    linked._show(t, True)
+                    done.append(name)
+        except Exception:  # noqa: BLE001 — a closing document: left as it is
+            pass
+        return done
+
     def set_body_visible(self, on):
         vo = self._body()
         if vo is not None and bool(vo.Visibility) != bool(on):
@@ -1179,6 +1216,9 @@ class Window:
         out["userHidden"] = bool(self.user_hidden)
         if self.view is not None:
             step("preview", lambda: self.view.facts())
+            # The Textured results the open preview hid (a z-fight with
+            # them, review 3): shown again when it closes.
+            step("resultsHiddenForPreview", lambda: [n for _d, n in getattr(self.view, "_results_hid", ())])
         doc = doc or live.draft_doc()
 
         def eye(name):
