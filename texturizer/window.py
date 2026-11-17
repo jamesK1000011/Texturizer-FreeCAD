@@ -497,6 +497,159 @@ def _render_probe(coin, name):
         return None, None
 
 
+# -- headless facts on what the 3D view can draw (live round 7: the view
+# stayed empty after texture_apply with the result shown and the camera on it) --
+# The fields read off each node when it has them: what can hide what comes
+# after it (a switch, a draw style, a transparency, a light or clip plane
+# switched, the depth buffer), as Coin's own text.
+NODE_FIELDS = ("whichChild", "style", "transparency", "on", "test", "write", "function", "renderCaching",
+               "lightModel", "override")
+
+
+def node_facts(n):
+    """{type, name, children, <field>: Coin's text} of one Coin node."""
+    out = {}
+    try:
+        out["type"] = n.getTypeId().getName().getString()
+    except Exception:  # noqa: BLE001 — a stand-in
+        out["type"] = type(n).__name__
+    try:
+        nm = n.getName() if hasattr(n, "getName") else getattr(n, "name", "")
+        nm = nm.getString() if hasattr(nm, "getString") else str(nm or "")
+        if nm:
+            out["name"] = nm
+    except Exception:  # noqa: BLE001
+        pass
+    kids = _kids(n)
+    if kids is not None:
+        out["children"] = len(kids)
+    for f in NODE_FIELDS:
+        try:
+            fld = n.getField(f) if hasattr(n, "getField") else None
+            if fld is not None:
+                out[f] = str(fld.get()).strip()[:60]
+            elif hasattr(n, f) and not hasattr(n, "getField"):
+                v = getattr(n, f)
+                out[f] = str(getattr(v, "getValue", lambda: v)())[:60]
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def _kids(n):
+    try:
+        if hasattr(n, "getNumChildren"):
+            return [n.getChild(i) for i in range(n.getNumChildren())]
+    except Exception:  # noqa: BLE001 — not a group
+        return None
+    k = getattr(n, "children", None)
+    return list(k) if isinstance(k, (list, tuple)) else None
+
+
+def scene_walk(root, depth=2, cap=80):
+    """The top depth levels of a scene graph, in traversal order: each node's
+    node_facts with its path ("3", "3.1"), at most cap nodes (truncated: true
+    past it). What sits ahead of the document's objects and hides them shows
+    here."""
+    out = []
+
+    def walk(path, n, level):
+        for i, k in enumerate(_kids(n) or ()):
+            if len(out) >= cap:
+                return
+            f = node_facts(k)
+            f["at"] = ".".join(str(x) for x in path + (i,))
+            out.append(f)
+            if level + 1 < depth:
+                walk(path + (i,), k, level + 1)
+    walk((), root, 0)
+    total = len(_kids(root) or ())
+    return {"nodes": out, "truncated": len(out) >= cap, "topChildren": total}
+
+
+def camera_facts(view):
+    """The active view's camera: type, position, near / far distances (an
+    auto-clipping gone wrong clips everything though the centre projects
+    inside), focal distance and height."""
+    cam = view.getCameraNode()
+    out = {"type": node_facts(cam).get("type")}
+    for f in ("position", "orientation", "nearDistance", "farDistance", "focalDistance", "height", "heightAngle",
+              "aspectRatio", "viewportMapping"):
+        try:
+            fld = cam.getField(f)
+            if fld is not None:
+                out[f] = str(fld.get()).strip()[:80]
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def view_provider_facts(o):
+    """A document object's view side: DisplayMode, Visibility, Transparency,
+    its facets / faces, its RootNode (children, and whether the active
+    view's scene graph holds it) and its SwitchNode's whichChild (the
+    display mode drawn: -1 draws nothing)."""
+    vo = getattr(o, "ViewObject", None)
+    if vo is None:
+        return None
+    out = {}
+    for k in ("DisplayMode", "Visibility", "Transparency", "Lighting", "ShapeAppearance"):
+        try:
+            v = getattr(vo, k)
+            out[k] = v if isinstance(v, (bool, int, float, str)) else str(v)[:80]
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        out["modes"] = list(vo.listDisplayModes())
+    except Exception:  # noqa: BLE001
+        pass
+    m = getattr(o, "Mesh", None)
+    if m is not None:
+        out["facets"] = int(getattr(m, "CountFacets", 0) or 0)
+    sh = getattr(o, "Shape", None)
+    if sh is not None and m is None:
+        try:
+            out["faces"] = len(sh.Faces)
+        except Exception:  # noqa: BLE001
+            pass
+    root = getattr(vo, "RootNode", None)
+    if root is not None:
+        out["root"] = node_facts(root)
+        try:
+            g = _active_view().getSceneGraph()
+            out["rootInScene"] = int(g.findChild(root)) if hasattr(g, "findChild") else None
+        except Exception:  # noqa: BLE001
+            pass
+    sw = getattr(vo, "SwitchNode", None)
+    if sw is not None:
+        out["switch"] = node_facts(sw)
+    return out
+
+
+def viewer_facts(view):
+    """The viewer's whole scene (camera, lights, the document's root and
+    anything put before it), two levels, and whether events go to the
+    scene graph first."""
+    vw = view.getViewer()
+    out = {}
+    try:
+        out["redirectedToSceneGraph"] = bool(vw.isRedirectedToSceneGraph())
+    except Exception:  # noqa: BLE001
+        pass
+    root = None
+    try:
+        root = vw.getSoRenderManager().getSceneGraph()
+    except Exception:  # noqa: BLE001
+        try:
+            root = vw.getSceneGraph()
+        except Exception:  # noqa: BLE001
+            root = None
+    if root is not None:
+        out["root"] = node_facts(root)
+        out["scene"] = scene_walk(root, depth=2, cap=40)
+    return out
+
+
 class Window:
     """live.GUI: the sidebar, the gallery and the preview of this window."""
 
@@ -1039,6 +1192,15 @@ class Window:
         step("result", lambda: eye(result))
         step("source", lambda: eye(source))
         step("resultInView", lambda: self._in_view(live.find(doc, result) if doc is not None and result else None))
+        # Why a view with the result shown and in sight can still draw nothing
+        # (live round 7): the result's view side, the camera's clipping, and
+        # every node of the scene graph's top two levels (a switch, draw
+        # style, transparency, clip plane or depth buffer ahead of the rest).
+        av = _active_view()
+        step("resultView", lambda: view_provider_facts(live.find(doc, result)) if doc is not None and result else None)
+        step("camera", lambda: camera_facts(av) if av is not None else None)
+        step("scene", lambda: scene_walk(av.getSceneGraph()) if av is not None else None)
+        step("viewer", lambda: viewer_facts(av) if av is not None and hasattr(av, "getViewer") else None)
         return out
 
     @staticmethod

@@ -365,6 +365,53 @@ class TwoDocuments(unittest.TestCase):
         got = self.w.view_facts(self.A, "Mesh", "Box")["resultInView"]
         self.assertEqual((got["inside"], got["pixel"]), (False, [-2000, 300]))
 
+    def test_the_facts_walk_the_scene_and_the_results_view(self):
+        """Live round 7: the result shown and in sight, the view empty. The
+        facts name each node of the scene's top levels (a switch's
+        whichChild), the camera's clipping and the result's view side."""
+        r = self.applied() and self.A.getObject("Mesh")
+        r.Mesh = types.SimpleNamespace(CountFacets=1234)
+        vp = self.gA.getObject("Mesh")
+        vp.DisplayMode = "Shaded"
+        vp.RootNode = Node("ResultRoot")
+        sw = Node("ResultModes")
+        sw.whichChild = 0
+        vp.SwitchNode = sw
+
+        class Field:
+            def __init__(self, v):
+                self.v = v
+
+            def get(self):
+                return str(self.v)
+
+        class Cam:
+            fields = {"nearDistance": 0.1, "farDistance": 500.0, "position": "0 0 100"}
+
+            def getField(self, f):  # noqa: N802 (Coin)
+                return Field(self.fields[f]) if f in self.fields else None
+
+        self.gA.ActiveView.getCameraNode = lambda: Cam()
+        f = self.w.view_facts(self.A, "Mesh", "Box")
+        nodes = f["scene"]["nodes"]
+        self.assertEqual([(n.get("name"), n.get("whichChild"), n["at"]) for n in nodes], [("TexturizerPreview", "-1", "0")])
+        self.assertEqual(f["scene"]["topChildren"], 1)
+        self.assertEqual((f["camera"]["nearDistance"], f["camera"]["farDistance"]), ("0.1", "500.0"))
+        rv = f["resultView"]
+        self.assertEqual((rv["DisplayMode"], rv["Visibility"], rv["facets"]), ("Shaded", True, 1234))
+        self.assertEqual((rv["root"]["name"], rv["switch"]["whichChild"]), ("ResultRoot", "0"))
+
+    def test_the_scene_walk_goes_two_levels_and_stops_at_its_cap(self):
+        root = Graph()
+        for i in range(3):
+            g = Graph()
+            g.addChild(Node(f"kid{i}"))
+            root.addChild(g)
+        got = window.scene_walk(root)
+        self.assertEqual([n["at"] for n in got["nodes"]], ["0", "0.0", "1", "1.0", "2", "2.0"])
+        self.assertEqual(got["nodes"][1]["name"], "kid0")
+        self.assertTrue(window.scene_walk(root, cap=2)["truncated"])
+
     def test_the_facts_are_not_read_off_the_gui_thread(self):
         import threading
 
@@ -415,6 +462,107 @@ class TwoDocuments(unittest.TestCase):
         self.assertIsNone(handlers._draft_home(self.B))
         ctx = handlers.Context(doc=self.B, out_dir="")
         self.assertEqual(handlers._part_word(ctx, self.d), {"part": "Box"})   # its own name, nothing of B's
+
+
+class ArrayMeshEngine(Engine):
+    """The engine's preview as the real one hands it: numpy arrays."""
+
+    def preview(self, inputs, progress, should_abort):
+        import numpy as np
+
+        self.calls += 1
+        m = {"vertices": np.zeros((4, 3), np.float32), "faces": np.array([[0, 1, 2], [0, 2, 3]], np.int32),
+             "normals": np.zeros((4, 3), np.float32), "colours": np.zeros((4, 3), np.float32),
+             "face_parent": np.array([0, 1], np.int64), "edge": np.float64(0.5)}
+        return {"stages": {s: s for s in preview.STAGES}, "mesh": m, "note": None, "coarse": False,
+                "provisional": False, "timings": []}
+
+
+class ArraysAfterApply(TwoDocuments):
+    """Live 17 Nov 12:26: after texture_apply, texture_preview { quality:
+    "draft" } and texture_set were refused with only "The truth value of an
+    array with more than one element is ambiguous": the window's build
+    (now reached after an apply) was answered with `mesh["faces"] or ()`."""
+
+    def setUp(self):
+        super().setUp()
+        self.c.engine = ArrayMeshEngine()
+        self.c.run_async = lambda fn: fn()   # the worker's maths at once; its hand-offs still come through build_now
+        self.w.open = lambda *a, **k: self.w.sidebar
+        self.run = handlers.local_runner(handlers.Context(doc=self.A, out_dir=""))
+
+    def test_preview_and_set_after_apply_with_arrays(self):
+        self.applied()
+        ok, out = self.run("texture_draft", {"part": "Grip", "reset": True})
+        self.assertTrue(ok, out)
+        ok, out = self.run("texture_preview", {"quality": "draft"})
+        self.assertTrue(ok, out)
+        self.assertEqual((out["triangles"], out["vertices"], out["previewEdge"]), (2, 4, 0.5))
+        self.assertEqual(self.c.showing, "cpu")
+        ok, out = self.run("texture_set", {"texture": "Fine Leather", "settings": {
+            "textureHeight": 0.3, "scaleU": 8, "mappingMode": "cubic", "refineLength": 0.8}})
+        self.assertTrue(ok, out)
+        self.assertEqual(out["preview"]["triangles"], 2)
+        ok, out = self.run("texture_preview", {"cancel": True})
+        self.assertTrue(ok, out)
+        self.assertEqual(out["window"]["preview"]["scene"]["previewNodes"], {"TexturizerPreview": [False]})
+
+
+class BugValueErrors(unittest.TestCase):
+    """A ValueError from a bug is refused as failed with where it came from;
+    a ValueError Texturizer raises on purpose stays as it was."""
+
+    def tearDown(self):
+        handlers.HANDLERS.pop("texture_test_bug", None)
+
+    def test_an_array_truth_test_names_its_line(self):
+        import numpy as np
+
+        def bad(s, a):
+            return np.zeros(3) or ()
+
+        line = bad.__code__.co_firstlineno + 1
+        fn = handlers.bound(None, {"t": bad})["t"]
+        with self.assertRaises(handlers.ToolError) as cm:
+            fn({})
+        e = cm.exception
+        self.assertEqual(e.code, "failed")
+        self.assertIn("truth value of an array", e.message)
+        self.assertIn(f":{line} in bad", e.message)
+        handlers.HANDLERS["texture_test_bug"] = bad
+        ok, out = handlers.local_runner(handlers.Context(doc=tl.LDoc(), out_dir=""))("texture_test_bug", {})
+        self.assertEqual((ok, out["error"]["code"]), (False, "failed"))
+
+    def test_inside_numpy_it_names_texturizers_line(self):
+        from texturizer import window as w
+
+        def bad(s, a):
+            return w.quicklook_mesh([1.0, 2.0], None)   # not triangles: numpy's reshape refuses
+
+        fn = handlers.bound(None, {"t": bad})["t"]
+        with self.assertRaises(handlers.ToolError) as cm:
+            fn({})
+        self.assertEqual(cm.exception.code, "failed")
+        self.assertIn("texturizer/window.py:", cm.exception.message)
+        self.assertIn("in quicklook_mesh", cm.exception.message)
+        self.assertNotIn(os.sep + "home" + os.sep, cm.exception.message)
+
+    def test_a_purposeful_value_error_is_unchanged(self):
+        def refuse(s, a):
+            raise ValueError("Not a PNG file.")
+
+        fn = handlers.bound(None, {"t": refuse})["t"]
+        with self.assertRaises(ValueError) as cm:
+            fn({})
+        self.assertNotIsInstance(cm.exception, handlers.ToolError)
+        self.assertEqual(str(cm.exception), "Not a PNG file.")
+
+        def tool_error(s, a):
+            raise handlers.ToolError("invalid_input", "settings.x: a number.")
+
+        with self.assertRaises(handlers.ToolError) as cm:
+            handlers.bound(None, {"t": tool_error})["t"]({})
+        self.assertEqual(cm.exception.code, "invalid_input")
 
 
 class AppliedTextureInTheDraft(unittest.TestCase):
