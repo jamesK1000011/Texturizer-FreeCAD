@@ -9,6 +9,11 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- FreeCAD stopped (SIGBUS: a Qt timer fired on an object already deleted) after `texture_preview { cancel }` ran on Agent Link's job thread. The draft tools (`texture_draft`, `texture_set`, `texture_mask`, `texture_layer`, `texture_preview`) drive the window (the sidebar, the preview's Coin nodes, its worker and timers) and are now declared to Agent Link as run-in-place reads (`jobs.in_place`), never jobs. Inside Texturizer every Qt timer belongs to one `guithread.GuiQueue` made on the GUI thread: made, started, stopped and deleted there only, cancel safe from any thread; a worker's calls (the preview's results, a draft change made off the GUI thread, `open`, `show_result`, `cancel_preview`) are handed to the GUI thread by a queued signal, and no file dialog is opened off it (`texture_export` then writes to its default name). Reopening the sidebar stops the old preview before making a new one, rather than a second poster object each time. `texture_preview { cancel }` waits up to 2 s for the preview's worker to end; Linked updates' retry timer (`Reruns.later`) is no longer deleted as soon as it is made. Stand-in tests: `tests/test_threads.py`.
+- Agent Link's echo: the draft tools are declared `OPENS` (they open the sidebar, so the bench comes up and their button lights), `command_for` picks Reset, Load / Save Project, Texture Gallery, Export 3MF, FreeCAD's File > Export for an STL, and Turntable by what the call asks, and `PHRASES` give `texture_preview`, `texture_export`, `texture_prepare` and `texture_apply` words with their own figures. `SELECTS` names the answer's key a read's result is under, for an Agent Link that reads it.
+
 ### Changed
 
 - The Texture tab, when Agent Link hosts it in its panel, is registered with `own_credit=True`: the page carries its own credit line (BumpMesh by Stefan Hermann, CNC Kitchen), so Agent Link hides its own credit line while the tab is in front. An Agent Link whose `register_tab` has no `own_credit` still gets the tab.

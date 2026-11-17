@@ -35,6 +35,6 @@ SPDX-License-Identifier = "CC-BY-4.0"
 # The data files and their schemas: CC BY 4.0, as LICENSE-DATA says.
 
 [[annotations]]
-path = ["FILES", "package.xml", "CHANGELOG.md", ".gitignore", ".github/**", "texturizer/icons/CREDITS.md", "texturizer/guides/*.md", "texturizer/textures/LICENSES.md", "tests/reference/*.json", "tests/tools/js_shims/**/package.json"]
+path = ["FILES", "package.xml", "CHANGELOG.md", ".gitignore", ".github/**", "texturizer/icons/CREDITS.md", "texturizer/guides/*.md", "texturizer/textures/LICENSES.md", "tests/reference/*.json", "docs/hardening/*.json", "docs/hardening/*.md", "tests/tools/js_shims/**/package.json"]
 SPDX-FileCopyrightText = "Texturizer contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"

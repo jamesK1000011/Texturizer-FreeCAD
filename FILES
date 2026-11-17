@@ -11,6 +11,7 @@ LICENSES/LGPL-2.1-or-later.txt
 LICENSES/MIT.txt
 README.md
 REUSE.toml
+docs/hardening/r3-findings.md
 docs/hardening/texturizer-findings.md
 docs/hardening/texturizer-model.json
 docs/linked-texture.md
@@ -47,6 +48,7 @@ tests/test_shared.py
 tests/test_sidebar.py
 tests/test_texture.py
 tests/test_theme_loop.py
+tests/test_threads.py
 tests/test_tooltips.py
 tests/test_turntable.py
 tests/test_untangle.py
@@ -95,6 +97,7 @@ texturizer/gallery.py
 texturizer/gizmo.py
 texturizer/gizmoview.py
 texturizer/guides/texture.md
+texturizer/guithread.py
 texturizer/handlers.py
 texturizer/icons/CREDITS.md
 texturizer/icons/Texturizer_AddToDocument.svg
