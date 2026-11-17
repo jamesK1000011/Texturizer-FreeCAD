@@ -124,6 +124,32 @@ class Vis(unittest.TestCase):
         self.body.ViewObject.Visibility = False   # the person hides it too
         self.assertFalse(self.body.ViewObject.Visibility)
 
+    def test_an_open_preview_hides_the_shown_result_and_closing_shows_it(self):
+        # Review 3 (17-017, tex2-0-02/03): the open preview z-fought with the
+        # shown result. The preview's view hides it while open and shows it
+        # again on close; the body stays behind it throughout.
+        from texturizer import window
+
+        t = self.textured()
+        live.DRAFT_DOC["name"] = None
+        live.draft_doc, had = (lambda: self.doc), live.draft_doc
+        try:
+            v = window.CoinView(window=type("W", (), {"_own_vis": 0})())
+            self.assertEqual(v.set_results_hidden(True), [t.Name])
+            self.assertFalse(t.ViewObject.Visibility)
+            self.assertFalse(self.body.ViewObject.Visibility)   # Texturizer's own: the body is not shown for it
+            self.assertEqual(v.set_results_hidden(True), [])     # every _show while open: nothing more
+            live.document_named, had2 = (lambda n: self.doc if n == self.doc.Name else None), live.document_named
+            try:
+                self.assertEqual(v.set_results_hidden(False), [t.Name])
+            finally:
+                live.document_named = had2
+            self.assertTrue(t.ViewObject.Visibility)
+            self.assertFalse(self.body.ViewObject.Visibility)
+            self.assertEqual(v.set_results_hidden(False), [])
+        finally:
+            live.draft_doc = had
+
     def test_headless_object_without_a_view(self):
         del self.body.ViewObject
         self.body.Visibility = True

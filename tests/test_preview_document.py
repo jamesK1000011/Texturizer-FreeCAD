@@ -327,7 +327,10 @@ class TwoDocuments(unittest.TestCase):
         self.assertFalse(self.w.user_hidden)   # hidden for its result: Texturizer's, not the person's
         self.assertEqual(self.c.showing, "cpu")
         self.assertEqual(self.on(self.gA), [True])
-        self.assertTrue(self.eye("Mesh"))      # the result stays shown
+        # The result steps aside while the preview stands on its place
+        # (review 3, 17-017, tex2-0-02/03: they z-fought), and comes back.
+        self.assertFalse(self.eye("Mesh"))
+        self.assertFalse(self.eye("Box"))
         self.w.end_preview()
         self.assertFalse(self.eye("Box"))      # closing leaves the body behind its result
         self.assertTrue(self.eye("Mesh"))
