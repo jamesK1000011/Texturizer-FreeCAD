@@ -52,9 +52,18 @@ part's last full subdivision (result["provisional"]), which shows the
 textured result as it will be within a few hundred ms, and the exact one
 replaces it from the same job.
 
-and the threads and timers through run_async(fn) (the worker),
-post(fn) (back to the GUI thread: a Qt signal) and schedule(seconds, fn) ->
-cancel(). The defaults use threading, for headless use and tests.
+and the threads and timers through run_async(fn) (the worker; it may
+return the thread, which wait() joins), post(fn) (back to the GUI thread: a
+Qt signal) and schedule(seconds, fn) -> cancel() (with the window,
+guithread.GuiQueue: every timer made, stopped and deleted on the GUI thread,
+cancel() safe from any thread). on_gui() -> bool says whether the caller is
+on the GUI thread: a draft change made on another thread (a tool run as
+Agent Link's job) is handed to the GUI thread before the preview acts on it.
+The defaults use threading, for headless use and tests.
+
+Cancel and close leave nothing behind: the generation moves on (the worker
+stops at its next should_abort), the debounce timer is cancelled, and
+cancel(wait=seconds) joins the worker thread.
 """
 import threading
 import time
@@ -141,7 +150,9 @@ def _undo_stage(ch, draft=None):
 
 
 def _thread(fn):
-    threading.Thread(target=fn, name="TexturizerPreview", daemon=True).start()
+    t = threading.Thread(target=fn, name="TexturizerPreview", daemon=True)
+    t.start()
+    return t
 
 
 def _timer(seconds, fn):
@@ -160,7 +171,7 @@ class _NullView:
 
 class PreviewController:
     def __init__(self, engine, draft, view=None, quicklook_ok=False, run_async=None, post=None,
-                 schedule=None, debounce=DEBOUNCE_S):
+                 schedule=None, debounce=DEBOUNCE_S, on_gui=None):
         self.engine, self.draft = engine, draft
         self.view = view or _NullView()
         self.quicklook_ok = bool(quicklook_ok)
@@ -168,6 +179,8 @@ class PreviewController:
         self.post = post or (lambda fn: fn())
         self.schedule = schedule or _timer
         self.debounce = debounce
+        self.on_gui = on_gui or (lambda: True)
+        self._worker = None      # the worker thread of the last job (run_async's answer), for wait()
         self.gen = 0
         self.cache = {}          # stage -> the engine's reusable result
         self.dirty = "subdivide"  # the earliest stage changed since the last result
@@ -210,7 +223,7 @@ class PreviewController:
         """Records the body's visibility (3.6); Quick look at once, or the
         plain body with mask colours while the first CPU job runs."""
         self._body = self._v("get_body_visible")
-        self._unsub = self.draft.subscribe(self.on_draft)
+        self._unsub = self.draft.subscribe(self._draft_event)
         if self.quicklook_ok:
             self._v("update_quicklook", "subdivide")
         else:
@@ -235,11 +248,34 @@ class PreviewController:
             self._unsub = None
         self._show(None)
 
-    def cancel(self):
-        """Cancel: the job stops and the body comes back (3.6)."""
+    def cancel(self, wait=None):
+        """Cancel: the job stops and the body comes back (3.6). wait:
+        seconds to wait for the worker thread to end (it stops at its next
+        should_abort). True when no worker runs any more."""
         self._stop()
         self._v("progress", None, 0.0)
         self._show(None)
+        return self.wait(wait) if wait else not self.worker_alive()
+
+    def worker_alive(self):
+        w = self._worker
+        alive = getattr(w, "is_alive", None)
+        return bool(alive()) if callable(alive) else False
+
+    def wait(self, timeout):
+        """Join the last worker thread (at most timeout seconds); True when
+        it has ended (or there is none, or it cannot be joined)."""
+        w = self._worker
+        if w is None or not hasattr(w, "join"):
+            return True
+        try:
+            w.join(max(0.0, float(timeout or 0.0)))
+        except RuntimeError:  # joined from itself: never
+            return False
+        if not w.is_alive():
+            self._worker = None
+            return True
+        return False
 
     def _stop(self):
         self.gen += 1
@@ -253,6 +289,13 @@ class PreviewController:
             self._cancel_timer = None
 
     # -- changes -----------------------------------------------------------------
+    def _draft_event(self, event):
+        """The draft's subscriber: on the GUI thread at once, from any other
+        thread handed to it (timers and the view are the GUI thread's)."""
+        if self.on_gui():
+            return self.on_draft(event)
+        self.post(lambda: self.on_draft(event))
+
     def on_draft(self, event):
         if event.get("kind") == "set" and event.get("key") == "useDisplacement":
             return self._toggle_3d()
@@ -418,7 +461,7 @@ class PreviewController:
             self.post(lambda: self._timings(start, marks, t0, t1))
             self.post(lambda: self._done(gen, res, err))
 
-        self.run_async(work)
+        self._worker = self.run_async(work)
 
     @staticmethod
     def _timings(start, marks, t0, t1):

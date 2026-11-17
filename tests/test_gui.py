@@ -197,13 +197,71 @@ class Echo(unittest.TestCase):
         self.assertEqual(a["AREAS"], {"texture_": "Texture"})
         draft_tools = ("texture_draft", "texture_set", "texture_mask", "texture_layer", "texture_preview")
         self.assertEqual({t: a["COMMANDS"][t] for t in draft_tools}, {t: commands.TEXTURE for t in draft_tools})
-        self.assertEqual((a["COMMANDS"]["texture_apply"], a["COMMANDS"]["texture_export"]), (commands.ADD, commands.ADD))  # export: File > Export of that object
+        # export: the toolbar's Export 3MF (command_for picks Save Project
+        # for bumpmesh and FreeCAD's File > Export for an STL)
+        self.assertEqual((a["COMMANDS"]["texture_apply"], a["COMMANDS"]["texture_export"]), (commands.ADD, "Texturizer_Export3MF"))
         self.assertEqual((a["COMMANDS"]["texture_prepare"], a["COMMANDS"]["texture_check"]), (commands.PREPARE, commands.CHECK))
         self.assertEqual(set(a["SHOWN"]), {"texture_preview", "texture_check"})
         self.assertEqual(set(a["NO_BUTTON"]), {"texture_list"})
         # every tool has a button or says it has none
         self.assertEqual(set(a["COMMANDS"]) | set(a["NO_BUTTON"]) | {"texture_settings"}, set(tools_json()))
         self.assertTrue(set(a["COMMANDS"].values()) <= set(commands.NAMES))
+        # the reads that open the sidebar bring up the bench (and so light a
+        # button: the echo lights one only for a call that switches it)
+        self.assertEqual(set(a["OPENS"]), set(draft_tools))
+        self.assertEqual(set(a["IN_PLACE"]), set(draft_tools))
+        self.assertTrue(set(a["PHRASES"]) >= {"texture_preview", "texture_export", "texture_prepare"})
+        self.assertEqual(set(a["SELECTS"]) - set(tools_json()), set())
+
+    def test_command_for(self):
+        code = r"""
+import json, sys, types
+for n in ("agentlink", "agentlink.facepick", "agentlink.hooks", "agentlink.families", "agentlink.families.picks", "agentlink.protocol"):
+    sys.modules[n] = types.ModuleType(n)
+sys.modules["agentlink.protocol"].ToolError = Exception
+from texturizer import fam_texture as f
+calls = [("texture_export", {"format": "3mf"}), ("texture_export", {"format": "bumpmesh"}), ("texture_export", {"format": "stl"}),
+         ("texture_draft", {"reset": True}), ("texture_draft", {"project": "a.bumpmesh"}), ("texture_draft", {"part": "Grip"}),
+         ("texture_set", {"texture": "hexagon"}), ("texture_set", {"texture": "hexagon", "settings": {"amplitude": 1}}),
+         ("texture_preview", {"turntable": True}), ("texture_preview", {}), ("texture_check", {})]
+print(json.dumps([f.command_for(n, a) for n, a in calls]))
+"""
+        got = json.loads(fresh(code))
+        self.assertEqual(got, ["Texturizer_Export3MF", "Texturizer_SaveProject", "Std_Export", "Texturizer_Reset",
+                               "Texturizer_LoadProject", "Texturizer_Texture", "Texturizer_Gallery", None,
+                               "Texturizer_Turntable", None, None])
+        names = set(commands.NAMES) | {"Std_Export"}
+        self.assertTrue(set(x for x in got if x) <= names)
+
+    @unittest.skipUnless(AGENTLINK, "Agent Link is not beside it")
+    def test_phrases_fill_from_the_answers(self):
+        # The words Agent Link's Activity tab and caption give each call,
+        # from fam_texture.PHRASES with its own template filler.
+        code = r"""
+import json, sys, types
+for n in ("agentlink.facepick", "agentlink.families", "agentlink.families.picks"):
+    sys.modules[n] = types.ModuleType(n)
+import agentlink
+agentlink.facepick = sys.modules["agentlink.facepick"]
+from agentlink import activity
+from texturizer import fam_texture
+activity.declare(fam_texture)
+rows = [
+ ("texture_preview", {"cancel": True}, {"cancelled": True}),
+ ("texture_preview", {}, {"part": "Grip", "triangles": 120000, "ms": 900}),
+ ("texture_preview", {"turntable": True}, {"turntable": {"spinning": True}}),
+ ("texture_preview", {"turntable": 30}, {"turntable": {"turned": 30.0}}),
+ ("texture_export", {"format": "stl"}, {"path": "/tmp/out/grip_textured.stl", "format": "stl", "triangles": 5000}),
+ ("texture_export", {"format": "bumpmesh"}, {"path": "/tmp/out/grip.bumpmesh", "format": "bumpmesh"}),
+ ("texture_prepare", {"body": "Grip"}, {"body": "Grip", "stl": "/tmp/out/Grip-for-texture.stl", "triangles": 812, "mode": "include", "faces": ["Face1", "Face2"]}),
+]
+print(json.dumps([activity.did(n, a, b) for n, a, b in rows]))
+"""
+        got = json.loads(fresh(code, AGENTLINK))
+        self.assertEqual(got, ["Stopped the texture preview", "Previewed the texture on Grip: 120000 triangles", "Turntable on",
+                               "Turned the view 30 degrees", "Exported grip_textured.stl: 5000 triangles",
+                               "Saved the BumpMesh project grip.bumpmesh",
+                               "Wrote Grip-for-texture.stl from Grip for texturing: 812 triangles, include Face1 and Face2"])
 
 
 STUB = r"""

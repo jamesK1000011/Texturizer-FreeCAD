@@ -12,12 +12,16 @@ dialogs; the selection. Every sidebar button runs through panel.run: Agent
 Link's runner when hosted (so it lands in Activity), Texturizer's own alone.
 
 Only the GUI thread touches Coin or Qt: the worker's results come back
-through a Qt signal (Poster)."""
+through a Qt signal, and every timer is the window's GuiQueue's
+(guithread.py), made, stopped and deleted on the GUI thread only. A call
+from another thread (a tool run as Agent Link's job) is handed to the GUI
+thread (show_result, cancel_preview, open) or answered without the window
+(ask_path, ask_save_options: None, so the tool writes to its default path)."""
 import os
 
 import numpy as np
 
-from . import gizmoview, handlers, live, paint, paintview, panel, preview, quicklook, sidebar, timing
+from . import gizmoview, guithread, handlers, live, paint, paintview, panel, preview, quicklook, sidebar, timing
 from .qt import QtCore, QtWidgets
 
 PARAMS = "User parameter:BaseApp/Preferences/Mod/Texturizer"
@@ -34,26 +38,47 @@ def runner(tool, args, quiet=False):
     return panel.run(tool, args, quiet=quiet)
 
 
-def _poster():
-    """post(fn): fn on the GUI thread, from any thread (a queued Qt signal)."""
+def _queue():
+    """The window side's GuiQueue (guithread.py): the one owner of its
+    timers and its hand-off to the GUI thread; made on the GUI thread the
+    first time (None when asked first from another thread, or without Qt)."""
+    w = _WINDOW
+    q = getattr(w, "_q", None) if w is not None else None
+    if q is not None and q.alive():
+        return q
+    if not guithread.on_gui_thread() or QtCore is None:
+        return None
+    try:
+        import FreeCAD
 
-    class Poster(QtCore.QObject):
-        fire = QtCore.Signal(object)
+        log = FreeCAD.Console.PrintLog
+    except Exception:  # noqa: BLE001
+        log = None
+    q = guithread.GuiQueue(QtCore, log=log)
+    if w is not None:
+        w._q = q
+    return q
 
-        def __init__(self):
-            super().__init__()
-            self.fire.connect(lambda fn: fn())
 
-    p = Poster()
-    return p, p.fire.emit
+def _post(fn):
+    """fn on the GUI thread, from any thread: at once when already there
+    with no queue, else queued."""
+    q = _queue() if guithread.on_gui_thread() else getattr(_WINDOW, "_q", None)
+    if q is not None:
+        return q.post(fn)
+    if guithread.on_gui_thread():
+        fn()
+        return True
+    return False   # no window queue yet and not on the GUI thread: dropped, never run on a worker
 
 
 def _schedule(seconds, fn):
-    t = QtCore.QTimer()
-    t.setSingleShot(True)
-    t.timeout.connect(fn)
-    t.start(int(seconds * 1000))
-    return t.stop
+    """A single-shot timer owned by the window's queue (GuiQueue.schedule):
+    made, stopped and deleted on the GUI thread only; returns cancel()."""
+    q = _queue() if guithread.on_gui_thread() else getattr(_WINDOW, "_q", None)
+    if q is None:
+        return lambda: None
+    return q.schedule(seconds, fn)
 
 
 def _gui():
@@ -382,7 +407,7 @@ class Window:
         self.controller = None
         self.view = None
         self._snap = None
-        self._poster = None
+        self._q = None   # the GuiQueue: made once on the GUI thread, kept for the window's life
         self._unsub = None
         self.paint = None
         self.gizmo = None
@@ -458,7 +483,12 @@ class Window:
 
     def open(self, load=False):
         """The sidebar where the panel layout setting puts it; load: the
-        selected body (or the one body shown) into the draft first."""
+        selected body (or the one body shown) into the draft first. From
+        another thread it is handed to the GUI thread (the sidebar as it is
+        now is returned)."""
+        if not guithread.on_gui_thread():
+            _post(lambda: self.open(load))
+            return self.sidebar
         mw = _gui().getMainWindow()
         if not self._alive():
             d = live.draft()
@@ -466,11 +496,20 @@ class Window:
             self.sidebar.visibilityChanged.connect(self._visibility)
             if self._unsub:
                 self._unsub()
-            self._unsub = d.subscribe(self._on_draft)
-            self._poster, post = _poster()
+            self._unsub = d.subscribe(self._draft_event)
+            old = self.controller
+            if old is not None:
+                # The sidebar was deleted by Qt and is made again: the old
+                # preview stops (its worker, its timer) before a new one
+                # takes its place, never left running beside it.
+                old.close()
+                old.wait(1.0)
+            q = _queue()
             self.view = CoinView(self)
             self.controller = preview.PreviewController(live.engine_with(self._mesh_for), d, self.view,
-                                                        quicklook_ok=self._detect(), post=post, schedule=_schedule)
+                                                        quicklook_ok=self._detect(), post=_post, schedule=_schedule,
+                                                        on_gui=guithread.on_gui_thread)
+            self._q = q
             self.paint = paintview.PaintView(self)
             self.gizmo = gizmoview.GizmoView(self)
             self.sidebar.stamp_place = self.gizmo.arm_place
@@ -540,6 +579,13 @@ class Window:
             self._part_changed()
 
     # -- following the draft -------------------------------------------------------------------
+    def _draft_event(self, ev):
+        """The draft's subscriber: the paint, rings and preview follow it on
+        the GUI thread only."""
+        if guithread.on_gui_thread():
+            return self._on_draft(ev)
+        _post(lambda: self._on_draft(ev))
+
     def _on_draft(self, ev):
         if ev.get("kind") in ("part", "load", "reset"):
             d = live.draft()
@@ -690,7 +736,11 @@ class Window:
         return sb.press(key)
 
     def show_result(self, res):
-        """texture_preview's result, shown as the CPU preview."""
+        """texture_preview's result, shown as the CPU preview (on the GUI
+        thread: from another one it is handed there)."""
+        if not guithread.on_gui_thread():
+            _post(lambda: self.show_result(res))
+            return
         self.open()
         c = self.controller
         if c is not None:
@@ -702,9 +752,23 @@ class Window:
         if c is not None:
             c._show("cpu")
 
-    def cancel_preview(self):
-        if self.controller is not None:
-            self.controller.cancel()
+    def cancel_preview(self, wait=2.0):
+        """Cancel the preview: its job stopped and its worker thread waited
+        for (at most wait seconds), its debounce timer cancelled. True when
+        no worker runs any more. From another thread it is handed to the
+        GUI thread (False: not waited for)."""
+        c = self.controller
+        if c is None:
+            return True
+        if not guithread.on_gui_thread():
+            _post(lambda: self.cancel_preview(0))
+            return False
+        return c.cancel(wait=wait)
+
+    def pending_timers(self):
+        """Timers of the window's queue not yet fired or cancelled."""
+        q = self._q
+        return q.pending() if q is not None else 0
 
     def selected_object(self):
         try:
@@ -798,15 +862,19 @@ def get():
     if _WINDOW is None:
         _WINDOW = Window()
         live.GUI = _WINDOW
+        _queue()   # made here, on the GUI thread, before any worker can ask for it
         from . import linked
 
-        # Textured objects rerun on a worker when their body changes, written back here.
-        _WINDOW._rerun_poster, post = _poster()
-        linked.Reruns.install(preview._thread, post, later=lambda fn: _schedule(0.25, fn))
+        # Textured objects rerun on a worker when their body changes, written
+        # back here. later's timers are the queue's (a timer only the
+        # returned cancel held was deleted at once and never fired).
+        linked.Reruns.install(preview._thread, _post, later=lambda fn: _schedule(0.25, fn))
         from . import docdraft
 
-        # Undo's signal can come before its last property: reload on the next turn.
-        docdraft.POST[0] = lambda fn: QtCore.QTimer.singleShot(0, fn)
+        # Undo's signal can come before its last property: reload on the next
+        # turn (a queued call: a single-shot Qt timer asked for on a worker
+        # thread was made there, where no event loop ever runs it).
+        docdraft.POST[0] = _post
         try:
             import FreeCAD
 

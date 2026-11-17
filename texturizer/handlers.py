@@ -973,9 +973,20 @@ def _watch():
     linked.follow_draft()
     if live.GUI is not None:
         try:
-            live.GUI.open()
+            live.GUI.open()   # from another thread the window side hands it to the GUI thread
         except Exception:  # noqa: BLE001 — a closed window never stops a tool
             pass
+
+
+def _asks():
+    """Whether a file dialog may be shown now: FreeCAD's window is there and
+    this is its thread (a tool run as Agent Link's job never opens one: a
+    dialog made on a worker thread stops FreeCAD)."""
+    if live.GUI is None:
+        return False
+    from . import guithread
+
+    return guithread.on_gui_thread()
 
 
 def _layer(d, a):
@@ -1614,9 +1625,12 @@ def texture_preview(s, a):
     _watch()
     d = live.draft()
     if a.get("cancel"):
-        if live.GUI is not None:
-            live.GUI.cancel_preview()
-        return {"cancelled": True}
+        stopped = live.GUI.cancel_preview() if live.GUI is not None else True
+        out = {"cancelled": True}
+        if stopped is False:
+            out["note"] = ("The preview's worker had not stopped within 2 s: it ends at its next check and its result is dropped; "
+                           "no timer of the preview is left waiting.")
+        return out
     if "turntable" in a:
         return _turntable(a["turntable"])
     o = _part(s, None, d)
@@ -1705,7 +1719,7 @@ def _ask_or_default(s, a, kind, default_name):
     path = a.get("path")
     if path:
         return _local(s, path)
-    if live.GUI is not None and a.get("ask", True):
+    if _asks() and a.get("ask", True):
         return live.GUI.ask_path(kind, save=True, default=os.path.join(s.out_dir, default_name))
     return os.path.join(s.out_dir, default_name)
 
@@ -1721,7 +1735,7 @@ def texture_export(s, a):
     d = live.draft()
     doc = _doc(s)
     if fmt == "bumpmesh":
-        if not a.get("path") and live.GUI is not None and a.get("ask", True):
+        if not a.get("path") and _asks() and a.get("ask", True):
             opts = live.GUI.ask_save_options()
             if opts is None:
                 return {"cancelled": True}
