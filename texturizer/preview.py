@@ -162,6 +162,42 @@ def _timer(seconds, fn):
     return t.cancel
 
 
+class _Capture:
+    """post(fn) while a tool waits for the preview (build_now): the
+    worker's hand-offs are kept for the waiting GUI thread to run, and go
+    to the real post once released. Thread-safe."""
+
+    def __init__(self, real):
+        self.real = real
+        self.lock = threading.Lock()
+        self.ready = threading.Event()
+        self.items = []
+        self.on = True
+
+    def __call__(self, fn):
+        with self.lock:
+            if self.on:
+                self.items.append(fn)
+                self.ready.set()
+                return True
+        return self.real(fn)
+
+    def take(self):
+        with self.lock:
+            got, self.items = self.items, []
+            self.ready.clear()
+        return got
+
+    def wait(self, seconds):
+        self.ready.wait(seconds)
+
+    def release(self):
+        with self.lock:
+            self.on = False
+            got, self.items = self.items, []
+        return got
+
+
 class _NullView:
     def __getattr__(self, name):
         if name == "get_body_visible":
@@ -196,6 +232,9 @@ class PreviewController:
         self._deferred = False   # a change came while held: one rebuild on release
         self.sub_gen = 0         # bumped by subdivide changes (and stop): a cold subdivide's own abort
         self.coarse_shown = 0    # coarse first looks shown (tests, the probe)
+        self.forced = False      # texture_preview asked for the CPU preview: shown until closed or 3D Preview is turned off
+        self.last = None         # the last full result shown (build_now answers from it)
+        self.last_error = None
 
     # -- state ---------------------------------------------------------------
     def _v(self, name, *a):
@@ -205,7 +244,7 @@ class PreviewController:
     @property
     def cpu_mode(self):
         """3D Preview on, or no shader (3.5: the CPU preview carries both)."""
-        return bool(self.draft.get("useDisplacement")) or not self.quicklook_ok
+        return bool(self.draft.get("useDisplacement")) or not self.quicklook_ok or self.forced
 
     @property
     def current(self):
@@ -223,6 +262,8 @@ class PreviewController:
         """Records the body's visibility (3.6); Quick look at once, or the
         plain body with mask colours while the first CPU job runs."""
         self._body = self._v("get_body_visible")
+        if self._unsub:   # open again after a cancel: one subscription, never two
+            self._unsub()
         self._unsub = self.draft.subscribe(self._draft_event)
         if self.quicklook_ok:
             self._v("update_quicklook", "subdivide")
@@ -243,6 +284,7 @@ class PreviewController:
 
     def close(self):
         self._stop()
+        self.forced = False
         if self._unsub:
             self._unsub()
             self._unsub = None
@@ -253,6 +295,7 @@ class PreviewController:
         seconds to wait for the worker thread to end (it stops at its next
         should_abort). True when no worker runs any more."""
         self._stop()
+        self.forced = False
         self._v("progress", None, 0.0)
         self._show(None)
         return self.wait(wait) if wait else not self.worker_alive()
@@ -315,6 +358,8 @@ class PreviewController:
         self.request(stage)
 
     def _toggle_3d(self):
+        if not self.draft.get("useDisplacement"):
+            self.forced = False   # the person turned 3D Preview off: that wins over an agent's preview
         if not self.cpu_mode:  # off, with the shader: the Quick look only
             self._stop()
             self._show("quicklook")
@@ -513,6 +558,7 @@ class PreviewController:
             return
         self._pending = False
         if err is not None:
+            self.last_error = err
             self._v("error", f"Preview failed: {err}")
             self._v("progress", None, 0.0)
             self._show(None)
@@ -520,6 +566,7 @@ class PreviewController:
         self.cache.update({s: v for s, v in (result.get("stages") or {}).items() if s in STAGES})
         self.dirty = None
         self.has_cpu = True
+        self.last, self.last_error = result, None
         if result.get("note"):
             self._v("note", result["note"])
         with timing.stage("preview show_cpu (Coin mesh rebuild)"):
@@ -531,6 +578,65 @@ class PreviewController:
         self._v("set_cpu_stale", False)
         if self.cpu_mode and self.has_cpu:
             self._show("cpu")
+
+    # -- built now, for a tool ----------------------------------------------------------
+    def build_now(self, budget, clock=time.perf_counter):
+        """The CPU preview brought up to date now, on the GUI thread (a
+        tool's call): the job starts at once (no debounce), the worker does
+        the maths, and what it hands back to the GUI thread (progress, the
+        coarse first look, the result) is run here as it comes, so the
+        result is drawn before the call answers. At most budget seconds:
+        past it the job runs on and shows itself when it ends (its hand-offs
+        go to the window's queue again). One build at a time: a job already
+        running for these settings is waited for, a stale one is followed
+        by a fresh one.
+
+        {"done": bool, "result": the engine's result or None, "error":
+        text or None, "ms", "coarse": a first look was drawn, "reused": the
+        shown preview was already current}."""
+        t0 = clock()
+        cap = _Capture(self.post)
+        real, self.post = self.post, cap
+        coarse0 = self.coarse_shown
+        out = {"done": False, "result": None, "error": None, "reused": False}
+        try:
+            self._cancel_pending_timer()
+            self._deferred = False
+            if self.showing is None:
+                if self._unsub:
+                    self._resume()
+                else:
+                    self.open()   # starts the job (cpu_mode)
+            if self.running is not None:
+                if self.running != self.gen:
+                    self._pending = True   # stale: a fresh job follows it
+            elif self.current and self.last is not None:
+                self._swap()
+                out.update(done=True, result=self.last, reused=True)
+                return out
+            else:
+                self._start()
+            while True:
+                for fn in cap.take():
+                    fn()
+                if self.running is None and not self._pending:
+                    break
+                left = budget - (clock() - t0)
+                if left <= 0:
+                    break
+                cap.wait(min(0.05, left))
+            if self.running is None and not self._pending:
+                if self.last_error is not None and not self.current:
+                    out["error"] = str(self.last_error)
+                elif self.current:
+                    out.update(done=True, result=self.last)
+            return out
+        finally:
+            for fn in cap.release():
+                fn()
+            self.post = real
+            out["ms"] = int((clock() - t0) * 1000)
+            out["coarse"] = self.coarse_shown > coarse0
 
     # -- the shader at run time --------------------------------------------------------
     def quicklook_failed(self, reason=""):

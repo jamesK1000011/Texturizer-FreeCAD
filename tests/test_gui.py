@@ -208,10 +208,13 @@ class Echo(unittest.TestCase):
         self.assertTrue(set(a["COMMANDS"].values()) <= set(commands.NAMES))
         # the reads that open the sidebar bring up the bench (and so light a
         # button: the echo lights one only for a call that switches it)
-        self.assertEqual(set(a["OPENS"]), set(draft_tools))
+        # (and the bench's own buttons: export, prepare, check)
+        self.assertEqual(set(a["OPENS"]), set(draft_tools) | {"texture_export", "texture_prepare", "texture_check"})
         self.assertEqual(set(a["IN_PLACE"]), set(draft_tools))
-        self.assertTrue(set(a["PHRASES"]) >= {"texture_preview", "texture_export", "texture_prepare"})
+        self.assertTrue(set(a["PHRASES"]) >= set(draft_tools) | {"texture_export", "texture_prepare", "texture_apply"})
         self.assertEqual(set(a["SELECTS"]) - set(tools_json()), set())
+        self.assertTrue(set(draft_tools) <= set(a["SELECTS"]))
+        self.assertEqual(a["OUT_MORE"], {"texture_apply": ("object",)})
 
     def test_command_for(self):
         code = r"""
@@ -254,6 +257,18 @@ rows = [
  ("texture_export", {"format": "stl"}, {"path": "/tmp/out/grip_textured.stl", "format": "stl", "triangles": 5000}),
  ("texture_export", {"format": "bumpmesh"}, {"path": "/tmp/out/grip.bumpmesh", "format": "bumpmesh"}),
  ("texture_prepare", {"body": "Grip"}, {"body": "Grip", "stl": "/tmp/out/Grip-for-texture.stl", "triangles": 812, "mode": "include", "faces": ["Face1", "Face2"]}),
+ ("texture_export", {"format": "3mf"}, {"path": "/tmp/out/Grip_textured.3mf", "file": "Grip_textured.3mf", "format": "3mf", "triangles": 9000}),
+ ("texture_export", {"format": "stl"}, {"job": "job-1", "tool": "texture_export", "status": "running"}),
+ ("texture_prepare", {"body": "Grip"}, {"job": "job-2", "tool": "texture_prepare", "status": "running"}),
+ ("texture_preview", {"quality": "fine"}, {"part": "Grip", "building": True, "verdict": "still building", "ms": 45012}),
+ ("texture_draft", {"part": "Box"}, {"part": "Grip", "label": "Grip", "draft": {"part": "Box"}}),
+ ("texture_draft", {"reset": True}, {"part": "Grip", "label": "Grip"}),
+ ("texture_set", {"texture": "hexagon"}, {"layer": 0, "part": "Grip", "texture": "hexagon"}),
+ ("texture_set", {"settings": {"amplitude": 0.6}}, {"layer": 0, "part": "Grip", "setNames": ["amplitude"]}),
+ ("texture_mask", {"add": ["Face5"]}, {"layer": 0, "mode": "exclude", "faces": ["Face5"], "triangles": 0, "part": "Grip"}),
+ ("texture_mask", {"clear": True}, {"layer": 0, "mode": "exclude", "faces": [], "triangles": 0, "part": "Grip"}),
+ ("texture_layer", {"action": "add"}, {"layer": 1, "layerCount": 2, "part": "Grip"}),
+ ("texture_layer", {"action": "solo", "layer": 1}, {"layer": 1, "layerCount": 2, "part": "Grip"}),
 ]
 print(json.dumps([activity.did(n, a, b) for n, a, b in rows]))
 """
@@ -261,7 +276,51 @@ print(json.dumps([activity.did(n, a, b) for n, a, b in rows]))
         self.assertEqual(got, ["Stopped the texture preview", "Previewed the texture on Grip: 120000 triangles", "Turntable on",
                                "Turned the view 30 degrees", "Exported grip_textured.stl: 5000 triangles",
                                "Saved the BumpMesh project grip.bumpmesh",
-                               "Wrote Grip-for-texture.stl from Grip for texturing: 812 triangles, include Face1 and Face2"])
+                               "Wrote Grip-for-texture.stl from Grip for texturing: 812 triangles, include Face1 and Face2",
+                               "Exported Grip_textured.3mf: 9000 triangles", "Exporting stl in the background",
+                               "Preparing Grip for texturing in the background", "Still building the texture preview on Grip",
+                               "Started texturing Grip", "Reset the draft of Grip to defaults", "Put hexagon on Grip, layer 0",
+                               "Set amplitude on Grip, layer 0", "Kept Face5 of Grip plain on layer 0; brush: 0 triangles",
+                               "Every face of Grip gets the texture on layer 0: 0 triangles masked",
+                               "Added layer 1 to Grip", "Set solo on layer 1 of Grip"])
+
+
+class OneRing(unittest.TestCase):
+    """Two rings at once (round 4, 0014-0019): a Texturizer call keeps only
+    the newest of the echo's lit buttons, on the GUI thread only."""
+
+    def test_only_the_newest_ring_stays(self):
+        code = r"""
+import json, sys, threading, types
+for n in ("agentlink", "agentlink.facepick", "agentlink.hooks", "agentlink.families", "agentlink.families.picks",
+          "agentlink.protocol", "agentlink.overlay"):
+    sys.modules[n] = types.ModuleType(n)
+sys.modules["agentlink.protocol"].ToolError = Exception
+class M:
+    def __init__(self, h, owner="echo", style="flash"): self.handle, self.owner, self.style = h, owner, style
+class Svc:
+    def __init__(self): self.board = types.SimpleNamespace(marks=[M(1), M(2), M(3, "tutor", "ring"), M(4)])
+    def clear(self, owner=None, handle=None):
+        self.board.marks = [m for m in self.board.marks if not (m.owner == owner and m.handle == handle)]
+svc = Svc()
+sys.modules["agentlink.overlay"].service = lambda: svc
+sys.modules["agentlink"].overlay = sys.modules["agentlink.overlay"]
+from texturizer import fam_texture as f
+calls = []
+wrapped = f._ringed(lambda a: calls.append(a) or "ok")
+off = []
+t = threading.Thread(target=lambda: off.append(wrapped({"x": 0})))
+t.start(); t.join()
+left_after_worker = sorted(m.handle for m in svc.board.marks)
+got = wrapped({"x": 1})
+print(json.dumps({"worker": left_after_worker, "left": sorted((m.handle, m.owner) for m in svc.board.marks), "got": got, "calls": calls,
+                  "again": f.one_ring()}))
+"""
+        out = json.loads(fresh(code))
+        self.assertEqual(out["worker"], [1, 2, 3, 4])                  # a job's worker never touches the window
+        self.assertEqual(out["left"], [[3, "tutor"], [4, "echo"]])    # the Tutor's own ring is not the echo's
+        self.assertEqual((out["got"], out["calls"]), ("ok", [{"x": 0}, {"x": 1}]))
+        self.assertFalse(out["again"])
 
 
 STUB = r"""
@@ -313,7 +372,7 @@ class Workbench(unittest.TestCase):
                   "Texturizer_Gallery", "Texturizer_Export3MF"]
         self.assertEqual(out["toolbars"], [["Texturizer", header], ["View", commands.VIEW_TOOLBAR],
                                            ["Check", [commands.PREPARE, commands.CHECK]],
-                                           ["Texturizer Panel", [commands.TEXTURE]]])
+                                           ["Texturizer Panel", [commands.TEXTURE, commands.ADD]]])
         self.assertEqual([out["commands"][n]["MenuText"] for n in header],
                          ["Reset to Defaults", "Export BumpMesh Project…", "Import BumpMesh Project…", "Texture Gallery", "Export 3MF"])
         self.assertEqual([out["commands"][n]["MenuText"] for n in commands.VIEW_TOOLBAR], ["Section View", "Turntable"])

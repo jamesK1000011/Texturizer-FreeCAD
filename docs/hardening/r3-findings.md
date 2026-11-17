@@ -149,3 +149,142 @@ words "Exported grip.3mf: … triangles".
   0016, 0019): not in this round's list. After the fix above the draft
   tools run on the GUI thread, which may already change 0015-0019; check
   with the same calls and `view_snapshot`.
+
+# Second round: window review round 4
+
+Source: the round 4 window review of Workshop, Texturizer and Tutor (71
+pictures). Worked from the code and FreeCAD 1.1.3's source; no FreeCAD
+here: each item has a live check.
+
+## C. The preview showed up in other documents (Tutor 0001, 0002, 0009, 0013)
+
+**Cause (sure, from code).** The draft names its part by the object's
+Name ("Box"), and every lookup used the document in front:
+`Window.snapshot()` → `live.mesh_for(d.part)` (the active document),
+`CoinView._body()` (`FreeCADGui.ActiveDocument.getObject`), the draft's
+follower (`DraftFollower.doc_fn`: the active document) and the tools'
+`_part()`. The Tutor's PointBox in TutorRest is also Name "Box": it was
+meshed and previewed, hidden as the preview's stand-in body, and followed
+as the draft's part (the Report line "PointBox (the sidebar's draft): 2
+new faces since texturing" is `linked.DraftFollower.follow` moving the
+draft's masks onto it). And `CoinView._graph()` dropped its node
+references when the view changed without taking the nodes out of the old
+scene graph, so a shown preview stayed in a view nothing pointed to.
+
+**Change.**
+
+- `live.py`: `DRAFT_DOC`, `bind_doc`, `draft_doc`, `in_front`,
+  `document_closed`: the draft is bound to the document its part was taken
+  from (the tools bind before they set the part; a part set another way is
+  bound to the document in front). `draft.set_part(force=)` says a part
+  change when the same Name comes from another document.
+- `window.py`: `_view()` is the active view only while the draft's
+  document is in front; `snapshot()` is None otherwise; `_body()` is the
+  part in its own document. `CoinView.detach()` takes the CPU node and the
+  Quick look out of the graph they were added to; `_graph()` detaches on a
+  view change. `Window.step_aside()`, `document_changed()`,
+  `document_closed()`, `end_preview()`; `cancel_preview()` and `leave()`
+  take the nodes out too.
+- `handlers.py`: `Observer.slotActivateDocument` / `slotDeletedDocument`
+  forward to the window; `_draft_home()` / `_take_part()`: the tools find
+  the draft's part in its own document and bind a part they take;
+  `texture_apply` and `texture_export` end the preview (`previewClosed`).
+- `linked.py`: the follower reads the draft's own document.
+- `turntable.py`: the pivot is the part in its own document.
+- Tests: `tests/test_preview_document.py` (two stand-in documents, an
+  object named Box in each).
+
+**How sure.** Sure of the mechanism (the Report line names the follower).
+That App's `slotActivateDocument` fires on every MDI switch: FreeCAD 1.1.3
+`Gui::MainWindow` sets the active document on a window change
+(`src/App/DocumentObserverPython.cpp` forwards it).
+
+**Live check.** `texture_draft { part: "Grip" }`, `texture_preview {}`,
+then `doc_new { name: "TutorRest" }`, `part_primitive { kind: "box", name:
+"PointBox" }` (its Name is Box too), `view_snapshot`: PointBox shown, no
+teal or orange; `report_read { since: "last" }`: no "the sidebar's draft"
+line. Back: `doc_switch { document: "<the Grip document>", front: true }`,
+`view_snapshot`: the preview again, Grip hidden under it. Then
+`texture_apply {}`: `previewClosed: true`, `view_snapshot`: the Textured
+object only. Close TutorRest and the Grip document in turn:
+`report_read` has no error.
+
+## D. texture_apply's panel kept Knurling; the preview did not follow set / mask / layer (0010, 0015-0019)
+
+**Cause (sure, from code).** `texture_apply { texture }` runs
+`_apply_args`, which never touched the draft the sidebar shows. And
+`texture_preview` drew a CPU result (`show_result`) while the controller
+stayed in Quick look mode (3D Preview off): later draft changes updated
+the hidden Quick look only (`request()` returns early when not
+`cpu_mode`), so the CPU picture stayed as it was. Where the CPU preview did
+rebuild, it was after the debounce and the worker, after the call had
+answered and the picture been taken.
+
+**Change.** `_draft_follows_args()`: the draft takes the applied part,
+texture, settings (texture_apply's names mapped: textureHeight →
+amplitude, mapping modes by name), layers and face masks, in one undo step.
+`PreviewController.forced` (set by `texture_preview`, cleared by close,
+cancel and the person turning 3D Preview off) keeps the CPU preview through
+draft changes; `texture_set`, `texture_mask` and `texture_layer` wait for
+a shown CPU preview to catch up (`_follow_preview`, at most 20 s;
+`preview { triangles, ms }` or `{ building }` in the answer).
+
+**Live check.** `texture_apply { body: "Grip", texture: "Hexagon", name:
+"Grip_hex" }` → `view_snapshot`: the sidebar's layer shows Hexagon.
+`texture_preview {}`, `texture_set { texture: "Leather" }` → answer has
+`preview.triangles`; `view_snapshot`: leather on the preview.
+
+## E. Two rings; no ring on texture_apply / texture_export; words
+
+**Cause.** Agent Link puts the last ring out only at a changing call
+(`echo.rings_off` in `before`); Texturizer's draft tools are reads that
+light a button (`OPENS`), so their rings piled up. `texture_apply`'s
+command (Add to Document) had no toolbar button; `texture_export`,
+`texture_prepare` and `texture_check` were reads that never switch the
+bench, so no button lit. The words: no `PHRASES` for the draft tools;
+`texture_mask`'s answer has `triangles` (the brush's), which the caption
+added as "0 triangles".
+
+**Change (`fam_texture.py`).** `one_ring()`: as a Texturizer tool starts
+(GUI thread only), every echo flash ring but the newest is cleared through
+Agent Link's overlay (`overlay.service().clear(owner="echo", handle=)`;
+the Tutor's own rings are not the echo's). `OPENS` adds texture_export,
+texture_prepare, texture_check. Add to Document on the Texturizer Panel
+toolbar. `PHRASES` for texture_settings, texture_draft, texture_set,
+texture_mask (the faces kept plain), texture_layer, the job's first answer
+("… in the background"), texture_export by `file`; answers carry `part`
+(and `label`, `texture`, `setNames`, `layerCount`, `file`) for them.
+`SELECTS` for the draft tools; `OUT_MORE = {"texture_apply":
+("object",)}`. Tests: `tests/test_gui.py` (OneRing, phrases).
+
+**Hub side (not here).** (1) A read that lights its button (`OPENS`) puts
+the earlier ring out, as a changing call does; `one_ring` is a stop-gap.
+(2) `echo.declare` reads `SELECTS` ({tool: answer key}, the value a name or
+a list of names) and `OUT_MORE` ({tool: (answer keys,)}). (3) A read run as
+a job: its words when its answer comes back (`texture_prepare`'s stale
+"Checked …" caption, 2000, is that).
+
+**Live check.** `texture_draft { reset: true }`, `texture_preview {}`,
+`texture_set { settings: { amplitude: 0.6 } }`, `view_snapshot`: one ring.
+`texture_apply {}`: ring on Add to Document. `texture_export { format:
+"3mf" }`: ring on Export 3MF; `session_state` words "Exported
+Grip_textured.3mf: … triangles".
+
+## F. texture_preview blocked the window with no limit
+
+**Change.** `PreviewController.build_now(budget)`: the job starts at once
+on the preview's worker (the engine's maths), and what the worker hands
+back to the GUI thread (progress, the coarse first look, the result) is
+run by the waiting call as it comes, so the result is drawn before the
+answer. Past the budget it returns; the build goes on and its later
+hand-offs go to the window's queue (it shows itself); the next
+`texture_preview` waits for that same build (no second one); a preview
+already current answers at once (`reused`). `texture_preview { wait }`
+(default 45 s, at most 60); past it `building: true`, `verdict: "still
+building"`, `next`. Headless (no window) the call runs the engine itself
+as before. Tests: `tests/test_preview_wait.py` (a real worker thread).
+
+**Live check.** On a large part: `texture_preview { quality: "fine", wait:
+5 }` → `building: true` within about 5 s; `report_read`: no QThread or
+QObject line; `texture_preview {}` → the triangles, `reused` false, the
+engine run once (timing probe on: one "preview from subdivide" line).
