@@ -456,8 +456,12 @@ def read(src):
         raise ValueError("File too large (%.1f MB, max 500 MB)" % (len(data) / 1024 / 1024))
     if data[:4] != b"PK\x03\x04":
         raise ValueError("not a .bumpmesh project (not a ZIP); load a model file with Load Model…")
+    from .engine import limits
+
+    # 500 MB packed, and capped unpacked too: a ZIP bomb is refused before
+    # it is unpacked, each member read to a byte limit (red team 3, R3-6).
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        return Project({n: z.read(n) for n in z.namelist()})
+        return Project(limits.zip_members(z, "The project"))
 
 
 def _migrate_scale(snap, bounds):
@@ -519,6 +523,15 @@ def _bounds_of(tris):
     return uvmath.bounds_of(np.asarray(tris, dtype=float).reshape(-1, 3))
 
 
+def _text(s, cap=120):
+    """A name from the project file (a texture's, a layer's), cleaned for
+    the agent (guard.text: no hidden or control characters, capped; red
+    team 3, R3-11); None for anything that is not text."""
+    from . import guard
+
+    return guard.text(s, cap) or None if isinstance(s, str) else None
+
+
 def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
     """Load Project into draft (one undo step). mode "all" (Model + settings)
     takes the project's model, masks and pose; "settings" (Settings only)
@@ -557,12 +570,12 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
     textures = {}
 
     def texture_for(i, d, png_name):
-        png = proj.files.get(png_name) if png_name else None
+        png = proj.files.get(png_name) if isinstance(png_name, str) and png_name else None
         if png:
-            name = d.get("activeMapName") or png_name
+            name = _text(d.get("activeMapName")) or _text(png_name)
             textures[i] = (name, png)
             return import_texture(name, png) if import_texture else name
-        return d.get("activeMapName") or controls.DEFAULT_TEXTURE
+        return _text(d.get("activeMapName")) or controls.DEFAULT_TEXTURE
 
     layers = []
     if proj.layered:
@@ -575,8 +588,8 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
                  "texture": texture_for(i, d, d.get("texture")), "visible": d.get("visible") is not False,
                  "blendAdd": bool(d.get("blendAdd")), "includeOnly": bool(d.get("includeOnly")), "settings": s,
                  "solo": bool(x.get("solo")), "mask": {"faces": [], "triangles": []}}
-            if x.get("name"):
-                L["name"] = x["name"]
+            if _text(x.get("name")):
+                L["name"] = _text(x["name"])
             if mode == LOAD_ALL:
                 L["mask"]["faces"] = [f for f in x.get("faces", []) if isinstance(f, str)]
             layers.append(L)
@@ -622,11 +635,11 @@ def load(src, draft, mode=LOAD_ALL, import_texture=None, bounds=None):
              "includeOnly": cur["includeOnly"] if mode == LOAD_SETTINGS else False, "settings": s, "solo": False,
              "mask": copy.deepcopy(cur["mask"]) if mode == LOAD_SETTINGS else {"faces": [], "triangles": []}}
         if proj.files.get("texture.png"):
-            name = data.get("activeMapName") or "imported-texture.png"
+            name = _text(data.get("activeMapName")) or "imported-texture.png"
             textures[0] = (name, proj.files["texture.png"])
             L["texture"] = import_texture(name, proj.files["texture.png"]) if import_texture else name
         else:
-            L["texture"] = data.get("activeMapName") or cur["texture"]
+            L["texture"] = _text(data.get("activeMapName")) or cur["texture"]
         if mode == LOAD_ALL:
             m = _json_file(proj, "mask.json", warnings)
             if isinstance(m, dict):

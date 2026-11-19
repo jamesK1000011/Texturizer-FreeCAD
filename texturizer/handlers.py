@@ -13,7 +13,7 @@ import functools
 import math
 import os
 
-from . import live, mesh, timing
+from . import guard, live, mesh, timing
 
 
 class Refusal(Exception):
@@ -123,11 +123,12 @@ def texture_check(s, a):
     (texture_prepare's -mask.json), the -mask.json beside path by name, or
     the Textured object path was exported from."""
     path = _local(s, a.get("path"))
+    if a.get("mask"):
+        # mask is not a field Agent Link checks by itself: checked here (red team 3, R3-10).
+        a = dict(a, mask=guard.read_ok(s, "texture_check", _local(s, a["mask"]), "mask", ToolError))
     tol = num(a.get("tolerance", 0.02), "tolerance")
     doc = _doc(s)
     obj = None
-    if a.get("mask"):
-        a = dict(a, mask=_local(s, a["mask"]))
     if a.get("object") is not None:
         if a.get("mask"):
             raise ToolError("invalid_input", "object or mask, not both: a Textured object carries its own mask.")
@@ -255,17 +256,26 @@ def texture_list(s, a):
 
     cat = a.get("category")
     q = str(a.get("search") or "").lower()
-    out = []
+    out, hidden = [], 0
     for e in engine.library.list():
         if cat and e["category"] != cat:
             continue
         if q and q not in e["name"].lower():
             continue
-        out.append({k: e[k] for k in LIST_KEYS})
+        # A custom texture's id and name come from its file's name: text
+        # from a file, cleaned before the agent reads it (red team 3,
+        # R3-11). An id that cleaning would change is not listed: the
+        # agent could not give it back.
+        if guard.text(e["id"], 120) != e["id"]:
+            hidden += 1
+            continue
+        out.append({k: (guard.text(e[k], 120) if k == "name" and isinstance(e[k], str) else e[k]) for k in LIST_KEYS})
     if cat and not out and cat not in engine.library.CATEGORIES + [engine.library.CUSTOM]:
         raise ToolError("invalid_input", f"category {cat!r}: one of {', '.join(engine.library.CATEGORIES + [engine.library.CUSTOM])} "
                         "(or leave it out and use search).")
-    return {"count": len(out), "textures": out, "categories": engine.library.CATEGORIES,
+    more = {"notListed": f"{hidden} custom texture{'s' if hidden != 1 else ''} with hidden or control characters in the file name: "
+                         "the person renames the file."} if hidden else {}
+    return {"count": len(out), "textures": out, "categories": engine.library.CATEGORIES, **more,
             "credit": "BumpMesh's texture library (Stefan Hermann, CNC Kitchen); Hero Patterns by Steve Schoger (CC BY 4.0); "
                       "ambientCG and Poly Haven (CC0). Filter Forge textures are not included.",
             "note": "Use an id as texture in texture_apply; defaults.scaleU is the tile in mm on a 50 mm part "
@@ -490,6 +500,9 @@ def _export_with(s, a, pos, run, res, out):
     if not path:
         raise ToolError("invalid_input", "export: a path ending .stl or .3mf (relative: the output folder), or {path, format}.")
     path = _local(s, path)
+    if isinstance(exp, dict):
+        # export.path is nested: Agent Link checks only a top-level export (red team 3, R3-10).
+        guard.write_ok(s, "texture_apply", path, "export.path", ToolError)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
         e = engine.export(pos, run, None, path, None if isinstance(exp, str) else exp.get("format"), result=res)
@@ -1203,11 +1216,11 @@ def _load_project(s, d, path, mode):
         except (OSError, ValueError, KeyError) as e:
             raise ToolError("invalid_input", f"project: {e}") from None
         if res.get("model") is not None and res["mode"] == "all":
-            obj = _add_plain_mesh(s, os.path.splitext(os.path.basename(path))[0], res["model"])
+            obj = _add_plain_mesh(s, guard.text(os.path.splitext(os.path.basename(path))[0], 80) or "Model", res["model"])
             if obj is not None:
                 _take_part(d, obj, _doc(s))
                 note.append(f"Model loaded as {obj.Label}.")
-    return {"mode": res["mode"], "warnings": res.get("warnings") or [], "note": " ".join(note)}
+    return {"mode": res["mode"], "warnings": [guard.text(w, 300) for w in res.get("warnings") or []], "note": " ".join(note)}
 
 
 def _add_plain_mesh(s, name, tris):
@@ -1281,6 +1294,8 @@ def texture_draft(s, a):
             if not pj or not mode:
                 return {"cancelled": True, "draft": summary(d, s)}
             a = dict(a, mode=mode)
+        if a.get("project") != "ask":  # the person's own pick is not checked; the agent's path is (red team 3, R3-10)
+            pj = guard.read_ok(s, "texture_draft", _local(s, pj), "project", ToolError)
         out["project"] = _load_project(s, d, _local(s, pj), a.get("mode", "all"))
     _watch()
     if d.part:
@@ -1338,6 +1353,11 @@ def _custom_texture(path):
 
     if not os.path.isfile(path):
         raise ToolError("not_found", f"texture file {path!r}: not found; give the full path of a PNG heightmap (or a library id from texture_list).")
+    base = os.path.basename(path)
+    if guard.text(base, 120) != base:
+        # The name becomes the texture's id, which the agent reads (red team 3, R3-11).
+        raise ToolError("invalid_input", f"texture file {guard.text(base, 120)!r}: the name has hidden or control characters, or is over "
+                                         "120 characters. Rename the file first.")
     d = live.custom_dir()
     if d:
         os.makedirs(d, exist_ok=True)
@@ -1366,7 +1386,12 @@ def texture_set(s, a):
             i = d.active
         tex = a.get("texture")
         if isinstance(tex, dict):
-            path = tex.get("file") or (tex.get("upload") and _gui("texture: upload").ask_path("image", save=False))
+            path = tex.get("file")
+            if path:
+                # texture.file is nested: Agent Link checks only top-level paths (red team 3, R3-10).
+                path = guard.read_ok(s, "texture_set", _local(s, path), "texture.file", ToolError)
+            else:
+                path = tex.get("upload") and _gui("texture: upload").ask_path("image", save=False)  # the person's own pick
             if not path:
                 return {"cancelled": True, "draft": summary(d, s)}
             tex = _custom_texture(_local(s, path))
