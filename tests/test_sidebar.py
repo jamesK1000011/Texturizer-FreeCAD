@@ -604,7 +604,10 @@ class SidebarWidget(unittest.TestCase):
         nw = _geom(r["name"]).width()
         self.assertLess(nw, r["name"].sizeHint().width())
         t = r["name"].fit(nw)
-        self.assertTrue(t.startswith("Layer 1") and t.endswith("…"), t)
+        # The start stays and one ellipsis ends it. Whether the number still
+        # fits at the least width depends on the font and on a stylesheet of
+        # another add-on (the bake-off: "Layer …").
+        self.assertTrue(t.startswith("Layer") and t.endswith("…") and t.count("…") == 1, t)
         self.assertEqual(r["name"].fit(r["name"].sizeHint().width()), "Layer 1 · Knurling")
         # Found live: ".ayer 1 · Knu.." (the start clipped, two dots): the
         # start stays, one ellipsis at the end, inside the contents width.
