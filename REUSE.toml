@@ -38,3 +38,9 @@ SPDX-License-Identifier = "CC-BY-4.0"
 path = ["FILES", "package.xml", "CHANGELOG.md", ".gitignore", ".github/**", "texturizer/icons/CREDITS.md", "texturizer/guides/*.md", "texturizer/textures/LICENSES.md", "tests/reference/*.json", "docs/hardening/*.json", "docs/hardening/*.md", "tests/tools/js_shims/**/package.json"]
 SPDX-FileCopyrightText = "Texturizer contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
+
+[[annotations]]
+# Screenshots of FreeCAD with this add-on, taken by Agent Link on 19 Nov 2026 and looked at (no personal data).
+path = ["docs/images/*.png"]
+SPDX-FileCopyrightText = "Texturizer contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"

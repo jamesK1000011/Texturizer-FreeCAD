@@ -104,7 +104,11 @@ Pick a texture in the Displacement Map section, then use **Add to document** or 
 - the Texture tab in the Agent Link panel
 -->
 
-No screenshots of the add-on yet. Three texture maps from the library (BumpMesh's own, by CNC Kitchen):
+![A project box with knurled walls](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/docs/images/knurled-project-box.png)
+
+*A project box with Knurling on its walls, made with one texture_apply call through Agent Link.*
+
+Three texture maps from the library (BumpMesh's own, by CNC Kitchen):
 
 | Knurling | Carbon Fiber | Hexagons |
 |---|---|---|

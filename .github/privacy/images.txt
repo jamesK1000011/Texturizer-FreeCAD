@@ -191,3 +191,5 @@ bb01af9752475ad24c144980e339a1f6182ef68575e4a2a5f1cb016d408f59c9 texturizer/text
 d868f002adba092ab6a3e2d0818831541f251062492a1e788048c90742e3a757 texturizer/textures/wood.png
 2e620594a1be8639933ad09f2a57635099d6d052af7f58b664af5ac917a72070 texturizer/textures/woodgrain_02.png
 d39d91cae0111a7efc716722ac6ec8bc6d58c38c89d0ec7a62e8fea0c7c0a4bf texturizer/textures/woodgrain_03.png
+# README screenshots, FreeCAD 1.1.3 window and 3D view, looked at 19 Nov 2026: no names, paths or personal data.
+824a2928d9105d31eb204fa413f224368b670f642bc944884751a11c2b86c55a docs/images/knurled-project-box.png
