@@ -388,6 +388,7 @@ if QtWidgets is not None:
             self.turntable.clicked.connect(lambda *_: self.prefs.set(self.turntable.isChecked()))
             head.addWidget(self.turntable)
             self.done = QtWidgets.QPushButton(S("gallery.done"))
+            self.done.setToolTip("Close the gallery and go back to the settings.")
             # Done: back to the settings when the gallery slides out inside
             # the sidebar (on_done), else the dock closes.
             self.done.clicked.connect(lambda *_: (on_done or self.close)())
@@ -397,6 +398,7 @@ if QtWidgets is not None:
             self.search = QtWidgets.QLineEdit()
             self.search.setPlaceholderText(S("gallery.search"))
             self.search.setClearButtonEnabled(True)
+            self.search.setToolTip("Type a part of a texture name to show only the textures that match.")
             self.search.textChanged.connect(lambda *_: self.render())
             v.addWidget(self.search)
 
@@ -412,6 +414,7 @@ if QtWidgets is not None:
                 b = QtWidgets.QToolButton()
                 b.setText(label)
                 b.setCheckable(True)
+                b.setToolTip(f"Show only this category: {label}.")
                 b.setChecked(fid == self.filter)
                 b.clicked.connect(lambda *_, f=fid: self.set_filter(f))
                 self.chip_group.addButton(b)
@@ -428,6 +431,7 @@ if QtWidgets is not None:
             status.addWidget(self.fav_count)
             status.addStretch(1)
             self.fav_reset = QtWidgets.QPushButton(title_case(S("gallery.resetFavourites")))
+            self.fav_reset.setToolTip("Set the favorites back to the default list.")
             self.fav_reset.clicked.connect(lambda *_: self.reset_favourites())
             status.addWidget(self.fav_reset)
             v.addLayout(status)
@@ -533,6 +537,7 @@ if QtWidgets is not None:
                     row = QtWidgets.QHBoxLayout()
                     star = QtWidgets.QToolButton()
                     star.setAutoRaise(True)
+                    star.setToolTip(S("gallery.addFavourite"))  # sync() sets add or remove
                     star.clicked.connect(lambda *_, x=e: self.toggle_favourite(x))
                     row.addWidget(star)
                     if is_custom(e):

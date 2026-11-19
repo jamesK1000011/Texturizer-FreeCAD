@@ -67,6 +67,38 @@ LONG_CHECK = 28  # a check box's label longer than this wraps in a label of its 
 
 
 # -- plain helpers (no Qt) ------------------------------------------------------
+# The unit of each slider's value, for its tooltip (the labels and tooltips
+# are BumpMesh's own; these add only the unit where they do not say it).
+UNITS = {"mappingBlend": "0 to 1", "seamBandWidth": "0 to 1",
+         "capAngle": "°", "amplitude": "mm", "scaleU": "mm", "scaleV": "mm",
+         "offsetU": "fraction of one repeat", "offsetV": "fraction of one repeat", "rotation": "°",
+         "bottomAngleLimit": "°", "topAngleLimit": "°", "brushSize": "mm", "brushHardness": "%",
+         "bucketThreshold": "°", "boundaryFalloff": "mm", "refineLength": "mm", "maxTriangles": "triangles"}
+
+# Combo boxes with no tooltip of BumpMesh's own.
+COMBO_TIPS = {"mappingMode": "Select how the texture goes onto the model (the projection)."}
+
+
+def plain_label(c):
+    """The control's label with no ⓘ and no unit in brackets."""
+    import re
+
+    return re.sub(r"\s*\([^)]*\)\s*$", "", (c.get("label") or c.get("key") or "").replace("ⓘ", "").strip()).strip()
+
+
+def number_tip(c):
+    """The tooltip of a slider and its typed box: BumpMesh's tooltip (or
+    "Set the <label>.") and the unit."""
+    words = " ".join(w if len(w) == 1 else w.lower() for w in plain_label(c).split())
+    words = {"brushSize": "brush size"}.get(c.get("key"), words)
+    tip = (c.get("tooltip") or f"Set the {words}.").strip()
+    unit = UNITS.get(c.get("key"))
+    if unit and unit not in tip:
+        tip += ("" if tip.endswith((".", "!", "?")) else ".")
+        tip += f" Unit: {unit}." if unit in ("mm", "°", "%", "triangles") else f" Range: {unit}."
+    return tip
+
+
 def format_m(n):
     """BumpMesh's formatM: 750000 -> '750 k', 1500000 -> '1.5 M'."""
     n = int(n)
@@ -573,6 +605,8 @@ if QtWidgets is not None:
                 up, down = QtWidgets.QToolButton(), QtWidgets.QToolButton()
                 up.setText("▲")
                 down.setText("▼")
+                up.setToolTip("Move this layer up.")
+                down.setToolTip("Move this layer down.")
                 up.setEnabled(i > 0)
                 down.setEnabled(i < len(d.layers) - 1)
                 up.clicked.connect(lambda *_, i=i: d.move_layer(i, -1))
@@ -843,12 +877,14 @@ if QtWidgets is not None:
             h = QtWidgets.QHBoxLayout()
             sl = QtWidgets.QSlider(QtCore.Qt.Horizontal)
             sl.setObjectName("slider_" + c["key"])
+            sl.setToolTip(number_tip(c))
             lo, hi = positions(c)
             sl.setRange(lo, hi)
             h.addWidget(sl, 1)
             if c.get("box"):
                 box = QtWidgets.QDoubleSpinBox()
                 box.setObjectName("box_" + c["key"])
+                box.setToolTip(number_tip(c))
                 bx = c["box"]
                 box.setDecimals(max(decimals(bx.get("step")), decimals(c["slider"].get("step"))) if c["type"] != "log slider" else 2)
                 box.setRange(float(bx["min"]), float(bx["max"]))
@@ -926,6 +962,7 @@ if QtWidgets is not None:
             # scrollbar); the open list still shows each option in full.
             cb.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
             cb.setMinimumContentsLength(6)
+            cb.setToolTip(c.get("tooltip") or COMBO_TIPS.get(c["key"]) or f"Select the {plain_label(c).lower()}.")
             b.values = []
             for o in c["options"]:
                 if o.get("hidden"):
@@ -1097,11 +1134,14 @@ if QtWidgets is not None:
             v.addWidget(lst)
             h = FlowLayout()
             add = QtWidgets.QPushButton("Add Selected")
+            add.setToolTip("Add the faces that you selected in the 3D view to the list.")
             add.clicked.connect(lambda *_: self.add_selected_faces())
             rm = QtWidgets.QPushButton("Remove")
+            rm.setToolTip("Remove the selected faces from the list.")
             rm.clicked.connect(lambda *_: self.draft.mask_remove(faces=[i.text() for i in lst.selectedItems()]))
             by = QtWidgets.QToolButton()
             by.setText("Add By…")
+            by.setToolTip("Add faces by a rule. Select the rule in the menu.")
             by.setPopupMode(QtWidgets.QToolButton.InstantPopup)
             menu = QtWidgets.QMenu(by)
             for kind, text in ADD_BY:
@@ -1144,6 +1184,7 @@ if QtWidgets is not None:
             self.progress_bar.setRange(0, 1000)
             self.progress_label = QtWidgets.QLabel("")
             self.cancel = QtWidgets.QPushButton("Cancel")
+            self.cancel.setToolTip("Stop the task that runs now.")
             self.cancel.clicked.connect(lambda *_: self.press("cancel"))
             h.addWidget(self.progress_bar, 1)
             h.addWidget(self.cancel)

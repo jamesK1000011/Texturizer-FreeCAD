@@ -1347,10 +1347,13 @@ class Window:
         st = QtWidgets.QCheckBox("Settings")
         st.setChecked(True)
         st.setEnabled(False)
+        st.setToolTip("The settings are always in the project file.")
         model = QtWidgets.QCheckBox("Model (STL)")
         model.setChecked(True)
+        model.setToolTip("Put the model (STL) in the project file.")
         tex = QtWidgets.QCheckBox("Custom texture")
         tex.setChecked(True)
+        tex.setToolTip("Put your custom texture in the project file.")
         for w in (st, model, tex):
             lay.addWidget(w)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
