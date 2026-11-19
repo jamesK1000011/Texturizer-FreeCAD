@@ -593,7 +593,10 @@ class SidebarWidget(unittest.TestCase):
             self.assertNotIn(w, [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())])   # inside the group, not flow items of their own
         self.assertIn(r["tools"], [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())])
         hint = r["flow"].sizeHint().width()
-        for width in (hint, hint - 30, hint - 60):
+        # As far as the name can give up width (down to "Layer 1…"): how far
+        # that is depends on the font (the stand-in's, or a real Qt's).
+        room = max(0, r["name"].sizeHint().width() - r["name"].minimumSizeHint().width())
+        for width in sorted({hint, hint - min(30, room), hint - room}, reverse=True):
             r["flow"].arrange(0, 0, width)
             ys = {_geom(w).y() for w in [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())]}
             self.assertEqual(ys, {0}, width)   # one line
