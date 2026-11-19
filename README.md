@@ -5,6 +5,21 @@
 > Association (FPA) or CNC Kitchen. FreeCAD is the FPA's trademark. Get FreeCAD
 > itself from [freecad.org](https://freecad.org).
 
+- [What it is](#what-it-is)
+- [What you need](#what-you-need)
+- [Install](#install)
+- [First steps](#first-steps)
+- [Screenshots](#screenshots)
+- [What you see in FreeCAD](#what-you-see-in-freecad)
+- [What an agent can do with it](#what-an-agent-can-do-with-it)
+- [Troubleshooting](#troubleshooting)
+- [Uninstall](#uninstall), [Privacy](#privacy)
+- [Texture licences](#texture-licences), [Licence](#licence), [Credits](#credits)
+
+How it plugs into Agent Link, with a diagram: [docs/workflow/](https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/docs/workflow/README.md).
+
+## What it is
+
 Texturizer puts a surface texture on a part you designed in FreeCAD: knurling
 on a grip, wood grain on a box, a weave on a lid. It is **BumpMesh by Stefan
 Hermann (CNC Kitchen)**, ported into FreeCAD. BumpMesh is the free web tool at
@@ -14,11 +29,10 @@ the same settings and the same texture library, directly on your FreeCAD
 part. You get a textured mesh beside your part, ready to print as STL or 3MF.
 Your part itself is never changed.
 
-How it plugs into Agent Link, with a diagram: [docs/workflow/](https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/docs/workflow/README.md).
+A mesh is a surface made of many small triangles. 3D printers and slicers use meshes.
+With [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD), an AI agent can pick a texture, mask faces and make the mesh for you, in the background.
 
-<!-- screenshot: a FreeCAD part with a knurled grip, the Texturizer sidebar open on the right -->
-
-## Who it is for
+### Who it is for
 
 - Anyone who 3D prints FreeCAD parts and wants a texture on them without
   leaving FreeCAD for another tool.
@@ -30,12 +44,24 @@ How it plugs into Agent Link, with a diagram: [docs/workflow/](https://github.co
 You do not need to know Python, mesh editing or BumpMesh. You do not need an
 agent.
 
+## What you need
+
+- FreeCAD 1.0 or newer (1.1 recommended).
+- numpy, which comes with FreeCAD.
+- Optional: [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD) and an MCP client (for example Claude Desktop), so that an agent can use Texturizer.
+
 ## Install
 
-You need FreeCAD 1.0 or newer. Texturizer also needs numpy, which comes with
-FreeCAD.
+Pick one.
 
-**With the Addon Manager (custom repository).**
+### With Agent Link's Claude Desktop extension (easiest)
+
+1. Install [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD#install) with its Claude Desktop extension.
+2. Start a new chat.
+
+The extension installs Texturizer for you into FreeCAD's `Mod` folder as `Texturizer`, and keeps it up to date.
+
+### With the Addon Manager (custom repository)
 
 1. Open **Edit ▸ Preferences ▸ Addon Manager**.
 2. Under **Custom repositories**, add
@@ -43,14 +69,46 @@ FreeCAD.
 3. Open **Tools ▸ Addon manager**, find **Texturizer**, and click **Install**.
 4. Restart FreeCAD.
 
-**With the Agent Link extension.** If you use Agent Link for FreeCAD from
-Claude Desktop, ask the agent to add Texturizer as an extension. Agent Link
-asks you to type `install jamesK1000011/Texturizer-FreeCAD` yourself, since an
-extension is code FreeCAD runs. It then installs Texturizer beside Agent Link
-in FreeCAD's `Mod` folder. Restart FreeCAD when it says so.
+### By hand
 
-**By hand.** Put this folder in FreeCAD's `Mod` folder as `Texturizer` and
-restart FreeCAD.
+Put this folder in FreeCAD's `Mod` folder as `Texturizer` and restart FreeCAD.
+To find the folder, type `FreeCAD.getUserAppDataDir()` in FreeCAD's Python console (the `Mod` folder is inside it).
+
+## First steps
+
+**With an agent** (Agent Link installed). Select a part in FreeCAD, start a new chat, and try these prompts:
+
+1. "Put a knurled grip on the round faces of this part, 0.5 mm deep."
+
+   The agent starts a texture draft. In the Texturizer sidebar you see the texture, depth and mask change as it works.
+
+2. "Show me a preview."
+
+   The agent builds the real textured mesh with BumpMesh's engine and shows you a picture.
+
+3. "Add it to the document and export a 3MF."
+
+   A Textured mesh is put beside your part, and the 3MF file is written. Your part is not changed.
+
+**Without an agent.** Pick **Texturizer** from the workbench list. The sidebar opens with the selected part.
+Pick a texture in the Displacement Map section, then use **Add to document** or **Export 3MF**.
+
+## Screenshots
+
+<!-- screenshots: no screenshots of the add-on are in the repository yet. Take these and add them under docs/images/:
+- a FreeCAD part with a knurled grip, the Texturizer sidebar open on the right
+- the workbench list with Texturizer picked
+- the Texturizer sidebar, Displacement Map and Masking sections open
+- the Texture Gallery with the Grip category open
+- Quick look on a part, then the same part with 3D Preview on
+- the Texture tab in the Agent Link panel
+-->
+
+No screenshots of the add-on yet. Three texture maps from the library (BumpMesh's own, by CNC Kitchen):
+
+| Knurling | Carbon Fiber | Hexagons |
+|---|---|---|
+| ![Knurling texture map](texturizer/textures/knurling.png) | ![Carbon Fiber texture map](texturizer/textures/carbonFiber.png) | ![Hexagons texture map](texturizer/textures/hexagons.png) |
 
 ## What you see in FreeCAD
 
@@ -139,7 +197,7 @@ the agent works. The list is generated from `texturizer/data/tools.json` by
 
 The texturing in every one of them is BumpMesh's engine, ported to Python.
 
-## Alone or with Agent Link
+### Alone or with Agent Link
 
 | | Alone | With Agent Link |
 |---|---|---|
@@ -154,6 +212,29 @@ Texturizer never needs Agent Link. Only `texturizer/agentlink_families.py`
 and the `fam_*` module it loads import Agent Link, and only Agent Link loads
 them. Agent Link carries no cost for Texturizer when Texturizer is not
 installed.
+
+## Troubleshooting
+
+**No part is loaded in the sidebar.**
+Select a solid and click **Use Selected Part**. To texture an STL, import it first with File ▸ Import.
+
+**The Textured object is out of date.**
+You changed the part. Click **Update** to texture it again. It never runs again on its own.
+
+**The preview is slow.**
+Use **Quick look** while you change settings: it builds no mesh.
+Turn on **3D Preview** only to see the real mesh (Draft is 500 k triangles, Fine is 1.5 M).
+
+**The agent does not have the texture tools.**
+- Most clients read the tool list when a chat starts. After an install or an update, **start a new chat**.
+- In Agent Link, `session_state` shows an add-on that did not load under `leftOut`, with the error.
+  Update it (`agentlink_update` with the Claude extension, or the Addon Manager), then restart FreeCAD.
+
+**A texture from BumpMesh is missing.**
+BumpMesh's Filter Forge textures are left out: their licence does not allow them to be shipped here.
+
+**The window or FreeCAD is stuck.**
+See the troubleshooting of [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD#troubleshooting) (`job_status`, `dialog_answer`, `app_force_restart`).
 
 ## Uninstall
 
@@ -177,19 +258,6 @@ of refined parts too, in FreeCAD's user data folder). With Agent Link, what
 the agent reads goes to the AI provider your MCP client uses, under that
 provider's terms.
 
-## Texture licences
-
-The texture library is BumpMesh's, as `texturizer/textures/LICENSES.md` lists
-it, file by file:
-
-- **Hero Patterns** by Steve Schoger, CC BY 4.0. Exports that use one carry
-  its credit line.
-- **ambientCG** and **Poly Haven** maps, CC0 1.0 (public domain).
-- **BumpMesh's own** textures by CNC Kitchen, AGPL-3.0.
-
-BumpMesh's Filter Forge textures are left out: their licence does not allow
-them to be shipped here. The licence texts are in `LICENSES/`.
-
 ## For developers
 
 ```
@@ -209,6 +277,19 @@ r = engine.texture(positions, {"texture": "Knurling", "scaleU": 5, "textureHeigh
                                "refineLength": 0.4}, mask=engine.by_normal(positions, (0, 0, -1), 10))
 engine.export(positions, settings, mask, "part.3mf")
 ```
+
+## Texture licences
+
+The texture library is BumpMesh's, as `texturizer/textures/LICENSES.md` lists
+it, file by file:
+
+- **Hero Patterns** by Steve Schoger, CC BY 4.0. Exports that use one carry
+  its credit line.
+- **ambientCG** and **Poly Haven** maps, CC0 1.0 (public domain).
+- **BumpMesh's own** textures by CNC Kitchen, AGPL-3.0.
+
+BumpMesh's Filter Forge textures are left out: their licence does not allow
+them to be shipped here. The licence texts are in `LICENSES/`.
 
 ## Licence
 
