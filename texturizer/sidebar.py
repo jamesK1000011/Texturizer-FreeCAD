@@ -426,6 +426,14 @@ if QtWidgets is not None:
                 self.setStyleSheet("text-align: left;")
             except (AttributeError, TypeError):
                 pass
+            # A push button's own width policy (Minimum) keeps it at its
+            # whole text in a layout: Preferred lets the row shrink it to
+            # minimumSizeHint (the least text and "…") before it wraps.
+            try:
+                P = getattr(QtWidgets.QSizePolicy, "Policy", QtWidgets.QSizePolicy)
+                self.setSizePolicy(P.Preferred, P.Fixed)
+            except (AttributeError, TypeError):
+                pass
 
         def _adv(self, t):
             return self.fontMetrics().horizontalAdvance(t)
