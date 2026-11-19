@@ -455,7 +455,15 @@ if QtWidgets is not None:
             return QtCore.QSize(self._adv(self.full) + self._pad() + self.SAFE, super().sizeHint().height())
 
         def minimumSizeHint(self):  # noqa: N802 (Qt)
-            return QtCore.QSize(self._adv(self.least + "…") + self._pad() + self.SAFE, super().minimumSizeHint().height())
+            # Wide enough that fit() keeps the least text whole ("Layer 1…"):
+            # a stylesheet (another add-on's, a theme's) can give the contents
+            # less room than the style's padding says.
+            t = self._adv(self.least + "…")
+            w = t + self._pad() + self.SAFE
+            short = t - self.room(w)
+            if short > 0:
+                w += short
+            return QtCore.QSize(w, super().minimumSizeHint().height())
 
         def room(self, width):
             """The text's width in a button width px wide."""
