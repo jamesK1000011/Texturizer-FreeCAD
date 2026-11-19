@@ -14,6 +14,8 @@ the same settings and the same texture library, directly on your FreeCAD
 part. You get a textured mesh beside your part, ready to print as STL or 3MF.
 Your part itself is never changed.
 
+How it plugs into Agent Link, with a diagram: [docs/workflow/](https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/docs/workflow/README.md).
+
 <!-- screenshot: a FreeCAD part with a knurled grip, the Texturizer sidebar open on the right -->
 
 ## Who it is for
