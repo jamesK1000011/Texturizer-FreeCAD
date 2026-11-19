@@ -9,6 +9,14 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+## 1.0.0 — 2026-11-19
+
+The first tagged release (V1). Texturizer for FreeCAD is BumpMesh by Stefan Hermann (CNC Kitchen), ported into FreeCAD.
+It puts surface textures on printed parts: BumpMesh's texture library, mapping modes, up to 4 layers and face masks, with BumpMesh's sidebar and live preview.
+It gives the result as a mesh beside the body and as STL, 3MF or a .bumpmesh project. With Agent Link for FreeCAD installed, an agent uses its tools too.
+Licence: AGPL-3.0-only, as BumpMesh. The textures keep their own licences (texturizer/textures/LICENSES.md).
+
+- Release (V1): version 1.0.0. NOTICE.md credits BumpMesh by Stefan Hermann (CNC Kitchen) and names the texture licences. package.xml lists the CC-BY-4.0 and CC0-1.0 licences of the data and textures.
 - Panel polish (V1): each control of the sidebar, the Texture Gallery, the Prepare and Check task panels and the Save Project dialog has a tooltip (24 new). A slider and its box say the unit (mm, °, %, triangles). BumpMesh's own labels and tooltips by Stefan Hermann (CNC Kitchen) stay word for word. A new test (tests/test_panel_polish.py) finds a control with no tooltip and a fixed "#rrggbb" colour in panel code.
 - Path fields declared for the hub's guard (pathKeys / writeKeys, hub 8ac1f25): texture_set texture.file, texture_draft project, texture_check mask; texture_apply writes export and export.path.
 

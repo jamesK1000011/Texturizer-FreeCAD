@@ -15,7 +15,7 @@ through Agent Link for FreeCAD when it is installed (agentlink_families).
 
 import re
 
-VERSION = "0.4.0"
+VERSION = "1.0.0"
 CREDIT = "Based on BumpMesh by Stefan Hermann (CNC Kitchen), github.com/CNCKitchen/stlTexturizer (AGPL-3.0)"
 LICENSE = "AGPL-3.0-only"
 
