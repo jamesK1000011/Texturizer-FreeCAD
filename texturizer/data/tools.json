@@ -146,6 +146,9 @@
     "sidebar",
     "bumpmesh project",
     "current draft"
+   ],
+   "pathKeys": [
+    "project"
    ]
   },
   "texture_set": {
@@ -239,6 +242,9 @@
     "stamp",
     "custom heightmap",
     "upload"
+   ],
+   "pathKeys": [
+    "texture.file"
    ]
   },
   "texture_mask": {
@@ -631,6 +637,10 @@
     "bake",
     "textured mesh",
     "apply texture"
+   ],
+   "writeKeys": [
+    "export",
+    "export.path"
    ]
   },
   "texture_export": {
@@ -812,6 +822,9 @@
     "watertight",
     "compare to body",
     "inspect texture"
+   ],
+   "pathKeys": [
+    "mask"
    ]
   }
  }
