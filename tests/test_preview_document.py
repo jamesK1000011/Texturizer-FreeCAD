@@ -145,6 +145,10 @@ class TwoDocuments(unittest.TestCase):
         self.fc, self.gui = fc, gui
         self.mods = mock.patch.dict(sys.modules, {"FreeCAD": fc, "FreeCADGui": gui})
         self.mods.start()
+        # Posted work runs at once, as without Qt: with PySide here (CI) the
+        # window's queue waits for an event loop that never runs.
+        self.posts = mock.patch.object(window, "_post", lambda fn: (fn(), True)[1])
+        self.posts.start()
         self._saved = (live.mesh_for, live.GUI)
         live.mesh_for = lambda part, doc=None, tol=None: (lambda o: (o.Shape.pos, o.Shape.ft))(
             part if hasattr(part, "Shape") else live.find(doc or live._doc(), part))
@@ -162,6 +166,7 @@ class TwoDocuments(unittest.TestCase):
 
     def tearDown(self):
         live.mesh_for, live.GUI = self._saved
+        self.posts.stop()
         self.mods.stop()
         live.reset()
 

@@ -70,6 +70,11 @@ def fake_library():
 
 
 # -- controls.py -----------------------------------------------------------------
+
+def _geom(w):
+    """A widget's rectangle: the stand-in's geom, real Qt's geometry()."""
+    return w.geom if hasattr(w, "geom") else w.geometry()
+
 class ControlsTable(unittest.TestCase):
     @unittest.skipUnless(HAVE_SRC, "BumpMesh sources not here (set BUMPMESH_SRC)")
     def test_matches_fresh_parse(self):
@@ -585,15 +590,15 @@ class SidebarWidget(unittest.TestCase):
         self.assertEqual(r["name"].full, "Layer 1 · Knurling")
         self.assertIn("Layer 1 · Knurling", r["name"].toolTip())
         for w in (r["solo"], r["blend"], r["up"], r["down"], r["remove"]):
-            self.assertNotIn(w, r["flow"].widgets())   # inside the group, not flow items of their own
-        self.assertIn(r["tools"], r["flow"].widgets())
+            self.assertNotIn(w, [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())])   # inside the group, not flow items of their own
+        self.assertIn(r["tools"], [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())])
         hint = r["flow"].sizeHint().width()
         for width in (hint, hint - 30, hint - 60):
             r["flow"].arrange(0, 0, width)
-            ys = {w.geom.y() for w in r["flow"].widgets()}
+            ys = {_geom(w).y() for w in [r["flow"].itemAt(i).widget() for i in range(r["flow"].count())]}
             self.assertEqual(ys, {0}, width)   # one line
-            self.assertLessEqual(r["tools"].geom.right(), width - 1)
-        nw = r["name"].geom.width()
+            self.assertLessEqual(_geom(r["tools"]).right(), width - 1)
+        nw = _geom(r["name"]).width()
         self.assertLess(nw, r["name"].sizeHint().width())
         t = r["name"].fit(nw)
         self.assertTrue(t.startswith("Layer 1") and t.endswith("…"), t)

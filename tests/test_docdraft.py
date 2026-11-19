@@ -311,7 +311,10 @@ class DraftInDocument(unittest.TestCase):
         self.assertEqual(self.d.get("amplitude"), 0.7)
 
     def test_without_freecad_the_draft_keeps_its_own_undo(self):
-        self.assertIsNone(docdraft.attach(draft.Draft()))
+        from unittest import mock
+
+        with mock.patch.dict("sys.modules", {"FreeCAD": None}):  # no FreeCAD, also where CI has one
+            self.assertIsNone(docdraft.attach(draft.Draft()))
         d = draft.Draft()
         d.set("amplitude", 1.1)
         self.assertTrue(d.undo())
