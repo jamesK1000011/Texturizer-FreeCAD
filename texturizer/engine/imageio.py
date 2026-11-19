@@ -9,7 +9,10 @@ import zlib
 
 import numpy as np
 
+from .limits import TooLarge, inflate, pixels_check
 from .maps import CUSTOM_SIZE, Image, fit_image
+
+MAX_IMAGE_BYTES = 256 * 1024 * 1024
 
 
 def decode_png(buf):
@@ -38,8 +41,13 @@ def decode_png(buf):
     ch = {0: 1, 2: 3, 4: 2, 6: 4}.get(ct)
     if not ch:
         raise ValueError("Palette PNGs are not read here — save it as greyscale or RGB.")
-    raw = np.frombuffer(zlib.decompress(b"".join(idat)), np.uint8)
+    # A PNG from the web: its size capped before the decode, its pixel data
+    # unpacked to the size the header says and no more (red team 3, R3-6).
+    pixels_check(w, h, "The PNG")
     stride = w * ch
+    raw = np.frombuffer(inflate(b"".join(idat), h * (stride + 1), "The PNG's pixel data"), np.uint8)
+    if len(raw) < h * (stride + 1):
+        raise ValueError("The PNG's pixel data is cut short — the file is damaged.")
     rows = raw[: h * (stride + 1)].reshape(h, stride + 1)
     out = np.zeros((h, stride), np.uint8)
     prev = np.zeros(stride, np.int64)
@@ -85,11 +93,17 @@ def decode_png(buf):
 
 def read_image(path):
     """Any heightmap file as RGBA: PNG here; other formats through Pillow."""
+    import os
+
+    if os.path.getsize(path) > MAX_IMAGE_BYTES:
+        raise TooLarge(f"{os.path.basename(path)[:80]}: larger than {MAX_IMAGE_BYTES // (1024 * 1024)} MB; a heightmap is far smaller.")
     with open(path, "rb") as fh:
         data = fh.read()
     if data[:4] == b"\x89PNG":
         try:
             return decode_png(data)
+        except TooLarge:
+            raise
         except ValueError:
             pass
     try:
@@ -99,6 +113,7 @@ def read_image(path):
     import io
 
     with PILImage.open(io.BytesIO(data)) as im:
+        pixels_check(im.size[0], im.size[1], "The picture")  # before Pillow decodes it (R3-6)
         return Image(np.asarray(im.convert("RGBA")))
 
 

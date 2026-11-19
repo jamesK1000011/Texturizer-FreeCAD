@@ -30,6 +30,7 @@ A Textured object made in one call (`texture_apply { body, texture, ... }`, no d
 - `texture_apply` changes the document, so it cannot run as a job: it runs inside the call and FreeCAD's window is busy until it ends. `texture_preview`, `texture_export` and `texture_prepare` are long reads: past about 45 s the call answers with a job id and `job_status` gives the answer.
 - On a large part, a mask (only the faces that need texture) costs far less than a finer `refineLength`: plain faces are kept as they are (`preserveUntextured`).
 - `texture_export` without `path` (and without `ask: false`), `texture_draft { project: "ask" }`, `texture_set { texture: { upload: true } }`, `stamp: "place"`, `face: "selected"` and `add: "selected"` wait for a person at the window. Give paths, names and points instead.
+- A path in `texture.file`, `mask`, `project` or `export.path` is checked as Agent Link checks `path`. A file in a credentials or settings folder is refused. A file name with hidden characters is refused: the person renames the file.
 - Faces are `Face1`..`FaceN` of the part as it is now (from 1); triangles are indices from 0 of the part's tessellation at 0.02 mm (`texture_draft` answers the count). Both change when the CAD model changes.
 - The result is a mesh beside the body, never a solid: fillets, holes and booleans do not build on it. Texture last.
 

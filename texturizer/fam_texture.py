@@ -10,7 +10,7 @@ from agentlink import facepick, hooks
 from agentlink.families import picks
 from agentlink.protocol import ToolError
 
-from . import handlers
+from . import guard, handlers
 
 GROUP = "texture"
 INFO = ("Surface textures with BumpMesh's engine (Stefan Hermann, CNC Kitchen), ported and run inside FreeCAD: "
@@ -194,7 +194,39 @@ def _ringed(fn):
     return call
 
 
+def _lend_paths():
+    """Agent Link's path checks lent to guard (red team 3, R3-10): a read
+    by paths.in_file, a write by paths.check, as the hub checks top-level
+    path fields. An Agent Link without them leaves guard's fallback."""
+    try:
+        from agentlink import paths
+    except ImportError:
+        return
+    guard.IN_FILE = getattr(paths, "in_file", None)
+    guard.CHECK = getattr(paths, "check", None)
+
+
+def home_short(fn):
+    """fn, with paths under the home folder shown as ~/... in its answer and
+    in its refusals (red team 3, R3-12: transcripts are shared). A ~/...
+    path given back to a tool is read as the same file (handlers._local)."""
+    import functools
+
+    @functools.wraps(fn)
+    def call(args, *more, **kw):
+        try:
+            out = fn(args, *more, **kw)
+        except (ToolError, handlers.Refusal) as e:
+            raise ToolError(e.code, guard.tilde(e.message)) from e
+        except ValueError as e:  # Agent Link answers a bare ValueError invalid_input with its text: the same, paths short
+            raise ToolError("invalid_input", guard.tilde(str(e))) from e
+        return guard.tilde(out)
+
+    return call
+
+
 def tools(session):
     handlers.lend(ToolError=ToolError, pick_faces=pick_faces, num=picks.num)
-    bound = {k: _ringed(fn) for k, fn in handlers.bound(session).items()}
+    _lend_paths()
+    bound = {k: home_short(_ringed(fn)) for k, fn in handlers.bound(session).items()}
     return hooks.tools_from_data(DATA, GROUP, bound, "Texturizer")
