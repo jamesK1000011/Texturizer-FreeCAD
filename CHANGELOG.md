@@ -9,7 +9,9 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+- Panel polish (V1): each control of the sidebar, the Texture Gallery, the Prepare and Check task panels and the Save Project dialog has a tooltip (24 new). A slider and its box say the unit (mm, °, %, triangles). BumpMesh's own labels and tooltips by Stefan Hermann (CNC Kitchen) stay word for word. A new test (tests/test_panel_polish.py) finds a control with no tooltip and a fixed "#rrggbb" colour in panel code.
 - Path fields declared for the hub's guard (pathKeys / writeKeys, hub 8ac1f25): texture_set texture.file, texture_draft project, texture_check mask; texture_apply writes export and export.path.
+
 ### Fixed
 
 - Red team 3 fixes: a .bumpmesh project and a PNG are capped unpacked (ZIP total, ratio and members; zlib to the header's size; 8192 × 8192 pixels); texture.file, mask, project and export.path are checked by Agent Link's paths.in_file (paths.check for a write), or alone by texturizer/guard.py; texture, layer and project names from files are cleaned and capped; paths under home show as ~/... in answers and refusals.

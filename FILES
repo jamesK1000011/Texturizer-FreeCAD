@@ -38,6 +38,7 @@ tests/test_linked.py
 tests/test_live_speed.py
 tests/test_paint.py
 tests/test_paint_line.py
+tests/test_panel_polish.py
 tests/test_preview.py
 tests/test_preview_budget.py
 tests/test_preview_document.py
