@@ -15,6 +15,7 @@ docs/hardening/r3-findings.md
 docs/hardening/texturizer-findings.md
 docs/hardening/texturizer-model.json
 docs/linked-texture.md
+docs/workflow/README.md
 package.xml
 scripts/ste_check.py
 scripts/ste_originals.json
