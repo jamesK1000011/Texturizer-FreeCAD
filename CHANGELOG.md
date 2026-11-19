@@ -9,6 +9,7 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+- Path fields declared for the hub's guard (pathKeys / writeKeys, hub 8ac1f25): texture_set texture.file, texture_draft project, texture_check mask; texture_apply writes export and export.path.
 ### Fixed
 
 - Red team 3 fixes: a .bumpmesh project and a PNG are capped unpacked (ZIP total, ratio and members; zlib to the header's size; 8192 × 8192 pixels); texture.file, mask, project and export.path are checked by Agent Link's paths.in_file (paths.check for a write), or alone by texturizer/guard.py; texture, layer and project names from files are cleaned and capped; paths under home show as ~/... in answers and refusals.
