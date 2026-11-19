@@ -93,6 +93,12 @@ class Session(unittest.TestCase):
     """A document with one body, the engine's mesh from cube(), no Mesh module."""
 
     def setUp(self):
+        # FreeCAD absent, also where CI has one (and another test's document
+        # in front): the stand-in document only, the draft's own undo.
+        import sys as _sys
+
+        self._absent = {k: _sys.modules.get(k, "unset") for k in ("FreeCAD", "FreeCADGui")}
+        _sys.modules.update({"FreeCAD": None, "FreeCADGui": None})
         live.reset()
         self.doc = Doc()
         self.body = Obj(self.doc, "Body", "Grip", FakeShape())
@@ -107,6 +113,13 @@ class Session(unittest.TestCase):
     def tearDown(self):
         live.mesh_for, handlers._make_mesh, live.GUI = self._saved
         live.reset()
+        import sys as _sys
+
+        for k, v in self._absent.items():
+            if v == "unset":
+                _sys.modules.pop(k, None)
+            else:
+                _sys.modules[k] = v
 
     def ok(self, tool, args):
         ok, out = self.run(tool, args)

@@ -1519,8 +1519,10 @@ def _std_undo(key, d):
     try:
         import FreeCADGui
 
-        FreeCADGui.runCommand("Std_Undo" if key == "undo" else "Std_Redo", 0)
-        return
+        # A headless FreeCAD (no window) has FreeCADGui without its commands.
+        if getattr(FreeCADGui, "runCommand", None) is not None:
+            FreeCADGui.runCommand("Std_Undo" if key == "undo" else "Std_Redo", 0)
+            return
     except ImportError:
         pass
     (d.undo if key == "undo" else d.redo)()

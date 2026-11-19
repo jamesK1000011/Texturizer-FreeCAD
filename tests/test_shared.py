@@ -41,7 +41,8 @@ def body(path):
 def copies(name, mark):
     out = []
     for d, dirs, files in os.walk(ROOT):
-        dirs[:] = [x for x in dirs if x not in SKIP]
+        # Agent Link itself, checked out inside this one in CI (agentlink-addon), is not a copy.
+        dirs[:] = [x for x in dirs if x not in SKIP and not (d == ROOT and x == "agentlink-addon")]
         for f in files:
             if f == name:
                 p = os.path.join(d, f)

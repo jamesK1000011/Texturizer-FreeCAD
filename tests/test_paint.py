@@ -509,6 +509,12 @@ class Agent(unittest.TestCase):
         from texturizer import handlers
         from test_wiring import Doc, FakeMesh, Obj
 
+        # FreeCAD absent, also where CI has one (and another test's document
+        # in front): the stand-in document only, the draft's own undo.
+        import sys as _sys
+
+        self._absent = {k: _sys.modules.get(k, "unset") for k in ("FreeCAD", "FreeCADGui")}
+        _sys.modules.update({"FreeCAD": None, "FreeCADGui": None})
         live.reset()
         self.doc = Doc()
         self.body = Obj(self.doc, "Scan", "Scan", None)
@@ -524,6 +530,13 @@ class Agent(unittest.TestCase):
     def tearDown(self):
         live.mesh_for, self.h._make_mesh, live.GUI = self._saved
         live.reset()
+        import sys as _sys
+
+        for k, v in self._absent.items():
+            if v == "unset":
+                _sys.modules.pop(k, None)
+            else:
+                _sys.modules[k] = v
 
     def test_texture_mask_paint_and_fill(self):
         ok, out = self.run("texture_draft", {"part": "Scan"})

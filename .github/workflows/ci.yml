@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Texturizer's tests on the newest FreeCAD conda-forge has and the newest
+# Texturizer's tests on the newest FreeCAD 1.1 conda-forge has (its plain "freecad" is a weekly build) and the newest
 # 1.0: alone (its API, no agent), then with Agent Link beside it.
 name: Texturizer tests
 
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        series: ['newest', '1.0']
+        series: ['1.1', '1.0']
     name: freecad-${{ matrix.series }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -38,7 +38,7 @@ jobs:
           environment-name: fc-${{ matrix.series }}
           create-args: >-
             -c conda-forge
-            ${{ matrix.series == 'newest' && 'freecad' || format('freecad={0}', matrix.series) }}
+            freecad=${{ matrix.series }}
             python=3.11
             numpy
           cache-environment: true
