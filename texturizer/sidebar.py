@@ -489,6 +489,10 @@ if QtWidgets is not None:
                     t = self.fontMetrics().elidedText(self.full, QtCore.Qt.ElideRight, room)
                 except (AttributeError, TypeError):
                     t = elide(self.full, room, self._adv)
+                if self.least and not t.startswith(self.least):
+                    # Never less than "Layer 1…": the number names the layer
+                    # (a stylesheet can leave less room than the hint said).
+                    t = self.least + "…"
             if t != self.text():
                 self.setText(t)
             return t
@@ -590,7 +594,7 @@ if QtWidgets is not None:
                 h.addWidget(thumb)
                 full = L["name"] + (" · " + e["name"] if e else "")
                 # "Layer n" always shows; the texture's name elides after it.
-                name = LayerName(full, S("layers.name", n=len(d.layers)))
+                name = LayerName(full, L["name"])
                 name.setFlat(True)
                 name.setCheckable(True)
                 name.setChecked(i == d.active)
