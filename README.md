@@ -104,14 +104,15 @@ Pick a texture in the Displacement Map section, then use **Add to document** or 
 
 ## Screenshots
 
-<!-- screenshots: no screenshots of the add-on are in the repository yet. Take these and add them under docs/images/:
-- a FreeCAD part with a knurled grip, the Texturizer sidebar open on the right
-- the workbench list with Texturizer picked
-- the Texturizer sidebar, Displacement Map and Masking sections open
-- the Texture Gallery with the Grip category open
-- Quick look on a part, then the same part with 3D Preview on
-- the Texture tab in the Agent Link panel
--->
+<!-- screenshots: still to take: the Texture Gallery with the Grip category open; Quick look and 3D Preview on one part; the Texture tab in the Agent Link panel -->
+
+![The Texturizer workbench toolbar](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/docs/images/toolbar-texturizer.png)
+
+*The Texturizer workbench.*
+
+![The Texturizer sidebar with the Displacement Map and Masking sections open](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/docs/images/panel-texturizer.png)
+
+*The Texturizer sidebar: layers, the texture library (BumpMesh textures by CNC Kitchen) and masking.*
 
 ![A project box with knurled walls](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/docs/images/knurled-project-box.png)
 
