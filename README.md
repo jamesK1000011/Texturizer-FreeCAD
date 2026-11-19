@@ -31,6 +31,7 @@ Your part itself is never changed.
 
 A mesh is a surface made of many small triangles. 3D printers and slicers use meshes.
 With [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD), an AI agent can pick a texture, mask faces and make the mesh for you, in the background.
+Agent Link is the hub: the add-on that connects an AI agent (Claude, for example) to FreeCAD through MCP, the Model Context Protocol. Texturizer does not need it.
 
 ### Who it is for
 
@@ -69,10 +70,18 @@ The extension installs Texturizer for you into FreeCAD's `Mod` folder as `Textur
 3. Open **Tools ▸ Addon manager**, find **Texturizer**, and click **Install**.
 4. Restart FreeCAD.
 
+The Addon Manager puts it in the `Mod` folder as `Texturizer-FreeCAD`.
+For an agent, also install Agent Link and connect your agent
+([Agent Link: Install](https://github.com/jamesK1000011/AgentLink-FreeCAD#install)).
+
 ### By hand
 
 Put this folder in FreeCAD's `Mod` folder as `Texturizer` and restart FreeCAD.
 To find the folder, type `FreeCAD.getUserAppDataDir()` in FreeCAD's Python console (the `Mod` folder is inside it).
+
+```
+git clone https://github.com/jamesK1000011/Texturizer-FreeCAD "<FreeCAD user folder>/Mod/Texturizer"
+```
 
 ## First steps
 
@@ -112,7 +121,7 @@ Three texture maps from the library (BumpMesh's own, by CNC Kitchen):
 
 | Knurling | Carbon Fiber | Hexagons |
 |---|---|---|
-| ![Knurling texture map](texturizer/textures/knurling.png) | ![Carbon Fiber texture map](texturizer/textures/carbonFiber.png) | ![Hexagons texture map](texturizer/textures/hexagons.png) |
+| ![Knurling texture map](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/texturizer/textures/knurling.png) | ![Carbon Fiber texture map](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/texturizer/textures/carbonFiber.png) | ![Hexagons texture map](https://github.com/jamesK1000011/Texturizer-FreeCAD/raw/main/texturizer/textures/hexagons.png) |
 
 ## What you see in FreeCAD
 
@@ -245,7 +254,7 @@ See the troubleshooting of [Agent Link for FreeCAD](https://github.com/jamesK100
 - **Addon Manager**: Tools ▸ Addon manager ▸ Texturizer ▸ Uninstall, then
   restart FreeCAD.
 - **By hand, or installed through Agent Link**: delete the `Texturizer`
-  folder from FreeCAD's `Mod` folder, and restart FreeCAD.
+  (or `Texturizer-FreeCAD`) folder from FreeCAD's `Mod` folder, and restart FreeCAD.
 - Exports and `.bumpmesh` projects are yours to keep: they go where you
   save them (or to `~/Texturizer` when an agent gives no folder). Export a
   Textured object as STL or 3MF first if you want it without Texturizer.
