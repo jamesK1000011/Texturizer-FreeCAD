@@ -15,6 +15,7 @@ REUSE.toml
 docs/hardening/r3-findings.md
 docs/hardening/texturizer-findings.md
 docs/hardening/texturizer-model.json
+docs/images/knurled-project-box.png
 docs/linked-texture.md
 docs/workflow/README.md
 package.xml
