@@ -47,7 +47,7 @@ agent.
 
 ## What you need
 
-- FreeCAD 1.0 or newer (1.1 recommended).
+- FreeCAD 1.1 or newer.
 - numpy, which comes with FreeCAD.
 - Optional: [Agent Link for FreeCAD](https://github.com/jamesK1000011/AgentLink-FreeCAD) and an MCP client (for example Claude Desktop), so that an agent can use Texturizer.
 

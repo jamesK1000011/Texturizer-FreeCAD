@@ -12,7 +12,7 @@
   <url type="bugtracker">https://github.com/jamesK1000011/Texturizer-FreeCAD/issues</url>
   <url type="readme">https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/README.md</url>
   <url type="documentation">https://github.com/jamesK1000011/Texturizer-FreeCAD/blob/main/README.md</url>
-  <freecadmin>1.0.0</freecadmin>
+  <freecadmin>1.1.0</freecadmin>
   <icon>texturizer/icons/Texturizer_Workbench.svg</icon>
   <tag>3D printing</tag>
   <tag>texture</tag>
