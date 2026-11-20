@@ -255,5 +255,48 @@ class TestStamp(unittest.TestCase):
         self.assertNotAlmostEqual(js[7]["stampNormalZ"], 0.5 / math.sqrt(0.97), places=3)
 
 
+class FrameForAOneCallApply(unittest.TestCase):
+    """Live (Mac, FreeCAD 1.1.3): texture_apply in one call, cylindrical
+    mapping, on a knob along Y (its body turned 90° in an assembly) came
+    out crumpled: the mapping took the document's Z as the axis. The
+    one-call way now fits the axis to the textured cylindrical faces, and
+    reads a turned body in its own axes for the other projections."""
+
+    def test_euler_round_trip(self):
+        from texturizer import engine
+
+        for rot in ([0, 0, 0], [90, 0, 0], [12, -40, 75], [-30, 89, 10], [170, 20, -120]):
+            M = engine.frame_matrix(rot)
+            back = px.euler_xyz(M)
+            np.testing.assert_allclose(engine.frame_matrix(back), M, atol=1e-9)
+            np.testing.assert_allclose(px._frame_matrix(rot), M, atol=1e-12)
+
+    def test_cylinder_along_y(self):
+        from texturizer import engine
+
+        side = ("Face1", (0, 1, 0), (5, -3, 2), 14.0, 1056.0)
+        hole = ("Face4", (0, -1, 0), (5, 0, 2), 2.5, 75.0)
+        tilted = ("Face6", (1, 0, 0), (0, 0, 0), 3.0, 40.0)
+        fit = px.cylinder_frame([hole, side, tilted])
+        R = engine.frame_matrix(fit["rotation"])
+        np.testing.assert_allclose(np.abs(R @ np.array([0, 1.0, 0])), [0, 0, 1], atol=1e-9)
+        c = R @ np.array([5.0, -3, 2])
+        self.assertAlmostEqual(fit["settings"]["cylinderCenterX"], c[0], places=9)
+        self.assertAlmostEqual(fit["settings"]["cylinderCenterY"], c[1], places=9)
+        self.assertEqual(fit["settings"]["mappingMode"], px.MODE_CYLINDRICAL)
+        self.assertEqual(fit["settings"]["cylinderRadius"], 14.0)
+        self.assertEqual(fit["cylinder"]["from"], ["Face4", "Face1"])  # the parallel ones, not the tilted one
+        self.assertEqual(fit["cylinder"]["radius"], 14.0)
+        self.assertIsNone(px.cylinder_frame([]))
+
+    def test_body_frame(self):
+        from texturizer import engine
+
+        self.assertIsNone(px.body_frame(np.eye(3)))
+        Rb = engine.frame_matrix([90, 0, 0])  # a body turned 90° about X
+        rot = px.body_frame(Rb)
+        np.testing.assert_allclose(engine.frame_matrix(rot) @ Rb, np.eye(3), atol=1e-9)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -148,6 +148,41 @@ class Texture(unittest.TestCase):
         self.assertEqual(o["verdict"], "check")
         self.assertEqual(len(o["leaked"]["faces"]), 1, o["leaked"])
 
+    def test_3_cylindrical_on_a_turned_knob(self):
+        """Live (Mac): a knob along Y (its body turned 90°) textured in one
+        call with cylindrical mapping came out crumpled, mapped about the
+        document's Z. Now the axis is fitted to the included cylindrical
+        face and said in the answer, and the result is the upright knob's,
+        turned: the same spread of radii about the axis."""
+        import numpy as np
+
+        import FreeCAD
+        import Part
+
+        from _fc import add_body
+
+        up = add_body(self.session, "KnobZ", Part.makeCylinder(14, 12))
+        turned = add_body(self.session, "KnobY", Part.makeCylinder(14, 12))
+        turned.Placement = FreeCAD.Placement(FreeCAD.Vector(40, 0, 0), FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), -90))
+        self.session.doc.recompute()
+        args = {"texture": "knurling", "faces": {"type": "cylinder", "radius": 14}, "mode": "include",
+                "settings": {"mappingMode": 3, "textureHeight": 0.6, "scaleU": 4, "refineLength": 0.8}}
+        radii = {}
+        for body, axis, centre in ((up, 2, (0, 0)), (turned, 1, (40, 0))):
+            err, r = self.call("texture_apply", dict(args, body=body.Label))
+            self.assertFalse(err, r)
+            self.assertEqual(r["cylinder"]["radius"], 14.0)
+            self.assertAlmostEqual(abs(r["cylinder"]["axis"][axis]), 1.0, places=6)
+            self.assertTrue(r["cylinder"]["from"])
+            m = self.session.doc.getObject(r["object"]).Mesh
+            P = np.array([[p.x, p.y, p.z] for p in m.Points])
+            other = [k for k in range(3) if k != axis]
+            rr = np.hypot(P[:, other[0]] - centre[0], P[:, other[1]] - centre[1])
+            mid = (P[:, axis] - P[:, axis].min() > 1) & (P[:, axis].max() - P[:, axis] > 1)
+            radii[body.Label] = np.percentile(rr[mid & (rr > 10)], [10, 50, 90])
+        print("\nradii (10/50/90 %):", {k: v.round(3).tolist() for k, v in radii.items()})
+        np.testing.assert_allclose(radii["KnobY"], radii["KnobZ"], atol=0.08)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,7 @@ A Textured object made in one call (`texture_apply { body, texture, ... }`, no d
 
 ## Without the draft
 
+- A cylinder along any axis, or a turned body, in one call: with mappingMode 3 (cylindrical) and no `rotation`, the axis is fitted to the cylindrical faces the call textures (the largest sets it; the ones parallel to it are named), as Auto-fit and `cylinder: "from_face"` do in the draft. The answer says so: `cylinder { axis, centre, radius, from }` and `frame { rotation, from }`. With other projections and no `rotation`, a body whose Placement is turned is textured in its own axes (`frame.from`: the body's Placement), so a planar or cubic texture turns with the part. Give `rotation` to choose the frame yourself. In the draft, `texture_draft { part }` on a new part fits the axis the same way when every layer maps cylindrically and no frame or cylinder is set.
 - `texture_apply { body, texture, faces, mode, settings }` runs BumpMesh's engine in one call: `include` textures only the faces (a grip), `exclude` keeps them plain. Depth `textureHeight` (mm), tile `scaleU` (mm), `mappingMode` 0-8, up to 4 `layers`, each `{texture, settings, faces, mode}`: a layer that gives no `texture`, `faces` or `mode` takes the top-level one; one that gives a different one is refused. Settings go in `settings` (every layer) or the layer's `settings`. `export: "part.stl"` (or .3mf) writes the file too. It can be updated the same way.
 - `texture_prepare { body, faces, mode }` writes the part as an STL and a mask of those faces' triangles, for texturing outside FreeCAD.
 

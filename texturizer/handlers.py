@@ -13,7 +13,7 @@ import functools
 import math
 import os
 
-from . import guard, live, mesh, timing
+from . import guard, live, mesh, projection_extras, timing
 
 
 class Refusal(Exception):
@@ -511,6 +511,65 @@ def _export_with(s, a, pos, run, res, out):
     out["export"] = {k: e[k] for k in ("path", "format", "triangles")}
 
 
+def _cylinders(shape, names=None, skip=()):
+    """The cylindrical faces of shape (only names, when given; never those
+    in skip): [(name, axis, centre, radius, area)], document coordinates."""
+    out = []
+    for i, f in enumerate(getattr(shape, "Faces", None) or []):
+        n = f"Face{i + 1}"
+        if (names and n not in names) or n in skip:
+            continue
+        surf = getattr(f, "Surface", None)
+        if type(surf).__name__ != "Cylinder" or getattr(surf, "Radius", None) is None:
+            continue
+        out.append((n, surf.Axis, surf.Center, float(surf.Radius), float(getattr(f, "Area", 0.0))))
+    return out
+
+
+FRAME_MODES = (0, 1, 2, 3, 4, 5, 6)  # the projections a turned body's frame applies to
+
+
+def _fitted_frame(o, layers, masked, a):
+    """The one-call way gives no frame step: with no rotation given,
+    cylindrical mapping on every layer is fitted to the cylindrical faces
+    it textures (as Auto-fit / From face in the draft), else a turned body
+    is read in its own axes (its Placement). Live: a knob along Y, turned
+    90° in an assembly, came out crumpled, mapped about the document's Z.
+    Returns (frame rotation or None, the answer's words), and puts the
+    fitted cylinder in the layers' settings."""
+    if a.get("rotation") is not None:
+        return None, {}
+    from . import engine
+
+    modes = [L["settings"].get("mappingMode", engine.DEFAULTS["mappingMode"]) for L in layers]
+    given = any(k in L["settings"] for L in layers for k in projection_extras.CYLINDER_KEYS)
+    words = {}
+    if modes and all(m == projection_extras.MODE_CYLINDRICAL for m in modes) and not given:
+        names, skip = set(), set()
+        for m in masked:
+            (names if m["mode"] == "include" else skip).update(m["faces"] or ())
+        if any(m["mode"] != "include" for m in masked):
+            names = set()  # a layer textures every face but its plain ones
+        fit = projection_extras.cylinder_frame(_cylinders(o.Shape, names, skip))
+        if fit is not None:
+            for L in layers:
+                L["settings"].update(fit["settings"])
+            return fit["rotation"], {"cylinder": fit["cylinder"], "frame": {"rotation": [round(x, 4) for x in fit["rotation"]],
+                                     "from": "the cylinder's axis"}}
+        words["cylinder"] = {"from": None, "note": "No cylindrical face to fit: the axis is the body's own Z."}
+    if any(m in FRAME_MODES for m in modes):
+        try:
+            Rb = o.Shape.Placement.Rotation.toMatrix().A
+            Rb = [Rb[0:3], Rb[4:7], Rb[8:11]]
+        except AttributeError:
+            return None, words
+        rot = projection_extras.body_frame(Rb)
+        if rot is not None:
+            words["frame"] = {"rotation": [round(x, 4) for x in rot], "from": "the body's Placement"}
+            return rot, words
+    return None, words
+
+
 def _apply_args(s, a, target=None):
     """texture_apply with its own texture / layers (no draft): kept as it was,
     and the arguments stored so Update can run them again."""
@@ -529,13 +588,16 @@ def _apply_args(s, a, target=None):
     run = {**glob, "layers": layers}
     if a.get("rotation") is not None:
         run["frame"] = {"rotation": [num(x, "rotation") for x in a["rotation"]]}
+    fitted, said = _fitted_frame(o, layers, masked, a)
+    if fitted is not None:
+        run["frame"] = {"rotation": fitted}
     res = _run_engine(s, a, pos, run)
     name = a.get("name") or (target.Label if target is not None else f"{o.Label}_textured")
     keep = {k: v for k, v in a.items() if k not in ("export", "update", "bake", "new")}
     obj = _add_mesh(s, o, name, res["positions"], engine.credit_of(run), run, target=target, args=keep)
     out = {"body": o.Label, "object": obj.Name if obj is not None else None, "label": name,
            "triangles": res["triangles"], "inputTriangles": res["inputTriangles"], "repair": res["repair"],
-           "warnings": res["warnings"], "layers": masked, "credit": engine.credit_of(run), "engine": res.get("engine")}
+           "warnings": res["warnings"], "layers": masked, "credit": engine.credit_of(run), "engine": res.get("engine"), **said}
     _export_with(s, a, pos, run, res, out)
     return out
 
@@ -1083,6 +1145,29 @@ def _draft_home(doc):
     return doc if live.in_front(doc) else live.draft_doc()
 
 
+def _draft_cylinder(d, o):
+    """A new part in a draft whose layers all map cylindrically, with no
+    frame turned and no cylinder set: the axis fitted to the part's
+    cylindrical faces, as Auto-fit would be (the cylinder of the part
+    before does not fit this one). The answer's cylinder, or None."""
+    from . import engine
+
+    layers = list(d.layers)
+    if not layers or any(d.frame.get("rotation") or ()):
+        return None
+    if not all(L["settings"].get("mappingMode", engine.DEFAULTS["mappingMode"]) == projection_extras.MODE_CYLINDRICAL for L in layers):
+        return None
+    if any(L["settings"].get(k) is not None for L in layers for k in projection_extras.CYLINDER_KEYS):
+        return None
+    fit = projection_extras.cylinder_frame(_cylinders(getattr(o, "Shape", None)))
+    if fit is None:
+        return None
+    d.set_frame(rotation=fit["rotation"])
+    for i in range(len(layers)):
+        projection_extras.apply(d, {k: v for k, v in fit["settings"].items() if k != "mappingMode"}, layer=i)
+    return dict(fit["cylinder"], frame=[round(x, 4) for x in fit["rotation"]])
+
+
 def _take_part(d, o, doc=None):
     """The draft takes o as its part, bound to o's document (the same Name
     in another document is another part: said as a part change)."""
@@ -1263,6 +1348,7 @@ def texture_draft(s, a):
                 raise ToolError("invalid_input", "load: selection: nothing is selected and no one visible solid to take; "
                                 "give part (an object's name or label; an STL is imported with File > Import first).")
             ref = o.Name
+    fitted = None
     if ref is not None or (d.part is None and not a.get("project")):
         o = _part(s, ref, None)
         stored = getattr(o, "TextureDraft", "") if "SourceBody" in getattr(o, "PropertiesList", []) else ""
@@ -1274,10 +1360,12 @@ def texture_draft(s, a):
             d.load(data)
             live.TARGET["object"] = o.Name
         else:
-            if o.Name != d.part or not live.in_front(getattr(o, "Document", None) or _doc(s)):
+            changed = o.Name != d.part
+            if changed or not live.in_front(getattr(o, "Document", None) or _doc(s)):
                 live.TARGET["object"] = None
             _take_part(d, o, _doc(s))
-    out = {}
+            fitted = _draft_cylinder(d, o) if changed else None
+    out = {"cylinder": fitted} if fitted else {}
     pj = a.get("project")
     if pj:
         if pj == "ask":
