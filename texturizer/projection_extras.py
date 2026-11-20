@@ -155,6 +155,67 @@ def from_face(surface, to_frame=None, tol=1e-6):
 
 
 # -- Stamp -----------------------------------------------------------------------
+def _frame_matrix(rotation):
+    """BumpMesh's Rotate X / Y / Z (degrees): R = Rx·Ry·Rz (the engine's
+    frame_matrix, here without the engine import)."""
+    x, y, z = (math.radians(float(a or 0)) for a in (rotation or (0, 0, 0)))
+    cx, sx, cy, sy, cz, sz = math.cos(x), math.sin(x), math.cos(y), math.sin(y), math.cos(z), math.sin(z)
+    Rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    Rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    return Rx @ Ry @ Rz
+
+
+def euler_xyz(M):
+    """Rotate X / Y / Z (degrees) of a rotation matrix M = Rx·Ry·Rz, as
+    BumpMesh's frame takes them: the inverse of _frame_matrix."""
+    M = np.asarray(M, float).reshape(3, 3)
+    y = math.asin(max(-1.0, min(1.0, M[0, 2])))
+    if abs(M[0, 2]) < 1 - 1e-9:
+        x = math.atan2(-M[1, 2], M[2, 2])
+        z = math.atan2(-M[0, 1], M[0, 0])
+    else:  # gimbal lock: all the turn about X
+        x = math.atan2(M[2, 1], M[1, 1])
+        z = 0.0
+    return [math.degrees(x), math.degrees(y), math.degrees(z)]
+
+
+def body_frame(rotation_matrix, tol_deg=0.01):
+    """The texturing frame that reads a turned body in its own axes: Rotate
+    X / Y / Z for R_body^T, or None when the body is not turned."""
+    Rb = np.asarray(rotation_matrix, float).reshape(3, 3)
+    angle = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(Rb) - 1) / 2))))
+    if angle < tol_deg:
+        return None
+    return euler_xyz(Rb.T)
+
+
+def cylinder_frame(cylinders, parallel=0.999):
+    """Cylindrical mapping fitted to cylindrical faces, as Auto-fit and From
+    face do in the draft, for a call that gives no frame. cylinders: [(name,
+    axis, centre, radius, area)], document coordinates. The largest face
+    sets the axis; the faces parallel to it are the ones it came from.
+    Returns {rotation (Rotate X / Y / Z that turn the axis onto the frame's
+    Z), settings (mappingMode, cylinderCenterX/Y, cylinderRadius in the
+    frame), cylinder {axis, centre, radius, from}}, or None with no
+    cylinder."""
+    if not cylinders:
+        return None
+    name, axis, centre, radius, _area = max(cylinders, key=lambda c: c[4])
+    a = np.asarray(_xyz(axis), float)
+    a = a / np.linalg.norm(a)
+    used = [c[0] for c in cylinders if abs(float(np.dot(a, np.asarray(_xyz(c[1]), float) / np.linalg.norm(_xyz(c[1]))))) >= parallel]
+    r = align_rotation(tuple(a))
+    rot = [r["rotateX"], r["rotateY"], 0.0]
+    R = _frame_matrix(rot)
+    c = R @ np.asarray(_xyz(centre), float)
+    return {"rotation": rot,
+            "settings": {"mappingMode": MODE_CYLINDRICAL, "cylinderCenterX": float(c[0]), "cylinderCenterY": float(c[1]),
+                         "cylinderRadius": float(radius)},
+            "cylinder": {"axis": [round(float(v), 6) for v in a], "centre": [round(float(v), 4) for v in _xyz(centre)],
+                         "radius": round(float(radius), 4), "from": used}}
+
+
 def stamp_mode(settings, on, mode_before=None):
     """BumpMesh's Stamp mode button (_setStampMode). On: a projection that
     can't stamp (Triplanar, Cubic, Spherical, Outline wrap) becomes Surface
