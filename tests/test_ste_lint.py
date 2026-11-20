@@ -46,7 +46,9 @@ class SteLint(unittest.TestCase):
         self.assertEqual(len(S.sentences("Keys { a. b. c } stay one. 0.5 mm is one.")), 2)
 
     def test_the_preservation_check_finds_a_loss(self):
-        name = sorted(self.originals["tools"])[0]
+        # A tool whose card has no guide section (GUIDE_SECTIONS): the
+        # original text alone must pass.
+        name = sorted(set(self.originals["tools"]) - set(S.GUIDE_SECTIONS))[0]
         old = self.originals["tools"][name]
         cut = {name: dict(old, description="Nothing.")}
         found = S.preservation(cut, {"toolNames": [], "tools": {name: old}})
@@ -60,3 +62,52 @@ class SteLint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShortCards(unittest.TestCase):
+    """Desk-lamp test drive, finding 14: texture_apply's and texture_set's
+    cards were thousands of words, read whole by one tool_find. The cards
+    keep the inputs, what the tool makes, the traps and the answer; the rest
+    is a guide section, which the card names and the check reads with it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.descs = S.current()
+
+    def test_cards_are_short_and_name_their_section(self):
+        for name, cap in (("texture_apply", 400), ("texture_set", 220)):
+            text = self.descs[name]["description"]
+            self.assertLessEqual(len(text.split()), cap, name)
+            guide, section = S.GUIDE_SECTIONS[name]
+            self.assertIn(f'guide_read {{ topic: "texture", section: "{section}" }}', text)
+            self.assertEqual(guide, "texturizer/guides/texture.md")
+
+    def test_the_section_is_there_and_read_later(self):
+        for name in S.GUIDE_SECTIONS:
+            body = S.guide_section(name)
+            self.assertIsNotNone(body, name)
+            self.assertGreater(len(body.split()), 150, name)
+        with open(os.path.join(S.ROOT, "texturizer", "guides", "texture.md"), encoding="utf-8") as f:
+            text = f.read()
+        for section in ("texture_apply in full", "texture_set in full"):
+            head = text.index(f"## {section}\n")
+            self.assertTrue(text[head:].split("\n", 2)[1].startswith("<!-- later:"), section)
+
+    def test_a_card_without_its_section_is_a_fault(self):
+        keep = dict(S.GUIDE_SECTIONS)
+        try:
+            S.GUIDE_SECTIONS["texture_set"] = ("texturizer/guides/texture.md", "no such section")
+            faults = S.preservation(self.descs, S.load_originals())
+            self.assertIn("guide", {k for t, k, _ in faults if t == "texture_set"})
+        finally:
+            S.GUIDE_SECTIONS.clear()
+            S.GUIDE_SECTIONS.update(keep)
+
+    def test_texture_last_then_slice_the_textured_mesh(self):
+        # slice_with (Workshop for FreeCAD) takes a mesh as it is now; the
+        # card says so, and the other way: export the file and slice it.
+        text = self.descs["texture_apply"]["description"]
+        self.assertIn("texture last", text)
+        self.assertIn("slice_with (Workshop for FreeCAD) takes the Textured object as it is", text)
+        self.assertIn("texture_export", text)
+        self.assertNotIn("then slice the mesh", text)
