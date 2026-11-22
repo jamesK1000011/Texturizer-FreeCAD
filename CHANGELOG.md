@@ -9,6 +9,7 @@ github.com/CNCKitchen/stlTexturizer, AGPL-3.0.
 
 ## [Unreleased]
 
+- Test: tests/test_gui_words_neutral.py. The GUI words name no one AI product (Claude Desktop only where the help is about it).
 - texture_apply and texture_set cards are short (desk-lamp test drive, finding 14): texture_apply 940 words to about 350, texture_set 374 to about 190. Each card keeps its inputs, what it makes, the traps and the answer, and names its guide section. The rest is in the texture guide, sections "texture_apply in full" and "texture_set in full" (guide_read), read later. Every fact of the old cards is in the card or its section: scripts/ste_check.py reads the section with the card (GUIDE_SECTIONS, as Workshop's check does).
 - texture_apply card and the texture guide: "texture last, then slice the mesh" now says how (desk-lamp test drive, finding 5). slice_with (Workshop for FreeCAD) takes the Textured object as it is; or export it (texture_apply's export, or texture_export) and slice the file.
 - Tests: tests/test_ste_lint.py (ShortCards).

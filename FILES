@@ -36,6 +36,7 @@ tests/test_engine_parity.py
 tests/test_face_snap.py
 tests/test_gizmo.py
 tests/test_gui.py
+tests/test_gui_words_neutral.py
 tests/test_layout.py
 tests/test_layout_placer.py
 tests/test_linked.py
