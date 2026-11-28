@@ -275,14 +275,14 @@ class Retexture(Session):
         out = self.ok("texture_apply", {"body": "Grip", "faces": ["Face2"], "mode": "include",
                                         "layers": [{"texture": "Knurling", "settings": {"textureHeight": 0.4}}],
                                         "settings": {"refineLength": 1}})
-        self.assertIn("texture_check { object: \"%s\" }" % out["object"], out["next"])
+        self.assertTrue(out["object"])
         obj = live.find(self.doc, out["object"])
         chk = self.ok("texture_check", {"object": obj.Name})
         self.assertEqual((chk["object"], set(chk["texturedFaces"])), (obj.Name, {"Face2"}))
         self.assertGreater(chk["texturedFaces"]["Face2"]["moved"], 0.5)
         self.assertNotIn("Face1", chk.get("leaked", {}).get("faces", []))
         exp = self.ok("texture_export", {"format": "stl", "object": obj.Name, "path": "tile.stl"})
-        self.assertIn("texture_check", exp["next"])
+        self.assertEqual(exp["object"], obj.Name)
         chk2 = self.ok("texture_check", {"path": exp["path"]})
         self.assertEqual((chk2["object"], chk2["texturedFaces"].keys()), (obj.Name, chk["texturedFaces"].keys()))
         # A whole-body texture: the bottom, under BumpMesh's 5 degree limit, stays plain.

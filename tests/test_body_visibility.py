@@ -63,7 +63,7 @@ class Vis(unittest.TestCase):
         self.ok("texture_set", {"texture": "Knurling", "settings": {"refineLength": 2.5, "bottomAngleLimit": 0}})
         out = self.ok("texture_apply", {})
         self.assertTrue(out["bodyHidden"])
-        self.assertIn("the body is hidden while its textured result is shown", out["note"].lower())
+        self.assertNotIn("note", out)
         self.assertFalse(self.body.ViewObject.Visibility)
         self.assertTrue(live.find(self.doc, out["object"]).ViewObject.Visibility)
 

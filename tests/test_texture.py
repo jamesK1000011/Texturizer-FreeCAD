@@ -50,7 +50,7 @@ class Texture(unittest.TestCase):
             nrm = vals[:3]
             out = sum((c[i] - (15, 10, 5)[i]) * nrm[i] for i in range(3))
             self.assertGreater(out, 0, k)
-        self.assertEqual(t["next"]["tool"], "bumpmesh_texture_file")
+        self.assertTrue(t["output"].endswith("-textured.stl"))
 
     def test_1b_relative_path_and_refusals(self):
         """Hardening 16 Nov: a relative path is written in the output folder

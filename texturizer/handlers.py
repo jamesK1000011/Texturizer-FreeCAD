@@ -95,9 +95,7 @@ def texture_prepare(s, a):
     bb = o.Shape.BoundBox
     return remember("texture_prepare", {
         "body": o.Label, **out,
-        "next": {"tool": "bumpmesh_texture_file", "arguments": {"path": stl, "output": out_path, "layers": [{"texture": "a library name (bumpmesh_list_textures)", "settings": {"textureHeight": 0.5, "scaleU": 5},
-                 "mask": {"mode": mode, "trianglesFile": out["mask"]}}], "settings": {"refineLength": round(max(0.05, min(5, bb.DiagonalLength / 250)), 2)}}},
-        "note": f"{'Only' if mode == 'include' else 'All but'} {', '.join(out['faces'])} get the texture; say the faces that must not change back to the person first. Then texture_check {{ body: \"{o.Label}\", path: <the output> }}: the depth on each textured face, any face it leaked onto, and whether the mesh is closed.",
+        "output": out_path, "refineLength": round(max(0.05, min(5, bb.DiagonalLength / 250)), 2),
     })
 
 
@@ -107,13 +105,9 @@ def stale_check(out, label, name):
     of the change to the body and the texture alike. Never "ok" (found
     live: a block made 2 mm taller answered verdict ok, "2 mm deep at
     most", with every point 1.6 to 2 mm under its face)."""
-    why = f"{label} is out of date: its body changed (texture_apply {{ update: \"{name}\" }} first)."
-    out.setdefault("warnings", []).append(why)
     out["verdict"] = "check"
     out["outOfDate"] = True
-    out["note"] = (f"Out of date: this is {label}'s mesh of the body as it was, measured against the body as it is now, so the figures "
-                   f"mix the body's change with the texture — run texture_apply {{ update: \"{name}\" }}, then check again. "
-                   "(As measured: " + str(out.get("note") or "").rstrip() + ")")
+    out["update"] = name
     return out
 
 
@@ -273,13 +267,10 @@ def texture_list(s, a):
     if cat and not out and cat not in engine.library.CATEGORIES + [engine.library.CUSTOM]:
         raise ToolError("invalid_input", f"category {cat!r}: one of {', '.join(engine.library.CATEGORIES + [engine.library.CUSTOM])} "
                         "(or leave it out and use search).")
-    more = {"notListed": f"{hidden} custom texture{'s' if hidden != 1 else ''} with hidden or control characters in the file name: "
-                         "the person renames the file."} if hidden else {}
+    more = {"notListed": {"count": hidden, "reason": "hiddenCharactersInName"}} if hidden else {}
     return {"count": len(out), "textures": out, "categories": engine.library.CATEGORIES, **more,
             "credit": "BumpMesh's texture library (Stefan Hermann, CNC Kitchen); Hero Patterns by Steve Schoger (CC BY 4.0); "
-                      "ambientCG and Poly Haven (CC0). Filter Forge textures are not included.",
-            "note": "Use an id as texture in texture_apply; defaults.scaleU is the tile in mm on a 50 mm part "
-                    "(BumpMesh scales it with the part: tileFraction x the part's largest size)."}
+                      "ambientCG and Poly Haven (CC0). Filter Forge textures are not included."}
 
 
 def _numbers(d, where):
@@ -556,7 +547,7 @@ def _fitted_frame(o, layers, masked, a):
                 L["settings"].update(fit["settings"])
             return fit["rotation"], {"cylinder": fit["cylinder"], "frame": {"rotation": [round(x, 4) for x in fit["rotation"]],
                                      "from": "the cylinder's axis"}}
-        words["cylinder"] = {"from": None, "note": "No cylindrical face to fit: the axis is the body's own Z."}
+        words["cylinder"] = {"from": None, "axis": "bodyZ"}
     if any(m in FRAME_MODES for m in modes):
         try:
             Rb = o.Shape.Placement.Rotation.toMatrix().A
@@ -684,8 +675,6 @@ def _hide_source(doc, out):
         return
     if linked.shown(obj):
         out["bodyHidden"] = True
-        out["note"] = (out.get("note", "") + " " if out.get("note") else "") + (
-            linked.HIDDEN_NOTE[0].upper() + linked.HIDDEN_NOTE[1:] + "; hiding or deleting the result shows it again.")
 
 
 def texture_apply(s, a):
@@ -726,16 +715,11 @@ def texture_apply(s, a):
             out["updated"] = True
         out["outOfDate"] = False
         _after_apply(doc, out)
-        out["next"] = (f"texture_check {{ object: \"{out['object']}\" }} measures it face by face against its body; "
-                       "texture_export for an STL / 3MF.")
         return remember("texture_apply", out)
     if a.get("texture") or a.get("layers") is not None:
         out = _apply_args(s, a)
         _draft_follows_args(s, a, d, out)
         _after_apply(doc, out)
-        out["next"] = ((f"texture_check {{ object: \"{out['object']}\" }}" if out.get("object") else
-                        f"texture_check {{ body: \"{out['body']}\", path: <the export> }}")
-                       + " measures the depth face by face; slice the export or the mesh object.")
         return remember("texture_apply", out)
     if a.get("draft") is not None:
         try:
@@ -774,8 +758,6 @@ def texture_apply(s, a):
         out["baked"] = obj.Name
         out["maskedTriangles"] = len(baked or []) if bake_mask else 0
     _after_apply(doc, out)
-    out["next"] = ("Update (texture_apply { update: \"%s\" }) after the body changes; texture_check { object: \"%s\" } "
-                   "measures it face by face; texture_export for an STL / 3MF." % (out["object"] or "", out["object"] or ""))
     return remember("texture_apply", out)
 
 
@@ -903,7 +885,7 @@ def _update_linked(s, a, target):
            "warnings": res["warnings"], "credit": engine.credit_of(job.run_settings), "state": linked.state(target),
            "engine": res.get("engine")}
     if job.report:
-        out["maskReport"] = [r["message"] for r in job.report]
+        out["maskReport"] = [{k: r[k] for k in ("layer", "what", "lost", "of")} for r in job.report]
     if job.new_faces:
         out["newFaces"] = job.new_faces
         out["newFacesNote"] = linked.new_faces_text(job.new_faces)
@@ -1294,7 +1276,7 @@ def _bounds_of_part(s, d):
 def _load_project(s, d, path, mode):
     from . import project
 
-    note = []
+    loaded = None
     with d.batch():   # the project and its model: one step
         try:
             res = project.load(path, d, mode=mode)
@@ -1304,8 +1286,8 @@ def _load_project(s, d, path, mode):
             obj = _add_plain_mesh(s, guard.text(os.path.splitext(os.path.basename(path))[0], 80) or "Model", res["model"])
             if obj is not None:
                 _take_part(d, obj, _doc(s))
-                note.append(f"Model loaded as {obj.Label}.")
-    return {"mode": res["mode"], "warnings": [guard.text(w, 300) for w in res.get("warnings") or []], "note": " ".join(note)}
+                loaded = obj.Label
+    return {"mode": res["mode"], "warnings": [guard.text(w, 300) for w in res.get("warnings") or []], **({"modelLoaded": loaded} if loaded else {})}
 
 
 def _add_plain_mesh(s, name, tris):
@@ -1393,8 +1375,6 @@ def texture_draft(s, a):
     out.update(_part_word(s, d))
     if out.get("part"):
         out["label"] = out["part"]   # the part's label (the words: an argument's part would come first)
-    out["note"] = ("The sidebar shows this draft. texture_set (texture, settings), texture_mask (faces), texture_layer, "
-                   "then texture_preview to look and texture_apply to add it to the document.")
     return out
 
 
@@ -1775,15 +1755,11 @@ def texture_mask(s, a):
     counts = mask_counts(m)
     out = {"layer": i, "mode": "include" if L["includeOnly"] else "exclude", **counts, "part": o.Label,
            **({"strokes": strokes} if strokes else {}),
-           "note": ("Only these faces get the texture." if L["includeOnly"] else "These faces stay plain.") if m["faces"] or counts["triangles"] else
-                   ("Nothing textured yet: add faces." if L["includeOnly"] else "Every face gets the texture.")}
+           "masked": bool(m["faces"] or counts["triangles"])}
     gone = brushed_off(before, m["faces"]) if strokes else []
     if gone:
         out["facesBrushedOff"] = gone
-        out["note"] += (f" The brush took {', '.join(gone)} off the layer's faces"
-                        + (f" ({counts['triangles']} of the part's triangles stay masked)" if counts["triangles"] else " and none of their triangles stays masked")
-                        + ": mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two), "
-                          "mode precision splits them under the brush's rim.")
+        out["brushed"] = {"keptTriangles": counts["triangles"]}
     return _follow_preview(out)
 
 
@@ -1908,8 +1884,7 @@ def texture_preview(s, a):
         stopped = live.GUI.cancel_preview() if live.GUI is not None else True
         out = {"cancelled": True}
         if stopped is False:
-            out["note"] = ("The preview's worker had not stopped within 2 s: it ends at its next check and its result is dropped; "
-                           "no timer of the preview is left waiting.")
+            out["workerStopped"] = False
         return _preview_facts(d, out)
     if "turntable" in a:
         return _turntable(a["turntable"])
@@ -1957,9 +1932,7 @@ def texture_preview(s, a):
            "warnings": [w for w in [res.get("note")] if w]}
     finer = preview_finer(out["previewEdge"], est["edge"])
     if finer:
-        out["warnings"].append(finer)
-    out["next"] = ("Agent Link's view_snapshot shows it; texture_apply adds it to the document." if live.GUI is not None
-                   else "texture_apply adds it to the document.")
+        out["previewFiner"] = finer
     return _preview_facts(d, out)
 
 
@@ -1999,11 +1972,7 @@ def _preview_answer(s, d, o, pos, ft, q, got):
                         "and triangle budget the part can take; then call texture_preview again.")
     res = got.get("result")
     if not got.get("done") or not isinstance(res, dict):
-        out.update({"building": True, "verdict": "still building",
-                    "warnings": [], "next": "texture_preview {} again waits for it and says what it made; texture_preview "
-                                            "{ cancel: true } stops it; texture_preview { quality: \"draft\" } builds a coarser one sooner."})
-        out["note"] = (f"The preview was not done within {out['ms'] / 1000:.0f} s: it goes on building and shows in the 3D view when it "
-                       "is done" + (" (a coarse first look shows now)." if got.get("coarse") else "."))
+        out.update({"building": True, "warnings": [], "coarseShown": bool(got.get("coarse"))})
         return out
     m = res.get("mesh")
     m = m if isinstance(m, dict) else {}
@@ -2016,8 +1985,7 @@ def _preview_answer(s, d, o, pos, ft, q, got):
                 "warnings": [w for w in [res.get("note")] if w]})
     finer = preview_finer(out["previewEdge"], est["edge"])
     if finer:
-        out["warnings"].append(finer)
-    out["next"] = "Agent Link's view_snapshot shows it; texture_apply adds it to the document."
+        out["previewFiner"] = finer
     return out
 
 
@@ -2055,13 +2023,12 @@ def _follow_preview(out):
     elif got.get("error"):
         out["preview"] = {"error": got["error"]}
     else:
-        out["preview"] = {"building": True, "ms": got.get("ms", 0),
-                          "note": "The preview is still catching up with the draft; it shows in the 3D view when it is done."}
+        out["preview"] = {"building": True, "ms": got.get("ms", 0)}
     return out
 
 
 def preview_finer(preview_edge, export_edge):
-    """A sentence when the preview is refined finer than texture_apply will
+    """{previewEdge, refineLength} when the preview is refined finer than texture_apply will
     refine: BumpMesh's preview edge is never coarser than the part's largest
     size / 80 (previewPipeline.js choosePreviewEdge), so on a small part
     with a coarse refineLength the picture shows detail the result will not
@@ -2073,8 +2040,7 @@ def preview_finer(preview_edge, export_edge):
         return None
     if not p < e * 0.999:
         return None
-    return (f"The preview is finer than the result will be: it is refined to {p:g} mm edges, texture_apply to refineLength {e:g} mm, "
-            f"so fine detail that shows here may be lost. Set settings.refineLength to {p:g} (texture_set) for a result like this picture.")
+    return {"previewEdge": p, "refineLength": e}
 
 
 def _turntable(v):
@@ -2091,14 +2057,12 @@ def _turntable(v):
             return {"turntable": {"spinning": False}}
         if not tt.start():
             raise ToolError("invalid_state", "turntable: no 3D view to spin; it needs FreeCAD's window with the document's 3D view open.")
-        return {"turntable": {"spinning": True, "degreesPerSecond": 15},
-                "next": "Any click, wheel or SpaceMouse move in the view stops it; turntable false stops it."}
+        return {"turntable": {"spinning": True, "degreesPerSecond": 15}}
     if isinstance(v, (int, float)) and math.isfinite(float(v)):
         tt.stop()
         if not turntable.turn(float(v)):
             raise ToolError("invalid_state", "turntable: no 3D view to turn; it needs FreeCAD's window with the document's 3D view open.")
-        return {"turntable": {"spinning": False, "turned": float(v)},
-                "next": "Agent Link's view_snapshot or view_render shows the view; turn again for the next frame."}
+        return {"turntable": {"spinning": False, "turned": float(v)}}
     raise ToolError("invalid_input", "turntable: true (spin), false (stop) or degrees to turn the view once.")
 
 
@@ -2150,8 +2114,7 @@ def texture_export(s, a):
 
         names = project.save(path, d, model=model, include_model=model is not None, include_texture=a.get("texture", True) is not False,
                              texture_png=png, face_triangles=lambda f: ft.get(f, []))
-        return {"path": path, "file": os.path.basename(path), "format": "bumpmesh", "files": names,
-                "note": "BumpMesh's Save Project format: Load Project opens it here or in BumpMesh."}
+        return {"path": path, "file": os.path.basename(path), "format": "bumpmesh", "files": names}
     obj = live.find(doc, a["object"]) if a.get("object") else None
     if a.get("object") and obj is None:
         raise ToolError("not_found", f"object {a['object']!r}: not in this document (Textured objects here: "
@@ -2177,9 +2140,8 @@ def texture_export(s, a):
                "label": obj.Label, "credit": credit}
         if fmt == "stl":
             EXPORTED[os.path.realpath(path)] = obj.Name
-            out["next"] = f"texture_check {{ object: \"{obj.Name}\" }} (or {{ path }} of this STL) measures it face by face."
         if getattr(obj, "OutOfDate", False):
-            out["warnings"] = [f"{obj.Label} is out of date: its body changed (Update first)."]
+            out["outOfDate"] = True
         return _end_preview(out)
     o = _part(s, None, d)
     pos, ft = live.mesh_for(o)

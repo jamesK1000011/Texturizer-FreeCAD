@@ -588,7 +588,7 @@ class Agent(unittest.TestCase):
         ok, out = self.run("texture_draft", {})
         L = out["draft"]["layers"][0]
         self.assertEqual((L["faces"], L["triangles"], L["brush"]["split"]), ([], n, len(split)))
-        self.assertNotIn("Every face", self.run("texture_mask", {})[1]["note"])
+        self.assertTrue(self.run("texture_mask", {})[1]["masked"])
 
 
 if __name__ == "__main__":

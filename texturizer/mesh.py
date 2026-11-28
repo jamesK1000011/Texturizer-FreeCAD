@@ -267,15 +267,7 @@ def check(shape, path, mask, tol=0.02, reach=None, flat=0.01, label=""):
     if angled:
         out["angleMasked"] = angled
     if (~found).any():
-        out["far"] = {"points": int((~found).sum()), "reach": round(reach, 3), "note": "Farther than reach from the body: a texture deeper than reach (give reach), or the STL is not of this body."}
+        out["far"] = {"points": int((~found).sum()), "reach": round(reach, 3)}
     if open_edges or bad_edges:
-        out["mesh"] = {"openEdges": open_edges, "overSharedEdges": bad_edges, "note": "Not closed: a slicer may refuse it or fill it wrong — repair before printing."}
-    notes = []
-    if leaked:
-        notes.append(f"The texture reached {', '.join(leaked)}, which were to stay plain: check the mask (mode, faces) and run the texture again.")
-    if bare:
-        notes.append(f"{', '.join(sorted(bare))} were to be textured but under a fifth of their points moved: a texture too fine for refineLength, or a mask that missed them.")
-    if ok:
-        notes.append(f"Textured on {', '.join(sorted(tex_rows))} only, {depth:.3g} mm deep at most; the mesh is closed.")
-    out["note"] = " ".join(notes)
+        out["mesh"] = {"openEdges": open_edges, "overSharedEdges": bad_edges}
     return out

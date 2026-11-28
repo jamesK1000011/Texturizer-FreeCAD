@@ -5,17 +5,82 @@
  "entries": {
   "texture_list": {
    "group": "texture",
-   "description": "List the texture library that Texturizer ships. The library is BumpMesh's, by Stefan Hermann, CNC Kitchen. For each texture, the answer holds: id, name, category, credit, licence, source_url and defaults. The categories are geometric, patterns, organic, fabric, natural, grip, mold, tires, and custom for your own PNGs. defaults holds scaleU: the tile in mm on a 50 mm part. The draft scales it to the part. Inputs: category and search. Both are optional; both together narrow the list. category is one of the category names. A wrong category is refused with the list. search is a part of the name, in any case. Use an id as texture in texture_set or texture_apply. The answer holds: count, textures, categories, credit, note. A custom texture whose file name has hidden characters is not listed; notListed says how many. Reads only; small and quick.",
+   "card": {
+    "does": "Lists the texture library that Texturizer ships.",
+    "inputNotes": {
+     "category": {
+      "means": "A texture category",
+      "values": [
+       "geometric",
+       "patterns",
+       "organic",
+       "fabric",
+       "natural",
+       "grip",
+       "mold",
+       "tires",
+       "custom"
+      ]
+     },
+     "search": {
+      "means": "Part of a texture's name, any case"
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "category",
+       "search"
+      ],
+      "rel": "with",
+      "line": "Both are optional; both together narrow the list"
+     }
+    ],
+    "effects": [
+     "The library is BumpMesh's, by Stefan Hermann, CNC Kitchen",
+     "Category custom is for your own PNGs",
+     "defaults holds scaleU: the tile in mm on a 50 mm part",
+     "The draft scales it to the part",
+     "A custom texture whose file name has hidden characters is not listed",
+     "Reads only; small and quick",
+     "Use an id as texture in texture_apply; defaults.scaleU is the tile in mm on a 50 mm part (BumpMesh scales it with the part: tileFraction x the part's largest size)."
+    ],
+    "returns": {
+     "count": {
+      "means": "Number of textures listed"
+     },
+     "textures": {
+      "means": "One row per texture: id, name, category, credit, licence, source_url, defaults"
+     },
+     "categories": {
+      "means": "The category names"
+     },
+     "credit": {
+      "means": "The credit line"
+     },
+     "note": {
+      "means": "A note"
+     },
+     "notListed": {
+      "means": "custom textures left out: {count, reason: hiddenCharactersInName}"
+     }
+    },
+    "refusalNotes": [
+     "A wrong category is refused with the list"
+    ],
+    "hints": [
+     "Use an id as texture in texture_set or texture_apply",
+     "A custom texture with hidden or control characters in the file name is not listed; the person renames the file."
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "category": {
-      "type": "string",
-      "description": "geometric, patterns, organic, fabric, natural, grip, mold, tires or custom."
+      "type": "string"
      },
      "search": {
-      "type": "string",
-      "description": "Part of a texture's name, any case."
+      "type": "string"
      }
     },
     "additionalProperties": false
@@ -41,25 +106,104 @@
   },
   "texture_settings": {
    "group": "texture",
-   "description": "Read BumpMesh's settings as the engine takes them, and the cost of a run on a body. With no inputs, the answer holds the defaults. For example: refineLength 1 mm, maxTriangles 750 000, textureHeight 0.5 mm, scaleU 25 mm. It also holds layerKeys (set per layer), globalKeys (set once for the run), mappingModes, maxLayers (4), units and the credit. mappingModes: 0 planarXY, 1 planarXZ, 2 planarYZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surfaceNormal, 8 outlineWrap. With body, the answer holds the cost of a run on that body. body is a solid's name or label. Left out with texture given, body is the document's one body. texture (a library id) and settings are optional. The answer then holds body.size in mm and body.estimate at the settings' refineLength { edge, inputTriangles, subdividedTriangles, outputTriangles (capped at maxTriangles), memoryBytes (about 420 bytes per subdivided triangle), safetyCap }. It also holds body.suggest { refineLength, maxTriangles, pixelsPerEdge }: BumpMesh's Suggest values, only with texture. It also holds body.cylinder: a fitted axis for cylindrical mapping. Call it before texture_apply on anything large. texture_apply refuses a run whose estimate is over 4 GB (about 10 million subdivided triangles). Halving refineLength makes about four times the triangles. tolerance is the body's tessellation in mm (0.02). The draft tools always use 0.02. Unknown setting names are refused. Reads only. The body is tessellated, which takes a moment on a part with many curved faces.",
+   "card": {
+    "does": "Reads BumpMesh's settings as the engine takes them, and the cost of a run on a body.",
+    "inputNotes": {
+     "body": {
+      "means": "A solid's name or label, for the estimate; the document's one body when left out and texture is given"
+     },
+     "texture": {
+      "means": "A library id (texture_list); adds body.suggest"
+     },
+     "settings": {
+      "means": "BumpMesh settings by name",
+      "forms": [
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
+      ]
+     },
+     "tolerance": {
+      "means": "The body's tessellation",
+      "unit": "mm",
+      "default": 0.02
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "body",
+       "texture"
+      ],
+      "rel": "with",
+      "line": "Left out with texture given, body is the document's one body",
+      "when": "texture given"
+     }
+    ],
+    "effects": [
+     "With no inputs, the answer holds the defaults",
+     "Defaults are for example refineLength 1 mm, maxTriangles 750 000, textureHeight 0.5 mm, scaleU 25 mm",
+     "With body, the answer holds the cost of a run on that body",
+     "The estimate is at the settings' refineLength",
+     "texture_apply refuses a run whose estimate is over 4 GB (about 10 million subdivided triangles)",
+     "Halving refineLength makes about four times the triangles",
+     "The draft tools always use tolerance 0.02",
+     "Reads only",
+     "The body is tessellated, which takes a moment on a part with many curved faces"
+    ],
+    "returns": {
+     "layerKeys": {
+      "means": "Settings set per layer"
+     },
+     "globalKeys": {
+      "means": "Settings set once for the run"
+     },
+     "mappingModes": {
+      "means": "0 planarXY, 1 planarXZ, 2 planarYZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surfaceNormal, 8 outlineWrap"
+     },
+     "maxLayers": {
+      "means": "Most layers allowed (4)"
+     },
+     "units": {
+      "means": "The units"
+     },
+     "credit": {
+      "means": "The credit"
+     },
+     "body.size": {
+      "means": "The body's size",
+      "unit": "mm"
+     },
+     "body.estimate": {
+      "means": "Cost at the settings' refineLength: edge, inputTriangles, subdividedTriangles, outputTriangles (capped at maxTriangles), memoryBytes (about 420 bytes per subdivided triangle), safetyCap"
+     },
+     "body.suggest": {
+      "means": "BumpMesh's Suggest values: refineLength, maxTriangles, pixelsPerEdge; only with texture"
+     },
+     "body.cylinder": {
+      "means": "A fitted axis for cylindrical mapping"
+     }
+    },
+    "refusalNotes": [
+     "Unknown setting names are refused"
+    ],
+    "hints": [
+     "Call it before texture_apply on anything large"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "body": {
-      "type": "string",
-      "description": "A solid's name or label, for the estimate; the document's one body when left out and texture is given."
+      "type": "string"
      },
      "texture": {
-      "type": "string",
-      "description": "A library id (texture_list): adds body.suggest."
+      "type": "string"
      },
      "settings": {
-      "type": "object",
-      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+      "type": "object"
      },
      "tolerance": {
-      "type": "number",
-      "description": "The body's tessellation, mm (0.02)."
+      "type": "number"
      }
     },
     "additionalProperties": false
@@ -81,50 +225,151 @@
   },
   "texture_draft": {
    "group": "texture",
-   "description": "Start or read the texture draft. There is one draft per window, and the Texturizer sidebar shows it. texture_set, texture_mask, texture_layer, texture_preview and texture_apply work on it. Call it first, with part. Inputs: part (or body: the same) is a solid's or a Mesh object's name or label. A Textured object (from texture_apply) brings back the settings it was made with. Its body becomes the part, so the next texture_apply updates that object. With part left out, the draft keeps its part, or takes the one visible solid. With several visible solids, the call is refused with their names. reset: true is BumpMesh's Reset to defaults, done before part. draft: a whole draft object to load. project: a .bumpmesh file path (BumpMesh's Load Project; relative: the output folder). A project in a credentials or settings folder is refused. A project that unpacks to more than 1 GB, or that is a ZIP bomb, is refused. Give mode all (settings and the file's model) or settings. With mode all, the model is added as a Mesh object and becomes the part. project \"ask\" opens a file dialog in the window and waits for a person, so give a path. load: \"selection\" takes the object selected in the window. layer is not used here. It opens the sidebar in the window, shown live. Agent Link brings the Texturizer workbench forward first. The model is not changed. The draft is kept in the document (a hidden TextureDraft object), so Edit > Undo undoes draft edits. The answer holds: mesh { triangles, faces }: the part's tessellation at 0.02 mm; faces is 0 for a Mesh part. It also holds draft { part, label, frame, active, settings (those changed from the defaults), canUndo, canRedo, layers: each layer (0 = bottom), name, texture, visible, solo, blend cover|add, mode include|exclude, faces (FaceN names), triangles masked, brush { split, soft } }. After a load it holds project { mode, warnings, note }, and note gives the next steps. Faces are the part's own Face1..FaceN (from 1). They renumber when the CAD model changes. The draft follows them by FreeCAD's stable names or by their surface. The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported. guide_read { topic: \"texture\" } has the whole workflow.",
+   "card": {
+    "does": "Starts or reads the texture draft.",
+    "inputNotes": {
+     "part": {
+      "means": "A solid, a Mesh object, or a Textured object (its settings come back): name or label"
+     },
+     "body": {
+      "means": "The same as part"
+     },
+     "draft": {
+      "means": "A whole draft object to load (as a Textured object's TextureDraft holds)"
+     },
+     "reset": {
+      "means": "BumpMesh's Reset to defaults, before anything else in the call"
+     },
+     "project": {
+      "means": "A .bumpmesh file path (BumpMesh's Load Project); relative: the output folder",
+      "forms": [
+       "a .bumpmesh path",
+       "\"ask\" opens a file dialog in the window and waits for a person"
+      ]
+     },
+     "mode": {
+      "means": "With project: all (settings and the file's model) or settings",
+      "values": [
+       "all",
+       "settings"
+      ],
+      "default": "all"
+     },
+     "load": {
+      "means": "selection: the object selected in the window",
+      "values": [
+       "selection"
+      ]
+     },
+     "layer": {
+      "means": "Not used by this tool"
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "reset",
+       "part"
+      ],
+      "rel": "order",
+      "line": "reset is done before part"
+     },
+     {
+      "inputs": [
+       "mode",
+       "project"
+      ],
+      "rel": "needs",
+      "line": "mode applies with project"
+     },
+     {
+      "inputs": [
+       "part",
+       "body"
+      ],
+      "rel": "with",
+      "line": "body is the same as part"
+     }
+    ],
+    "effects": [
+     "There is one draft per window",
+     "The Texturizer sidebar shows the draft",
+     "texture_set, texture_mask, texture_layer, texture_preview and texture_apply work on the draft",
+     "A Textured object (from texture_apply) brings back the settings it was made with",
+     "Its body becomes the part, so the next texture_apply updates that object",
+     "With part left out, the draft keeps its part, or takes the one visible solid",
+     "With mode all, the model is added as a Mesh object and becomes the part",
+     "It opens the sidebar in the window, shown live",
+     "Agent Link brings the Texturizer workbench forward first",
+     "The model is not changed",
+     "The draft is kept in the document (a hidden TextureDraft object), so Edit > Undo undoes draft edits",
+     "Faces are the part's own Face1..FaceN (from 1)",
+     "Faces renumber when the CAD model changes",
+     "The draft follows faces by FreeCAD's stable names or by their surface",
+     "The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported",
+     "The sidebar shows the draft. texture_set (texture, settings), texture_mask (faces) and texture_layer change it; texture_preview shows it and texture_apply adds it to the document.",
+     "A project load adds its model as a mesh part when mode is all; modelLoaded is its label."
+    ],
+    "returns": {
+     "mesh": {
+      "means": "The part's tessellation at 0.02 mm: triangles, faces; faces is 0 for a Mesh part"
+     },
+     "draft": {
+      "means": "part, label, frame, active, settings (those changed from the defaults), canUndo, canRedo, layers: each layer (0 = bottom) with name, texture, visible, solo, blend cover|add, mode include|exclude, faces (FaceN names), triangles masked, brush { split, soft }"
+     },
+     "project": {
+      "means": "After a load: mode, warnings, note; note gives the next steps"
+     },
+     "modelLoaded": {
+      "means": "the label of the model a loaded project brought"
+     }
+    },
+    "refusalNotes": [
+     "With several visible solids, the call is refused with their names",
+     "A project in a credentials or settings folder is refused",
+     "A project that unpacks to more than 1 GB, or that is a ZIP bomb, is refused"
+    ],
+    "hints": [
+     "Call it first, with part",
+     "project \"ask\" waits for a person, so give a path",
+     "guide_read { topic: \"texture\" } has the whole workflow"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "part": {
-      "type": "string",
-      "description": "A solid, a Mesh object, or a Textured object (its settings come back): name or label."
+      "type": "string"
      },
      "body": {
-      "type": "string",
-      "description": "The same as part."
+      "type": "string"
      },
      "draft": {
-      "type": "object",
-      "description": "A whole draft to load (as a Textured object's TextureDraft holds)."
+      "type": "object"
      },
      "reset": {
-      "type": "boolean",
-      "description": "BumpMesh's Reset to defaults, before anything else in the call."
+      "type": "boolean"
      },
      "project": {
-      "type": "string",
-      "description": "A .bumpmesh path (relative: the output folder). \"ask\" opens a file dialog in the window and waits for a person."
+      "type": "string"
      },
      "mode": {
       "type": "string",
       "enum": [
        "all",
        "settings"
-      ],
-      "description": "With project: all (settings and the file's model) or settings. Default all."
+      ]
      },
      "load": {
       "type": "string",
       "enum": [
        "selection"
-      ],
-      "description": "selection: the object selected in the window."
+      ]
      },
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "Not used by this tool."
+      "maximum": 3
      }
     },
     "additionalProperties": false
@@ -153,28 +398,117 @@
   },
   "texture_set": {
    "group": "texture",
-   "description": "Change the draft (texture_draft first). It is a partial update in one undo step. The sidebar's controls move as it runs. Inputs: layer (0 = bottom; the active one when left out). active: make this layer the one the sidebar edits. texture: a library id (texture_list), or {\"file\": a PNG heightmap's path}. settings: by BumpMesh's names (texture_settings lists them), for example scaleU, textureHeight, mappingMode. frame turns or points the texturing frame, not the body. cylinder is for cylindrical mapping. stamp places one tile. Traps: setting a texture resets scaleU / scaleV to its tile, so give settings in the same call or after. A name that is not a setting is refused. Engine tuning settings go in texture_apply's settings. A PNG over 8192 × 8192 pixels, or in a credentials or settings folder, is refused. {\"upload\": true}, stamp \"place\" and face \"selected\" need a person at the window. The answer holds: layer, set (with the values after clamping) and draft. The model is untouched until texture_preview or texture_apply. Edit > Undo undoes it. Every setting, frame, cylinder and stamp form: guide_read { topic: \"texture\", section: \"texture_set in full\" }.",
+   "card": {
+    "does": "Changes the draft (texture_draft first).",
+    "inputNotes": {
+     "layer": {
+      "means": "The layer, from 0 (bottom); the sidebar's active one when left out"
+     },
+     "active": {
+      "means": "Make this layer (from 0, bottom) the one the sidebar edits; done first"
+     },
+     "texture": {
+      "means": "A library id (texture_list), or a PNG heightmap path for your own map",
+      "forms": [
+       "library id",
+       "{\"file\": \"<PNG path>\"}"
+      ]
+     },
+     "settings": {
+      "means": "BumpMesh settings by name (texture_settings lists them)",
+      "forms": [
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
+      ]
+     },
+     "frame": {
+      "means": "Turns or points the texturing frame, not the body"
+     },
+     "cylinder": {
+      "means": "Cylindrical mapping's axis: autofit (from the part's side faces), reset, or from_face (with face)",
+      "values": [
+       "autofit",
+       "reset",
+       "from_face"
+      ]
+     },
+     "face": {
+      "means": "With cylinder from_face: a cylindrical face's name (Face3); the face picked in the window when left out"
+     },
+     "stamp": {
+      "means": "Places one tile: on, off, place (the clicked spot), or a point and normal",
+      "forms": [
+       "on",
+       "off",
+       "place",
+       "{point: [x, y, z], normal: [x, y, z]}"
+      ]
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "cylinder",
+       "face"
+      ],
+      "rel": "needs",
+      "line": "cylinder from_face takes face",
+      "when": "cylinder from_face"
+     },
+     {
+      "inputs": [
+       "texture",
+       "settings"
+      ],
+      "rel": "order",
+      "line": "Setting a texture resets scaleU / scaleV, so give settings in the same call or after"
+     }
+    ],
+    "effects": [
+     "It is a partial update in one undo step",
+     "The sidebar's controls move as it runs",
+     "Setting a texture resets scaleU and scaleV to its tile",
+     "Engine tuning settings go in texture_apply's settings",
+     "{\"upload\": true}, stamp \"place\" and face \"selected\" need a person at the window",
+     "The model is untouched until texture_preview or texture_apply",
+     "Edit > Undo undoes it",
+     "A cylinder frame with no cylindrical face to fit uses the body's own Z as the axis (cylinder.axis bodyZ)."
+    ],
+    "returns": {
+     "layer": {
+      "means": "The layer set"
+     },
+     "set": {
+      "means": "The values set, after clamping"
+     },
+     "draft": {
+      "means": "The draft"
+     }
+    },
+    "refusalNotes": [
+     "A name that is not a setting is refused",
+     "A PNG over 8192 × 8192 pixels, or in a credentials or settings folder, is refused"
+    ],
+    "hints": [
+     "Every setting, frame, cylinder and stamp form: guide_read { topic: \"texture\", section: \"texture_set in full\" }"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+      "maximum": 3
      },
      "active": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "Make this layer (from 0, bottom) the one the sidebar edits; done first."
+      "maximum": 3
      },
-     "texture": {
-      "description": "A library id (texture_list), or {\"file\": a PNG path} for your own map."
-     },
+     "texture": {},
      "settings": {
-      "type": "object",
-      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+      "type": "object"
      },
      "frame": {
       "type": "object",
@@ -209,16 +543,12 @@
        "autofit",
        "reset",
        "from_face"
-      ],
-      "description": "Cylindrical mapping's axis: autofit (from the part's side faces), reset, or from_face (with face)."
+      ]
      },
      "face": {
-      "type": "string",
-      "description": "With cylinder from_face: a cylindrical face's name (Face3); the face picked in the window when left out."
+      "type": "string"
      },
-     "stamp": {
-      "description": "on, off, place (the clicked spot), or {point: [x, y, z], normal: [x, y, z]}."
-     }
+     "stamp": {}
     },
     "additionalProperties": false
    },
@@ -249,59 +579,231 @@
   },
   "texture_mask": {
    "group": "texture",
-   "description": "Set where the texture of one layer goes (BumpMesh's Masking); texture_draft first. mode exclude (the default): the listed faces stay plain, and the rest is textured. mode include: only the listed faces are textured. Changing mode clears the faces of the layer, as BumpMesh does, so give mode before or with add. On a solid: add / remove faces by name (\"Face3\", a list, or a face query such as {\"normal\": [0, 0, 1]}). add: \"selected\" takes the faces picked in the window. add_by starts from faces and adds more. add_by direction adds faces facing within angle degrees (10) of the faces given. add_by box adds faces inside their bounding box. add_by surface adds faces on the same plane, cylinder, cone or sphere. fill: seed faces or {faces, maxAngle}. fill spreads across edges where the faces meet at under maxAngle degrees (20). On a Mesh part (no faces): triangles (indices from 0 of the part's tessellation). A triangle index out of range is refused. Also on a Mesh part: fill {triangles: [seeds], maxAngle, erase} and paint. paint is BumpMesh's Brush on any part: strokes of hits in mm on the surface (see paint's own description). Each stroke is one undo step. clear: true empties the mask of the layer, done before add in the same call. Order in one call: mode, clear, add, triangles, remove, add_by, fill, then paint. Face names are the part's Face1..FaceN (from 1) as it is now. Read them again after a CAD change. The draft's own masks follow the part by FreeCAD's stable names or surface. Name the faces that must not change (mating faces, press fits, threads). Say them back to the person first. The answer holds { layer, mode, faces, triangles, brush {split, soft}, strokes, facesBrushedOff, note }. faces: the face names of the layer. triangles: source triangles masked by any means. facesBrushedOff: faces that a stroke took off the list of the layer. mode standard paints or erases whole triangles of the part's tessellation. A flat face of a solid is often only two triangles. note says in words what gets textured. The model is untouched. The draft is kept in the document, so Edit > Undo undoes it.",
+   "card": {
+    "does": "Sets where the texture of one layer goes (BumpMesh's Masking); texture_draft first.",
+    "inputNotes": {
+     "layer": {
+      "means": "The layer, from 0 (bottom); the sidebar's active one when left out"
+     },
+     "mode": {
+      "means": "exclude: the layer's faces stay plain (default). include: only they are textured",
+      "values": [
+       "include",
+       "exclude"
+      ],
+      "default": "exclude"
+     },
+     "add": {
+      "means": "Faces to add: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}; or \"selected\"",
+      "forms": [
+       "Face3",
+       "a list of face names",
+       "{\"normal\": [0, 0, 1]}",
+       "selected (the faces picked in the window)"
+      ]
+     },
+     "remove": {
+      "means": "Faces to remove: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}",
+      "forms": [
+       "Face3",
+       "a list of face names",
+       "{\"normal\": [0, 0, 1]}"
+      ]
+     },
+     "add_by": {
+      "means": "Adds faces like the ones in faces",
+      "values": [
+       "direction",
+       "box",
+       "surface"
+      ]
+     },
+     "faces": {
+      "means": "The faces add_by starts from: names (Face3) or a list; the faces picked in the window when left out"
+     },
+     "angle": {
+      "means": "add_by direction: faces within this many degrees of the faces given",
+      "unit": "deg",
+      "default": 10
+     },
+     "fill": {
+      "means": "Seed faces, or {faces, maxAngle}; on a Mesh part (or with triangles) {triangles: [seed indices], maxAngle, erase}",
+      "forms": [
+       "seed faces",
+       "{faces, maxAngle}",
+       "{triangles: [seed indices], maxAngle, erase}"
+      ]
+     },
+     "triangles": {
+      "means": "Triangle indices from 0 of the part's tessellation to add"
+     },
+     "paint": {
+      "means": "BumpMesh's Brush on the part's tessellation, any part: strokes of hits in mm on the surface",
+      "unit": "mm",
+      "forms": [
+       "a stroke is a list of hits",
+       "a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]",
+       "null breaks the stroke"
+      ]
+     },
+     "clear": {
+      "means": "true: empty this layer's mask (Clear All)",
+      "values": [
+       true
+      ]
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "add_by",
+       "faces"
+      ],
+      "rel": "needs",
+      "line": "add_by starts from faces and adds more"
+     },
+     {
+      "inputs": [
+       "add_by",
+       "angle"
+      ],
+      "rel": "with",
+      "line": "angle is for add_by direction",
+      "when": "add_by direction"
+     },
+     {
+      "inputs": [
+       "fill",
+       "triangles"
+      ],
+      "rel": "with",
+      "line": "On a Mesh part, fill takes triangles seeds"
+     },
+     {
+      "inputs": [
+       "clear",
+       "add"
+      ],
+      "rel": "order",
+      "line": "clear is done before add in the same call"
+     },
+     {
+      "inputs": [
+       "mode",
+       "clear",
+       "add",
+       "triangles",
+       "remove",
+       "add_by",
+       "fill",
+       "paint"
+      ],
+      "rel": "order",
+      "line": "Order in one call: mode, clear, add, triangles, remove, add_by, fill, then paint"
+     }
+    ],
+    "effects": [
+     "Changing mode clears the faces of the layer, as BumpMesh does",
+     "add_by direction adds faces facing within angle degrees (10) of the faces given",
+     "add_by box adds faces inside their bounding box",
+     "add_by surface adds faces on the same plane, cylinder, cone or sphere",
+     "fill spreads across edges where the faces meet at under maxAngle degrees (20)",
+     "On a Mesh part (no faces), use triangles",
+     "Each stroke is one undo step",
+     "The paint Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface)",
+     "paint mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle",
+     "paint Hardness under 100 fades the mask to the rim",
+     "paint mode standard paints every touched triangle whole",
+     "paint Snap faces paints whole CAD faces instead (by name)",
+     "Face names are the part's Face1..FaceN (from 1) as it is now",
+     "The draft's own masks follow the part by FreeCAD's stable names or surface",
+     "Mode standard paints or erases whole triangles of the part's tessellation",
+     "A flat face of a solid is often only two triangles",
+     "The model is untouched",
+     "The draft is kept in the document, so Edit > Undo undoes it",
+     "Each paint stroke is one undo step",
+     "include: only the layer's faces get the texture; exclude: the layer's faces stay plain. masked false means nothing is masked: include textures nothing yet (add faces), exclude textures every face. Mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two); mode precision splits them under the brush's rim; brushed.keptTriangles is how many of the part's triangles stay masked after the brush took faces off (facesBrushedOff).",
+     "Say them back to the person first"
+    ],
+    "returns": {
+     "layer": {
+      "means": "The layer"
+     },
+     "mode": {
+      "means": "The mode"
+     },
+     "faces": {
+      "means": "The face names of the layer"
+     },
+     "triangles": {
+      "means": "Source triangles masked by any means"
+     },
+     "brush": {
+      "means": "split, soft"
+     },
+     "strokes": {
+      "means": "The strokes"
+     },
+     "facesBrushedOff": {
+      "means": "Faces that a stroke took off the list of the layer"
+     },
+     "note": {
+      "means": "Says in words what gets textured"
+     },
+     "masked": {
+      "means": "true when any face or triangle is masked"
+     },
+     "brushed": {
+      "means": "{keptTriangles}: triangles that stay masked after a brush took faces off"
+     }
+    },
+    "refusalNotes": [
+     "A triangle index out of range is refused"
+    ],
+    "hints": [
+     "Read face names again after a CAD change",
+     "For a fine hard edge by surface position: mode precision, a small size (down to 0.2 mm) and hardness 100",
+     "Name the faces that must not change (mating faces, press fits, threads)"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+      "maximum": 3
      },
      "mode": {
       "type": "string",
       "enum": [
        "include",
        "exclude"
-      ],
-      "description": "exclude: the layer's faces stay plain (default). include: only they are textured. Changing it clears the layer's faces."
+      ]
      },
-     "add": {
-      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}. Or \"selected\"."
-     },
-     "remove": {
-      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
-     },
+     "add": {},
+     "remove": {},
      "add_by": {
       "type": "string",
       "enum": [
        "direction",
        "box",
        "surface"
-      ],
-      "description": "Add faces like the ones in faces: direction (within angle degrees), box (inside their bounding box) or surface (the same plane, cylinder, cone or sphere)."
+      ]
      },
-     "faces": {
-      "description": "The faces add_by starts from: names (Face3) or a list; the faces picked in the window when left out."
-     },
+     "faces": {},
      "angle": {
-      "type": "number",
-      "description": "add_by direction: degrees (10)."
+      "type": "number"
      },
-     "fill": {
-      "description": "Seed faces, or {faces, maxAngle}; on a Mesh part (or with triangles) {triangles: [seed indices], maxAngle, erase}."
-     },
+     "fill": {},
      "triangles": {
       "type": "array",
       "items": {
        "type": "integer"
-      },
-      "description": "Triangle indices from 0 of the part's tessellation to add (texture_draft answers mesh.triangles, the count)."
+      }
      },
      "paint": {
       "type": "object",
-      "description": "BumpMesh's Brush on the part's tessellation. A stroke is a list of hits; a hit is {point, normal, triangle} (triangle and normal optional: the nearest is used) or [x, y, z]; null breaks the stroke. The Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface). Mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle, and Hardness under 100 fades it to the rim; standard paints every touched triangle whole. For a fine hard edge by surface position: mode precision, a small size (down to 0.2 mm) and hardness 100. Snap faces paints whole CAD faces instead (by name). Each stroke is one undo step.",
       "properties": {
        "strokes": {
         "type": "array",
@@ -356,8 +858,7 @@
       "additionalProperties": false
      },
      "clear": {
-      "type": "boolean",
-      "description": "true: empty this layer's mask (Clear All), before add in the same call."
+      "type": "boolean"
      }
     },
     "additionalProperties": false
@@ -383,7 +884,97 @@
   },
   "texture_layer": {
    "group": "texture",
-   "description": "Edit the layer strip of the draft (BumpMesh's): 1 to 4 layers, and layer 0 is the bottom. texture_draft first. action add: a copy of the active layer with an empty Include Only mask, made active. Give it faces with texture_mask, or it textures nothing. add is refused at 4 layers. action remove: the last layer stays. action move: delta -1 moves up the strip, +1 down; value is taken when delta is left out. action solo: value true / false; only this layer shows in the preview. The export ignores solo. action visible: value true / false. A hidden layer is left out of the preview and of texture_apply. texture_apply refuses when every layer is hidden. action blend: value \"cover\" replaces the layers below where it applies. value \"add\" adds its depth to them. Layer 0 always covers. action name: value is the text. action active: the layer the sidebar edits and the other texture tools default to. layer: which one (the active one when left out; not used by add). The answer holds draft (as texture_draft): every layer with its texture, mode, faces, blend and visibility. The model is untouched. The draft is kept in the document, so Edit > Undo undoes it.",
+   "card": {
+    "does": "Edits the layer strip of the draft (BumpMesh's); texture_draft first.",
+    "inputNotes": {
+     "action": {
+      "means": "What to do to the layer strip",
+      "values": [
+       "add",
+       "remove",
+       "move",
+       "solo",
+       "visible",
+       "blend",
+       "name",
+       "active"
+      ]
+     },
+     "layer": {
+      "means": "Which layer, from 0 (bottom); the sidebar's active one when left out; not used by add"
+     },
+     "value": {
+      "means": "solo / visible: true or false; blend: cover or add; name: text",
+      "forms": [
+       "true or false",
+       "cover or add",
+       "text"
+      ]
+     },
+     "delta": {
+      "means": "move: -1 up the strip, +1 down",
+      "values": [
+       -1,
+       1
+      ]
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "action",
+       "value"
+      ],
+      "rel": "needs",
+      "line": "solo, visible, blend and name take value"
+     },
+     {
+      "inputs": [
+       "action",
+       "delta"
+      ],
+      "rel": "needs",
+      "line": "move takes delta",
+      "when": "action move"
+     },
+     {
+      "inputs": [
+       "delta",
+       "value"
+      ],
+      "rel": "overrides",
+      "line": "value is taken when delta is left out",
+      "when": "action move"
+     }
+    ],
+    "effects": [
+     "A draft has 1 to 4 layers; layer 0 is the bottom",
+     "action add makes a copy of the active layer with an empty Include Only mask, made active",
+     "A new layer textures nothing until it has faces",
+     "action remove: the last layer stays",
+     "action solo: only this layer shows in the preview",
+     "The export ignores solo",
+     "A hidden layer is left out of the preview and of texture_apply",
+     "texture_apply refuses when every layer is hidden",
+     "action blend: value cover replaces the layers below where it applies",
+     "action blend: value add adds its depth to the layers below",
+     "Layer 0 always covers",
+     "action active: the layer the sidebar edits and the other texture tools default to",
+     "The model is untouched",
+     "The draft is kept in the document, so Edit > Undo undoes it"
+    ],
+    "returns": {
+     "draft": {
+      "means": "As texture_draft: every layer with its texture, mode, faces, blend and visibility"
+     }
+    },
+    "refusalNotes": [
+     "add is refused at 4 layers"
+    ],
+    "hints": [
+     "Give a new layer faces with texture_mask"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -398,21 +989,16 @@
        "blend",
        "name",
        "active"
-      ],
-      "description": "add, remove, move (delta), solo / visible (value true or false), blend (value cover or add), name (value text), active."
+      ]
      },
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "The layer, from 0 (bottom); the sidebar's active one when left out."
+      "maximum": 3
      },
-     "value": {
-      "description": "solo / visible: true or false; blend: cover or add; name: text."
-     },
+     "value": {},
      "delta": {
-      "type": "integer",
-      "description": "move: -1 up the strip, +1 down."
+      "type": "integer"
      }
     },
     "additionalProperties": false,
@@ -439,40 +1025,187 @@
   },
   "texture_preview": {
    "group": "texture",
-   "description": "Build the preview of the draft with BumpMesh's engine, and wait for it. Then show it in the 3D view in place of the part. texture_draft first. The engine is the same code as the export, so what shows is what prints. quality draft (the default): a budget of 500 000 triangles. quality fine: 1 500 000 triangles. The preview coarsens its own edge to fit that budget and 1 GB, so it never refuses for size. previewEdge says how coarse it is against the edge of the export. It can also be finer. BumpMesh's preview edge is at most the part's largest size / 80. So on a small part with a coarse refineLength, the picture shows detail the result will not have. warnings then says so and names the refineLength that matches. The answer holds: part, quality, previewEdge (mm), triangles, vertices, inputTriangles, ms, export { edge, triangles, memoryMB }, warnings and next. export is what texture_apply would make at the draft's refineLength and maxTriangles. Read it before you apply: over 4096 MB, texture_apply refuses. Other calls do only one thing each. suggest: true sets BumpMesh's Suggest values (refineLength and maxTriangles) in the draft for the texture of the active layer. It answers them and builds nothing. cancel: true stops a preview that the window runs. Its pending rebuild timer is cancelled, and its worker thread is waited for up to 2 s. If the worker had not ended by then, note says so, and its result is dropped when it ends. cancel answers window as texture_apply does; a built preview answers window too. turntable true / false starts or stops a slow spin of the 3D view (15 degrees a second). The spin is about the part's vertical axis. turntable as a number turns the view once by that many degrees, for a series of renders (turn, view_snapshot, turn). layer is not used. It runs in its place, never as one of Agent Link's jobs. background: true is refused. It draws in the 3D view and starts and stops the preview's worker and timers. Only FreeCAD's window thread may do that, so the call waits for the build. A fine preview of a large part takes longer; draft first. The wait has a time budget: wait seconds (default 45, at most 60). The worker does the maths, and the window draws what it hands back as it comes. First comes a coarse look, then the result. Past the budget, the answer says building: true and verdict \"still building\", with how long it waited. The preview goes on building and shows in the 3D view when it is done. texture_preview {} again waits for that same build; it never starts a second one. It then answers what it made. cancel: true stops it. A preview already up to date for the draft answers at once (reused: true). The preview belongs to the draft's own document. It shows only while that document is in front. It steps aside (the part shown again) when another document comes to the front or that document closes. It is taken out of the view when texture_apply or texture_export ends the sequence. The next draft tool brings it back. It changes nothing in the document: the preview is a view, and a save keeps the body shown. Look at it with view_snapshot; it says how it looks. texture_check (after texture_apply) says whether it is right.",
+   "card": {
+    "does": "Builds the preview of the draft with BumpMesh's engine, and waits for it; texture_draft first.",
+    "inputNotes": {
+     "layer": {
+      "means": "Not used by this tool"
+     },
+     "quality": {
+      "means": "draft: up to 500 000 triangles (default). fine: up to 1 500 000",
+      "values": [
+       "draft",
+       "fine"
+      ],
+      "default": "draft"
+     },
+     "wait": {
+      "means": "Seconds to wait for the build before answering",
+      "unit": "s",
+      "default": 45,
+      "max": 60
+     },
+     "suggest": {
+      "means": "true: set BumpMesh's suggested refineLength and maxTriangles in the draft for the active layer's texture, and answer them; builds nothing",
+      "values": [
+       true
+      ]
+     },
+     "cancel": {
+      "means": "true: stop a preview the window is running; builds nothing",
+      "values": [
+       true
+      ]
+     },
+     "turntable": {
+      "means": "true spins the 3D view about the part's vertical axis (15 degrees a second, until false or a click in the view); false stops it; a number turns the view once by that many degrees",
+      "forms": [
+       "true",
+       "false",
+       "<degrees>"
+      ]
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "wait",
+       "quality"
+      ],
+      "rel": "with",
+      "line": "A fine preview of a large part takes longer"
+     }
+    ],
+    "effects": [
+     "It shows the preview in the 3D view in place of the part",
+     "The engine is the same code as the export, so what shows is what prints",
+     "The preview coarsens its own edge to fit its triangle budget and 1 GB, so it never refuses for size",
+     "previewEdge says how coarse the preview is against the edge of the export",
+     "The preview edge can also be finer than the export edge",
+     "BumpMesh's preview edge is at most the part's largest size / 80",
+     "On a small part with a coarse refineLength, the picture shows detail the result will not have",
+     "export is what texture_apply would make at the draft's refineLength and maxTriangles",
+     "Over 4096 MB of export memory, texture_apply refuses",
+     "suggest, cancel and turntable do only one thing each",
+     "suggest answers the values and builds nothing",
+     "cancel: its pending rebuild timer is cancelled, and its worker thread is waited for up to 2 s",
+     "If the worker had not ended by then, note says so, and its result is dropped when it ends",
+     "cancel answers window as texture_apply does; a built preview answers window too",
+     "turntable true / false starts or stops a slow spin of the 3D view",
+     "turntable as a number is for a series of renders (turn, view_snapshot, turn)",
+     "It runs in its place, never as one of Agent Link's jobs",
+     "It draws in the 3D view and starts and stops the preview's worker and timers",
+     "Only FreeCAD's window thread may do that, so the call waits for the build",
+     "The worker does the maths, and the window draws what it hands back as it comes",
+     "First comes a coarse look, then the result",
+     "Past the wait budget, the preview goes on building and shows in the 3D view when it is done",
+     "texture_preview {} again waits for that same build; it never starts a second one",
+     "It then answers what it made",
+     "cancel: true stops the build",
+     "A preview already up to date for the draft answers at once",
+     "The preview belongs to the draft's own document",
+     "It shows only while that document is in front",
+     "It steps aside (the part shown again) when another document comes to the front or that document closes",
+     "It is taken out of the view when texture_apply or texture_export ends the sequence",
+     "The next draft tool brings it back",
+     "It changes nothing in the document: the preview is a view, and a save keeps the body shown",
+     "The preview is built in the background; building true means it was not done within the call's time and goes on building, showing in the 3D view when done (coarseShown: a coarse first look shows now). texture_preview {} again waits for it and says what it made; { cancel: true } stops it; { quality: \"draft\" } builds a coarser one sooner. With workerStopped false the worker had not stopped within 2 s: it ends at its next check and its result is dropped, no timer is left waiting. Agent Link's view_snapshot shows the preview; texture_apply adds it to the document.",
+     "previewFiner {previewEdge, refineLength}: the preview is refined finer than texture_apply will refine, so fine detail that shows here may be lost; set settings.refineLength to previewEdge (texture_set) for a result like the picture. A preview is never coarser than the part's largest size / 80.",
+     "turntable true spins the model at degreesPerSecond; any click, wheel or SpaceMouse move in the view stops it, and turntable false stops it. A number of degrees turns the view once: Agent Link's view_snapshot or view_render shows the view; turn again for the next frame."
+    ],
+    "returns": {
+     "part": {
+      "means": "The part"
+     },
+     "quality": {
+      "means": "The quality"
+     },
+     "previewEdge": {
+      "means": "How coarse the preview is",
+      "unit": "mm"
+     },
+     "triangles": {
+      "means": "Preview triangles"
+     },
+     "vertices": {
+      "means": "Preview vertices"
+     },
+     "inputTriangles": {
+      "means": "Input triangles"
+     },
+     "ms": {
+      "means": "Build time",
+      "unit": "ms"
+     },
+     "export": {
+      "means": "What texture_apply would make: edge, triangles, memoryMB"
+     },
+     "warnings": {
+      "means": "Warnings; on a small part with a coarse refineLength, names the refineLength that matches"
+     },
+     "next": {
+      "means": "The next step"
+     },
+     "building": {
+      "means": "true: the preview was not done in time"
+     },
+     "verdict": {
+      "means": "\"still building\", with how long it waited"
+     },
+     "reused": {
+      "means": "true when a preview was already up to date"
+     },
+     "window": {
+      "means": "Window state, on cancel and on a built preview"
+     },
+     "coarseShown": {
+      "means": "true: a coarse first look is in the 3D view"
+     },
+     "workerStopped": {
+      "means": "false: the cancelled worker had not stopped within 2 s"
+     },
+     "previewFiner": {
+      "means": "{previewEdge, refineLength}: the preview is finer than the result will be",
+      "unit": "mm"
+     }
+    },
+    "refusalNotes": [
+     "background: true is refused"
+    ],
+    "hints": [
+     "Read the export numbers before you apply",
+     "Do a draft preview first on a large part",
+     "Look at the result with view_snapshot; it says how it looks",
+     "texture_check (after texture_apply) says whether the result is right"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "Not used by this tool."
+      "maximum": 3
      },
      "quality": {
       "type": "string",
       "enum": [
        "draft",
        "fine"
-      ],
-      "description": "draft: up to 500 000 triangles (default). fine: up to 1 500 000."
+      ]
      },
      "wait": {
       "type": "number",
       "minimum": 0,
-      "maximum": 60,
-      "description": "Seconds to wait for the build before answering (default 45, at most 60). Past it the answer says building: true and the preview shows when it is done; call texture_preview again to wait for it."
+      "maximum": 60
      },
      "suggest": {
-      "type": "boolean",
-      "description": "true: set BumpMesh's suggested refineLength and maxTriangles in the draft and answer them; builds nothing."
+      "type": "boolean"
      },
      "cancel": {
-      "type": "boolean",
-      "description": "true: stop a preview the window is running; builds nothing."
+      "type": "boolean"
      },
      "turntable": {
-      "description": "true spins the 3D view slowly about the part's vertical axis (the Turntable: 15 degrees a second, until false or a click in the view), false stops it; a number turns the view once by that many degrees, for a series of renders (turn, view_snapshot, turn, ...). Builds nothing.",
       "type": [
        "boolean",
        "number"
@@ -502,28 +1235,257 @@
   },
   "texture_apply": {
    "group": "texture",
-   "description": "Texture a part and put the result in the document (Add to document / Update / Bake Textures). The engine is BumpMesh's (Stefan Hermann, CNC Kitchen), ported to Python and run inside FreeCAD. What it makes: a new Textured Mesh object beside the body. The body and its Shape are never changed. Inputs, three ways. (1) The draft: no texture and no layers. It textures the draft the sidebar shows (texture_draft, texture_set, texture_mask first). body switches the part of the draft; draft loads a whole draft. new: true makes another object; name labels it. (2) In one call: body, texture (a texture_list id), and faces with mode. mode include textures only the faces; exclude (the default) keeps them plain. settings by BumpMesh's names, rotation [x, y, z] degrees, or up to 4 layers. tolerance is for this way only. With no rotation, cylindrical mapping (mappingMode 3) fits its axis to the textured cylindrical faces. The answer gives cylinder { axis, centre, radius, from }. With no rotation, a turned body is read in its own axes (its Placement); the answer gives frame. (3) update: a Textured object's name, run again now; include_new: true also textures new faces. bake: true (draft only) is Bake Textures, with bakeMask. export: a path ending .stl or .3mf, or {path, format}. Traps: the result is a mesh, not a solid. Fillets, holes and booleans do not build on it. So texture last. Then slice_with (Workshop for FreeCAD) takes the Textured object as it is. Or export it (export, or texture_export) and slice the file. Face names (Face1..FaceN) renumber after CAD changes: read them again before a one-call apply. It changes the document, so it cannot run as a job. FreeCAD's window is busy until it ends. A run estimated over memoryLimitGB is refused: ask texture_settings or texture_preview for the estimate first. A one-call object is only marked OutOfDate when its body changes: run update. The Body is hidden while its result shows (bodyHidden); Edit > Undo shows it again. The answer holds body, object (the Textured object's name), label, updated, triangles, warnings, layers, engine, export, next and health. With FreeCAD's window it also holds window. Then texture_check { object } measures the result against the body. Every key, following the body, size and cost, and the window keys: guide_read { topic: \"texture\", section: \"texture_apply in full\" }.",
+   "card": {
+    "does": "Textures a part and puts the result in the document (Add to document / Update / Bake Textures).",
+    "inputNotes": {
+     "body": {
+      "means": "A solid's name or label; with texture / layers the body to texture (the document's one body when left out); with the draft it switches the draft's part"
+     },
+     "texture": {
+      "means": "A library id (texture_list): texture in one call, without the draft"
+     },
+     "faces": {
+      "means": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}",
+      "forms": [
+       "Face3",
+       "a list of face names",
+       "{\"normal\": [0, 0, 1]}"
+      ]
+     },
+     "mode": {
+      "means": "With faces: include (only them) or exclude (all but them; default)",
+      "values": [
+       "include",
+       "exclude"
+      ],
+      "default": "exclude"
+     },
+     "layers": {
+      "means": "Up to 4 layers (one-call way)"
+     },
+     "settings": {
+      "means": "BumpMesh settings by name (texture_settings lists them)",
+      "forms": [
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
+      ]
+     },
+     "rotation": {
+      "means": "[x, y, z] degrees: BumpMesh's Rotate of the texturing frame (one-call way)",
+      "unit": "deg"
+     },
+     "export": {
+      "means": "A path ending .stl or .3mf (relative: the output folder), or {path, format}",
+      "forms": [
+       "a path ending .stl or .3mf",
+       "{path, format}"
+      ]
+     },
+     "name": {
+      "means": "The Textured object's label",
+      "default": "<body>_textured"
+     },
+     "tolerance": {
+      "means": "The body's tessellation; one-call way only, the draft always uses 0.02",
+      "unit": "mm",
+      "default": 0.02
+     },
+     "memoryLimitGB": {
+      "means": "Refuse a run estimated over this",
+      "unit": "GB",
+      "default": 4
+     },
+     "draft": {
+      "means": "A whole draft to load first, then apply"
+     },
+     "update": {
+      "means": "A Textured object's name or label: run it again now with what it stores"
+     },
+     "bake": {
+      "means": "true: Bake Textures (draft only): the undecimated result becomes the draft's part, with a fresh layer",
+      "values": [
+       true
+      ]
+     },
+     "new": {
+      "means": "true: make another Textured object instead of updating the one this draft made",
+      "values": [
+       true
+      ]
+     },
+     "layer": {
+      "means": "Not used by this tool"
+     },
+     "include_new": {
+      "means": "With update: the faces made after the texture was set up (left smooth) join it",
+      "values": [
+       true
+      ]
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "texture",
+       "layers"
+      ],
+      "rel": "excludes",
+      "line": "The draft way is used when no texture and no layers are given"
+     },
+     {
+      "inputs": [
+       "body",
+       "texture",
+       "faces",
+       "mode"
+      ],
+      "rel": "with",
+      "line": "One-call way: body, texture and faces with mode"
+     },
+     {
+      "inputs": [
+       "tolerance",
+       "texture"
+      ],
+      "rel": "needs",
+      "line": "tolerance is for the one-call way only"
+     },
+     {
+      "inputs": [
+       "rotation",
+       "texture"
+      ],
+      "rel": "needs",
+      "line": "rotation is for the one-call way"
+     },
+     {
+      "inputs": [
+       "include_new",
+       "update"
+      ],
+      "rel": "needs",
+      "line": "include_new goes with update"
+     },
+     {
+      "inputs": [
+       "bake",
+       "draft"
+      ],
+      "rel": "with",
+      "line": "bake is for the draft way only"
+     },
+     {
+      "inputs": [
+       "new",
+       "name"
+      ],
+      "rel": "with",
+      "line": "new: true makes another object; name labels it"
+     },
+     {
+      "inputs": [
+       "rotation",
+       "settings"
+      ],
+      "rel": "overrides",
+      "line": "With no rotation, cylindrical mapping (mappingMode 3) fits its axis to the textured cylindrical faces",
+      "when": "rotation left out"
+     }
+    ],
+    "effects": [
+     "The engine is BumpMesh's (Stefan Hermann, CNC Kitchen), ported to Python and run inside FreeCAD",
+     "It makes a new Textured Mesh object beside the body",
+     "The body and its Shape are never changed",
+     "The draft way textures the draft the sidebar shows (texture_draft, texture_set, texture_mask first)",
+     "draft loads a whole draft",
+     "With no rotation, a turned body is read in its own axes (its Placement)",
+     "The result is a mesh, not a solid",
+     "Fillets, holes and booleans do not build on it",
+     "slice_with (Workshop for FreeCAD) takes the Textured object as it is",
+     "It changes the document, so it cannot run as a job",
+     "FreeCAD's window is busy until it ends",
+     "A one-call object is only marked OutOfDate when its body changes",
+     "The Body is hidden while its result shows",
+     "Edit > Undo shows the Body again",
+     "After apply: texture_check { object } measures the depth face by face against its body; texture_export for an STL or 3MF; slice the export or the mesh object. Update (texture_apply { update: name }) after the body changes. The body is hidden while its textured result is shown (bodyHidden); hiding or deleting the result shows it again."
+    ],
+    "returns": {
+     "body": {
+      "means": "The body"
+     },
+     "object": {
+      "means": "The Textured object's name"
+     },
+     "label": {
+      "means": "The object's label"
+     },
+     "updated": {
+      "means": "Whether it was updated"
+     },
+     "triangles": {
+      "means": "Result triangles"
+     },
+     "warnings": {
+      "means": "Warnings"
+     },
+     "layers": {
+      "means": "The layers"
+     },
+     "engine": {
+      "means": "The engine"
+     },
+     "export": {
+      "means": "The export"
+     },
+     "next": {
+      "means": "The next step"
+     },
+     "health": {
+      "means": "the shared health check after the call: { recompute, fault, shapes, sketches, measured, window, addons }, or \"nothing new\""
+     },
+     "window": {
+      "means": "With FreeCAD's window, the window state"
+     },
+     "cylinder": {
+      "means": "Fitted axis: axis, centre, radius, from"
+     },
+     "frame": {
+      "means": "The body's own axes, when no rotation is given"
+     },
+     "bodyHidden": {
+      "means": "true: the Body is hidden while its textured result is shown"
+     }
+    },
+    "refusalNotes": [
+     "A run estimated over memoryLimitGB is refused"
+    ],
+    "hints": [
+     "Texture last",
+     "Or export it (export, or texture_export) and slice the file",
+     "Face names (Face1..FaceN) renumber after CAD changes: read them again before a one-call apply",
+     "Ask texture_settings or texture_preview for the estimate first",
+     "Run update when the body changes",
+     "Then texture_check { object } measures the result against the body",
+     "Every key, following the body, size and cost, and the window keys: guide_read { topic: \"texture\", section: \"texture_apply in full\" }",
+     "Inputs come three ways: the draft, one call, or update"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "body": {
-      "type": "string",
-      "description": "A solid's name or label. With texture / layers: the body to texture (the document's one body when left out). With the draft: switches the draft's part."
+      "type": "string"
      },
      "texture": {
-      "type": "string",
-      "description": "A library id (texture_list): texture in one call, without the draft."
+      "type": "string"
      },
-     "faces": {
-      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
-     },
+     "faces": {},
      "mode": {
       "type": "string",
       "enum": [
        "include",
        "exclude"
-      ],
-      "description": "With faces: include (only them) or exclude (all but them; default)."
+      ]
      },
      "layers": {
       "type": "array",
@@ -562,8 +1524,7 @@
       }
      },
      "settings": {
-      "type": "object",
-      "description": "BumpMesh settings by name (texture_settings lists them): per layer e.g. scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap); for the run e.g. refineLength (mm), maxTriangles, bottomAngleLimit."
+      "type": "object"
      },
      "rotation": {
       "type": "array",
@@ -571,49 +1532,37 @@
        "type": "number"
       },
       "minItems": 3,
-      "maxItems": 3,
-      "description": "[x, y, z] degrees: BumpMesh's Rotate of the texturing frame (one-call way)."
+      "maxItems": 3
      },
-     "export": {
-      "description": "A path ending .stl or .3mf (relative: the output folder), or {path, format}."
-     },
+     "export": {},
      "name": {
-      "type": "string",
-      "description": "The Textured object's label (default <body>_textured)."
+      "type": "string"
      },
      "tolerance": {
-      "type": "number",
-      "description": "The body's tessellation, mm (0.02); one-call way only, the draft always uses 0.02."
+      "type": "number"
      },
      "memoryLimitGB": {
-      "type": "number",
-      "description": "Refuse a run estimated over this (4)."
+      "type": "number"
      },
      "draft": {
-      "type": "object",
-      "description": "A whole draft to load first, then apply."
+      "type": "object"
      },
      "update": {
-      "type": "string",
-      "description": "A Textured object's name or label: run it again now with what it stores."
+      "type": "string"
      },
      "bake": {
-      "type": "boolean",
-      "description": "true: Bake Textures (draft only): the undecimated result becomes the draft's part, with a fresh layer."
+      "type": "boolean"
      },
      "new": {
-      "type": "boolean",
-      "description": "true: make another Textured object instead of updating the one this draft made."
+      "type": "boolean"
      },
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "Not used by this tool."
+      "maximum": 3
      },
      "include_new": {
-      "type": "boolean",
-      "description": "With update: the faces made after the texture was set up (left smooth) join it."
+      "type": "boolean"
      }
     },
     "additionalProperties": false
@@ -645,7 +1594,146 @@
   },
   "texture_export": {
    "group": "texture",
-   "description": "Write a file. format stl or 3mf with object (a Textured object's name): its mesh as it is, quick. Without object, BumpMesh's engine textures the part of the draft straight into the file. Then nothing is added to the document. The size limits are the same as texture_apply: refused over memoryLimitGB (4), with what to raise. format bumpmesh is BumpMesh's Save Project, which opens here or in the BumpMesh web app. It holds the settings and masks of the draft. It holds the part's model unless model is false, and your own textures unless texture is false. path: where (relative: the output folder; ~ is your home folder). Always give path, or ask: false for the default name in the output folder. The default names are <object label>.stl, <part label>_textured.stl and <part label>.bumpmesh. With neither, and FreeCAD's window open, a file dialog opens and the call waits for a person. For bumpmesh, an options dialog opens too. layer is not used. The answer holds { path, format, triangles, credit, warnings, cancelled }. For the STL of an object, it also holds object and next. For a project, it also holds files. warnings names an object that is out of date: update it with texture_apply first. cancelled: true when a person closed the dialog. As one of Agent Link's jobs (past about 45 s, or background: true), it never opens a dialog. Only FreeCAD's window thread may open one. Without path, a job writes to the default name in the output folder. 3MF and STL carry the credit (BumpMesh, CNC Kitchen). It is a long read when it runs the engine. It runs as a job. Past about 45 s, the call answers with a job id, and job_status gives the answer. texture_check { path } can check the STL of a Textured object later.",
+   "card": {
+    "does": "Writes a file.",
+    "inputNotes": {
+     "format": {
+      "means": "stl or 3mf (the textured mesh), or bumpmesh (the draft as a BumpMesh project)",
+      "values": [
+       "stl",
+       "3mf",
+       "bumpmesh"
+      ]
+     },
+     "path": {
+      "means": "Where to write (relative: the output folder; ~ is your home folder)"
+     },
+     "object": {
+      "means": "A Textured object: its mesh as it is; left out: the draft's part textured by the engine"
+     },
+     "model": {
+      "means": "bumpmesh: false leaves the part's model out of the project",
+      "values": [
+       false
+      ]
+     },
+     "texture": {
+      "means": "bumpmesh: false leaves your own texture images out of the project",
+      "values": [
+       false
+      ]
+     },
+     "ask": {
+      "means": "false: never open a dialog; the default name in the output folder is used when path is left out",
+      "values": [
+       false
+      ]
+     },
+     "layer": {
+      "means": "Not used by this tool"
+     },
+     "memoryLimitGB": {
+      "means": "Refuse an engine run estimated over this",
+      "unit": "GB",
+      "default": 4
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "format",
+       "object"
+      ],
+      "rel": "with",
+      "line": "format stl or 3mf with object: its mesh as it is, quick"
+     },
+     {
+      "inputs": [
+       "path",
+       "ask"
+      ],
+      "rel": "with",
+      "line": "Give path, or ask: false; otherwise the window opens a file dialog"
+     },
+     {
+      "inputs": [
+       "format",
+       "model"
+      ],
+      "rel": "needs",
+      "line": "model applies to format bumpmesh",
+      "when": "format bumpmesh"
+     },
+     {
+      "inputs": [
+       "format",
+       "texture"
+      ],
+      "rel": "needs",
+      "line": "texture applies to format bumpmesh",
+      "when": "format bumpmesh"
+     }
+    ],
+    "effects": [
+     "Without object, BumpMesh's engine textures the part of the draft straight into the file",
+     "Then nothing is added to the document",
+     "The size limits are the same as texture_apply",
+     "format bumpmesh is BumpMesh's Save Project, which opens here or in the BumpMesh web app",
+     "A bumpmesh project holds the settings and masks of the draft",
+     "A bumpmesh project holds the part's model unless model is false, and your own textures unless texture is false",
+     "The default names are <object label>.stl, <part label>_textured.stl and <part label>.bumpmesh",
+     "With neither path nor ask false, and FreeCAD's window open, a file dialog opens and the call waits for a person",
+     "For bumpmesh, an options dialog opens too",
+     "As one of Agent Link's jobs (past about 45 s, or background: true), it never opens a dialog",
+     "Only FreeCAD's window thread may open a dialog",
+     "Without path, a job writes to the default name in the output folder",
+     "3MF and STL carry the credit (BumpMesh, CNC Kitchen)",
+     "It is a long read when it runs the engine",
+     "It runs as a job",
+     "Past about 45 s, the call answers with a job id, and job_status gives the answer",
+     "bumpmesh writes BumpMesh's Save Project format: Load Project opens it here or in BumpMesh. After an STL, texture_check { object } (or { path } of the STL) measures it face by face; outOfDate true means the body changed since (Update first)."
+    ],
+    "returns": {
+     "path": {
+      "means": "The file written"
+     },
+     "format": {
+      "means": "The format"
+     },
+     "triangles": {
+      "means": "Triangles written"
+     },
+     "credit": {
+      "means": "The credit"
+     },
+     "warnings": {
+      "means": "Warnings; names an object that is out of date"
+     },
+     "cancelled": {
+      "means": "true when a person closed the dialog"
+     },
+     "object": {
+      "means": "For the STL of an object: the object"
+     },
+     "next": {
+      "means": "For the STL of an object: the next step"
+     },
+     "files": {
+      "means": "For a project: the files"
+     },
+     "outOfDate": {
+      "means": "true: the object's body changed since it was made"
+     }
+    },
+    "refusalNotes": [
+     "Refused over memoryLimitGB (4), with what to raise"
+    ],
+    "hints": [
+     "Always give path, or ask: false for the default name in the output folder",
+     "Update an out-of-date object with texture_apply first",
+     "texture_check { path } can check the STL of a Textured object later"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -655,38 +1743,30 @@
        "stl",
        "3mf",
        "bumpmesh"
-      ],
-      "description": "stl or 3mf (the textured mesh), or bumpmesh (the draft as a BumpMesh project)."
+      ]
      },
      "path": {
-      "type": "string",
-      "description": "Where to write (relative: the output folder). Give it, or ask: false; otherwise the window opens a file dialog."
+      "type": "string"
      },
      "object": {
-      "type": "string",
-      "description": "A Textured object: its mesh as it is. Left out: the draft's part textured by the engine."
+      "type": "string"
      },
      "model": {
-      "type": "boolean",
-      "description": "bumpmesh: false leaves the part's model out of the project."
+      "type": "boolean"
      },
      "texture": {
-      "type": "boolean",
-      "description": "bumpmesh: false leaves your own texture images out of the project."
+      "type": "boolean"
      },
      "ask": {
-      "type": "boolean",
-      "description": "false: never open a dialog; the default name in the output folder is used when path is left out."
+      "type": "boolean"
      },
      "layer": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3,
-      "description": "Not used by this tool."
+      "maximum": 3
      },
      "memoryLimitGB": {
-      "type": "number",
-      "description": "Refuse an engine run estimated over this (4)."
+      "type": "number"
      }
     },
     "additionalProperties": false,
@@ -716,36 +1796,118 @@
   },
   "texture_prepare": {
    "group": "texture",
-   "description": "Prepare a body for texturing outside FreeCAD (the BumpMesh web app or its own tools). It writes the body as one STL, face by face from one mesh of the whole part. Beside it, it writes <name>-mask.json, which lists the triangles of faces. To texture inside FreeCAD, use texture_apply instead; this is not needed for it. Inputs: body (a solid's name or label; the document's one body when left out). faces (required): names such as \"Face3\", a list, or face queries; Face1..FaceN of the body as it is now. mode include (the default): texture only them (a grip). mode exclude: all but them (keep a mating face plain). tolerance: the tessellation in mm (0.02). Smaller means more triangles in the STL; give the same value to texture_check. path: the STL to write (relative: the output folder; default <label>-for-texture.stl there). name: a label for the default file name, not a path. The answer holds: body, stl, triangles, mask, maskTriangles, mode, faces, next and note. next is the bumpmesh_texture_file call to make with these files. That is a tool of the separate BumpMesh server, when it is connected. The mask is tied to this tessellation: if the body changes, prepare again. Changes nothing in the document. Declared a long read: it runs as a job. Past about 45 s, the call answers with a job id, and job_status gives the answer.",
+   "card": {
+    "does": "Prepares a body for texturing outside FreeCAD (the BumpMesh web app or its own tools).",
+    "inputNotes": {
+     "body": {
+      "means": "A solid's name or label; the document's one body when left out"
+     },
+     "faces": {
+      "means": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}",
+      "forms": [
+       "Face3",
+       "a list of face names",
+       "{\"normal\": [0, 0, 1]}"
+      ]
+     },
+     "mode": {
+      "means": "include: texture only these faces (default; a grip). exclude: all but them (keep a mating face plain)",
+      "values": [
+       "include",
+       "exclude"
+      ],
+      "default": "include"
+     },
+     "tolerance": {
+      "means": "Tessellation",
+      "unit": "mm",
+      "default": 0.02
+     },
+     "path": {
+      "means": "The STL to write (relative: the output folder; default <label>-for-texture.stl)",
+      "default": "<label>-for-texture.stl"
+     },
+     "name": {
+      "means": "A label for the default file name; not a path"
+     }
+    },
+    "effects": [
+     "It writes the body as one STL, face by face from one mesh of the whole part",
+     "Beside it, it writes <name>-mask.json, which lists the triangles of faces",
+     "Faces are Face1..FaceN of the body as it is now",
+     "A smaller tolerance means more triangles in the STL",
+     "next is the bumpmesh_texture_file call to make with these files",
+     "bumpmesh_texture_file is a tool of the separate BumpMesh server, when it is connected",
+     "The mask is tied to this tessellation",
+     "Changes nothing in the document",
+     "Declared a long read: it runs as a job",
+     "Past about 45 s, the call answers with a job id, and job_status gives the answer",
+     "Only the faces listed (include) or all but them (exclude) get the texture; say the faces that must not change back to the person first. Then bumpmesh_texture_file { path, output, layers: [{ texture, settings, mask: { mode, trianglesFile } }], settings: { refineLength } } textures the STL with the output and refineLength given, and texture_check { body, path: the output } measures the depth on each textured face, any face it leaked onto, and whether the mesh is closed."
+    ],
+    "returns": {
+     "body": {
+      "means": "The body"
+     },
+     "stl": {
+      "means": "The STL written"
+     },
+     "triangles": {
+      "means": "STL triangles"
+     },
+     "mask": {
+      "means": "The mask file"
+     },
+     "maskTriangles": {
+      "means": "Triangles in the mask"
+     },
+     "mode": {
+      "means": "The mode"
+     },
+     "faces": {
+      "means": "The faces"
+     },
+     "next": {
+      "means": "The bumpmesh_texture_file call to make with these files"
+     },
+     "note": {
+      "means": "A note"
+     },
+     "output": {
+      "means": "the path bumpmesh_texture_file should write"
+     },
+     "refineLength": {
+      "means": "the refine length the part suits",
+      "unit": "mm"
+     }
+    },
+    "hints": [
+     "To texture inside FreeCAD, use texture_apply instead; this is not needed for it",
+     "Give the same tolerance to texture_check",
+     "If the body changes, prepare again"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "body": {
-      "type": "string",
-      "description": "A solid's name or label; the document's one body when left out."
+      "type": "string"
      },
-     "faces": {
-      "description": "Faces: names (Face3), a list, or (with Agent Link) queries such as {\"normal\": [0, 0, 1]}."
-     },
+     "faces": {},
      "mode": {
       "type": "string",
       "enum": [
        "include",
        "exclude"
-      ],
-      "description": "include: texture only these faces (default). exclude: all but them."
+      ]
      },
      "tolerance": {
-      "type": "number",
-      "description": "Tessellation, mm (0.02); give texture_check the same."
+      "type": "number"
      },
      "path": {
-      "type": "string",
-      "description": "The STL to write (relative: the output folder; default <label>-for-texture.stl)."
+      "type": "string"
      },
      "name": {
-      "type": "string",
-      "description": "A label for the default file name; not a path."
+      "type": "string"
      }
     },
     "required": [
@@ -772,37 +1934,151 @@
   },
   "texture_check": {
    "group": "texture",
-   "description": "Measure a textured mesh against the body it was made from, face by face. So a number, not a picture, says whether the texture is right. object: a Textured object that texture_apply made. Its body, mask and angle limits come from what it stores, and its own mesh is measured. Or give only path: an STL that texture_export wrote from it, matched to its object. For an STL textured outside FreeCAD, give body, path and mask (texture_prepare's -mask.json). A mask in a credentials or settings folder is refused. mask is found beside path by name when left out. Give the tolerance that texture_prepare used (0.02). Else it is refused, because the triangle counts differ. Paths: relative means the output folder. flat: mm a point may move and still count as unmoved (0.01). reach: how far from the body a point is looked for, in mm. The default is the larger of 2 mm and 2 % of the body's diagonal. Raise it for a texture deeper than that. The answer holds: verdict, texturedFaces, depth, leaked, bare, angleMasked, far, mesh, warnings and note. verdict is \"ok\" or \"check\". texturedFaces: per face meant for texture, points, moved (the share that moved, 0-1), mean, p95, out, into, in mm. depth: the deepest, in mm. leaked { faces, points, worst }: faces meant to stay plain that moved (a mating face, a datum). For leaked faces, fix the mask and texture again. bare: faces meant for texture where under a fifth of the points moved. Then the texture is finer than refineLength, or the mask missed them. angleMasked: faces that BumpMesh's bottom / top angle limits cover whole. They stay plain by design; a part's flat underside is one. far: points farther than reach. mesh { openEdges, overSharedEdges } when the mesh is not closed: repair before slicing. note says it in words. An object that is out of date is never \"ok\": its body changed since it was textured. Then verdict is \"check\", outOfDate is true, and the figures mix the body's change with the texture. Run texture_apply { update } first, then check again. Only an \"ok\" goes to the slicer. It tessellates the body and measures every vertex of the mesh. So a result near the 750 000-triangle default takes a while. Nothing is changed.",
+   "card": {
+    "does": "Measures a textured mesh against the body it was made from, face by face.",
+    "inputNotes": {
+     "object": {
+      "means": "A Textured object (texture_apply's): its body, mask and mesh"
+     },
+     "body": {
+      "means": "For an STL textured outside FreeCAD: the solid it was made from"
+     },
+     "path": {
+      "means": "A textured STL (relative: the output folder)"
+     },
+     "mask": {
+      "means": "texture_prepare's -mask.json; found beside path by name when left out"
+     },
+     "tolerance": {
+      "means": "The tessellation texture_prepare used",
+      "unit": "mm",
+      "default": 0.02
+     },
+     "flat": {
+      "means": "How far a point may move and still count as unmoved",
+      "unit": "mm",
+      "default": 0.01
+     },
+     "reach": {
+      "means": "How far from the body a point is looked for",
+      "unit": "mm",
+      "default": "the larger of 2 mm and 2 % of the body's diagonal"
+     }
+    },
+    "links": [
+     {
+      "inputs": [
+       "object",
+       "path"
+      ],
+      "rel": "with",
+      "line": "Or give only path: an STL that texture_export wrote from the object, matched to its object"
+     },
+     {
+      "inputs": [
+       "body",
+       "path",
+       "mask"
+      ],
+      "rel": "with",
+      "line": "For an STL textured outside FreeCAD, give body, path and mask"
+     },
+     {
+      "inputs": [
+       "object",
+       "mask"
+      ],
+      "rel": "excludes",
+      "line": "mask is not used with object"
+     }
+    ],
+    "effects": [
+     "A number, not a picture, says whether the texture is right",
+     "With object, its body, mask and angle limits come from what it stores, and its own mesh is measured",
+     "Paths: relative means the output folder",
+     "bare faces mean the texture is finer than refineLength, or the mask missed them",
+     "angleMasked faces stay plain by design; a part's flat underside is one",
+     "An object that is out of date is never ok: its body changed since it was textured",
+     "Then verdict is check, outOfDate is true, and the figures mix the body's change with the texture",
+     "It tessellates the body and measures every vertex of the mesh",
+     "A result near the 750 000-triangle default takes a while",
+     "Nothing is changed",
+     "The figures are of the texture only when outOfDate is false. Out of date: the mesh is of the body as it was, measured against the body as it is, so the figures mix the body's change with the texture; texture_apply { update: name } (update field), then check again. leaked: the texture reached faces that were to stay plain: check the mask (mode, faces) and run the texture again. bare: faces to be textured under a fifth of whose points moved: a texture too fine for refineLength, or a mask that missed them. far: points farther than reach from the body: a texture deeper than reach (give reach), or the STL is not of this body. mesh: not closed; a slicer may refuse it or fill it wrong, repair before printing."
+    ],
+    "returns": {
+     "verdict": {
+      "means": "\"ok\" or \"check\""
+     },
+     "texturedFaces": {
+      "means": "Per face meant for texture: points, moved (the share that moved, 0-1), mean, p95, out, into, in mm"
+     },
+     "depth": {
+      "means": "The deepest, in mm",
+      "unit": "mm"
+     },
+     "leaked": {
+      "means": "faces, points, worst: faces meant to stay plain that moved (a mating face, a datum)"
+     },
+     "bare": {
+      "means": "Faces meant for texture where under a fifth of the points moved"
+     },
+     "angleMasked": {
+      "means": "Faces that BumpMesh's bottom / top angle limits cover whole"
+     },
+     "far": {
+      "means": "Points farther than reach"
+     },
+     "mesh": {
+      "means": "openEdges, overSharedEdges: when the mesh is not closed"
+     },
+     "warnings": {
+      "means": "Warnings"
+     },
+     "note": {
+      "means": "Says it in words"
+     },
+     "outOfDate": {
+      "means": "true: the body changed since the object's mesh was made"
+     },
+     "update": {
+      "means": "the object name to give texture_apply { update }"
+     }
+    },
+    "refusalNotes": [
+     "A mask in a credentials or settings folder is refused",
+     "A tolerance other than texture_prepare's is refused, because the triangle counts differ"
+    ],
+    "hints": [
+     "For leaked faces, fix the mask and texture again",
+     "Raise reach for a texture deeper than the default",
+     "With an open mesh, repair before slicing",
+     "Run texture_apply { update } first, then check again",
+     "Only an ok goes to the slicer"
+    ]
+   },
    "inputSchema": {
     "type": "object",
     "properties": {
      "object": {
-      "type": "string",
-      "description": "A Textured object (texture_apply's): its body, mask and mesh."
+      "type": "string"
      },
      "body": {
-      "type": "string",
-      "description": "For an STL textured outside FreeCAD: the solid it was made from."
+      "type": "string"
      },
      "path": {
-      "type": "string",
-      "description": "A textured STL (relative: the output folder)."
+      "type": "string"
      },
      "mask": {
-      "type": "string",
-      "description": "texture_prepare's -mask.json; found beside path by name when left out. Not with object."
+      "type": "string"
      },
      "tolerance": {
-      "type": "number",
-      "description": "The tessellation texture_prepare used, mm (0.02)."
+      "type": "number"
      },
      "flat": {
-      "type": "number",
-      "description": "mm a point may move and count as unmoved (0.01)."
+      "type": "number"
      },
      "reach": {
-      "type": "number",
-      "description": "How far from the body a point is looked for, mm (the larger of 2 and 2 % of the body's diagonal)."
+      "type": "number"
      }
     },
     "additionalProperties": false

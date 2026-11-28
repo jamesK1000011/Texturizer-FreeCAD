@@ -320,17 +320,13 @@ class Answers(unittest.TestCase):
         out = {"verdict": "ok", "depth": 2.0, "note": "Textured on Face6 only, 2 mm deep at most; the mesh is closed."}
         handlers.stale_check(out, "Grip_hex", "Textured")
         self.assertEqual((out["verdict"], out["outOfDate"]), ("check", True))
-        self.assertTrue(out["note"].startswith("Out of date"))
-        self.assertIn('texture_apply { update: "Textured" }', out["note"])
-        self.assertIn("2 mm deep at most", out["note"])   # what was measured is still said
-        self.assertEqual(len(out["warnings"]), 1)
+        self.assertEqual(out["update"], "Textured")
+        self.assertEqual(out["depth"], 2.0)   # what was measured is still there
 
     def test_a_preview_finer_than_the_result_says_so(self):
         # previewEdge 0.5 (the part's largest size / 80) against refineLength 0.8.
         said = handlers.preview_finer(0.5, 0.8)
-        self.assertIn("0.5 mm", said)
-        self.assertIn("refineLength 0.8", said)
-        self.assertIn("texture_set", said)
+        self.assertEqual(said, {"previewEdge": 0.5, "refineLength": 0.8})
         self.assertIsNone(handlers.preview_finer(0.8, 0.8))
         self.assertIsNone(handlers.preview_finer(1.6, 0.8))   # coarser: previewEdge and the engine's note say that
         self.assertIsNone(handlers.preview_finer(None, 0.8))
