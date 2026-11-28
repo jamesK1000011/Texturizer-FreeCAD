@@ -43,7 +43,9 @@
      "The draft scales it to the part",
      "A custom texture whose file name has hidden characters is not listed",
      "Reads only; small and quick",
-     "Use an id as texture in texture_apply; defaults.scaleU is the tile in mm on a 50 mm part (BumpMesh scales it with the part: tileFraction x the part's largest size)."
+     "Use an id as texture in texture_apply",
+     "defaults.scaleU is the tile in mm on a 50 mm part",
+     "BumpMesh scales it with the part: tileFraction x the part's largest size"
     ],
     "returns": {
      "count": {
@@ -53,10 +55,10 @@
       "means": "One row per texture: id, name, category, credit, licence, source_url, defaults"
      },
      "categories": {
-      "means": "The category names"
+      "means": "[names] the categories that the textures are sorted in"
      },
      "credit": {
-      "means": "The credit line"
+      "means": "The credit line for the texture libraries"
      },
      "notListed": {
       "means": "custom textures left out: {count, reason: hiddenCharactersInName}"
@@ -115,7 +117,9 @@
      "settings": {
       "means": "BumpMesh settings by name",
       "forms": [
-       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode",
+       "mappingMode: 0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical",
+       "mappingMode: 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap",
        "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
       ]
      },
@@ -149,25 +153,25 @@
     ],
     "returns": {
      "layerKeys": {
-      "means": "Settings set per layer"
+      "means": "[names] of the settings set per layer"
      },
      "globalKeys": {
-      "means": "Settings set once for the run"
+      "means": "[names] of the settings set once for the run"
      },
      "mappingModes": {
       "means": "0 planarXY, 1 planarXZ, 2 planarYZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surfaceNormal, 8 outlineWrap"
      },
      "maxLayers": {
-      "means": "Most layers allowed (4)"
+      "means": "The most layers allowed"
      },
      "units": {
-      "means": "The units"
+      "means": "{ setting: unit } the units of the numeric settings"
      },
      "credit": {
-      "means": "The credit"
+      "means": "The credit line for the texture library and engine"
      },
      "body.size": {
-      "means": "The body's size",
+      "means": "[x, y, z] the body's size",
       "unit": "mm"
      },
      "body.estimate": {
@@ -178,6 +182,12 @@
      },
      "body.cylinder": {
       "means": "A fitted axis for cylindrical mapping"
+     },
+     "defaults": {
+      "means": "{ setting: default value } for every setting"
+     },
+     "body": {
+      "means": "{ label, size, estimate, suggest, cylinder } facts of the body; only with body"
      }
     },
     "refusalNotes": [
@@ -304,21 +314,38 @@
      "Faces renumber when the CAD model changes",
      "The draft follows faces by FreeCAD's stable names or by their surface",
      "The engine and settings are BumpMesh's (Stefan Hermann, CNC Kitchen), ported",
-     "The sidebar shows the draft. texture_set (texture, settings), texture_mask (faces) and texture_layer change it; texture_preview shows it and texture_apply adds it to the document.",
-     "A project load adds its model as a mesh part when mode is all; modelLoaded is its label."
+     "The sidebar shows the draft",
+     "texture_set (texture, settings), texture_mask (faces) and texture_layer change it; texture_preview shows it and texture_apply adds it to the document",
+     "A project load adds its model as a mesh part when mode is all; modelLoaded is its label.",
+     "draft.layers: each layer also has mode include|exclude, faces (FaceN names), triangles masked, brush { split, soft }"
     ],
     "returns": {
      "mesh": {
       "means": "The part's tessellation at 0.02 mm: triangles, faces; faces is 0 for a Mesh part"
      },
      "draft": {
-      "means": "part, label, frame, active, settings (those changed from the defaults), canUndo, canRedo, layers: each layer (0 = bottom) with name, texture, visible, solo, blend cover|add, mode include|exclude, faces (FaceN names), triangles masked, brush { split, soft }"
+      "means": "part, label, frame, active, settings (those changed from the defaults), canUndo, canRedo, layers"
      },
      "project": {
-      "means": "After a load: mode, warnings, note; note gives the next steps"
+      "means": "{ mode, warnings } after a load of a project; modelLoaded: the label of the model it brought"
      },
-     "modelLoaded": {
-      "means": "the label of the model a loaded project brought"
+     "project.modelLoaded": {
+      "means": "The label of the model a loaded project brought"
+     },
+     "cylinder": {
+      "means": "The fitted axis for cylindrical mapping, when the part changed"
+     },
+     "cancelled": {
+      "means": "true: the person closed the load dialog; only the draft is answered"
+     },
+     "part": {
+      "means": "The draft's part, as its label"
+     },
+     "label": {
+      "means": "The label of the draft's part, as part"
+     },
+     "draft.layers": {
+      "means": "each layer (0 = bottom) with name, texture, visible, solo, blend cover|add"
      }
     },
     "refusalNotes": [
@@ -414,7 +441,9 @@
      "settings": {
       "means": "BumpMesh settings by name (texture_settings lists them)",
       "forms": [
-       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode",
+       "mappingMode: 0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical",
+       "mappingMode: 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap",
        "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
       ]
      },
@@ -473,13 +502,28 @@
     ],
     "returns": {
      "layer": {
-      "means": "The layer set"
+      "means": "The number of the layer set, 0 is the bottom"
      },
      "set": {
       "means": "The values set, after clamping"
      },
      "draft": {
-      "means": "The draft"
+      "means": "The draft after the change: as texture_draft gives it"
+     },
+     "part": {
+      "means": "The draft's part, as its label"
+     },
+     "texture": {
+      "means": "The texture the layer now has, when it was set"
+     },
+     "setNames": {
+      "means": "[names] of the settings set, apart from texture"
+     },
+     "preview": {
+      "means": "{ triangles, ms } the CPU preview followed the change; or { error } or { building, ms }"
+     },
+     "cancelled": {
+      "means": "true: the person closed the dialog; nothing was set"
      }
     },
     "refusalNotes": [
@@ -707,7 +751,8 @@
      "fill spreads across edges where the faces meet at under maxAngle degrees (20)",
      "On a Mesh part (no faces), use triangles",
      "Each stroke is one undo step",
-     "The paint Circle brush paints the triangles connected to the hit within Size / 2 (seen along view, else into the surface)",
+     "The paint Circle brush paints the triangles connected to the hit within Size / 2",
+     "It is seen along view, else into the surface",
      "paint mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle",
      "paint Hardness under 100 fades the mask to the rim",
      "paint mode standard paints every touched triangle whole",
@@ -719,39 +764,48 @@
      "The model is untouched",
      "The draft is kept in the document, so Edit > Undo undoes it",
      "Each paint stroke is one undo step",
-     "include: only the layer's faces get the texture; exclude: the layer's faces stay plain. masked false means nothing is masked: include textures nothing yet (add faces), exclude textures every face. Mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two); mode precision splits them under the brush's rim; brushed.keptTriangles is how many of the part's triangles stay masked after the brush took faces off (facesBrushedOff).",
+     "include: only the layer's faces get the texture; exclude: the layer's faces stay plain",
+     "masked false means nothing is masked: include textures nothing yet (add faces), exclude textures every face",
+     "Mode standard paints or erases whole triangles of the part's tessellation (a flat face of a solid is often two)",
+     "mode precision splits them under the brush's rim",
+     "brushed.keptTriangles is how many of the part's triangles stay masked after the brush took faces off (facesBrushedOff)",
      "Say them back to the person first"
     ],
     "returns": {
      "layer": {
-      "means": "The layer"
+      "means": "The number of the layer, 0 is the bottom"
      },
      "mode": {
-      "means": "The mode"
+      "means": "include or exclude: whether the mask lists faces to texture or to leave plain"
      },
      "faces": {
-      "means": "The face names of the layer"
+      "means": "[names] of the faces the layer masks"
      },
      "triangles": {
-      "means": "Source triangles masked by any means"
+      "means": "How many source triangles are masked by any means",
+      "unit": "count"
      },
      "brush": {
-      "means": "split, soft"
+      "means": "{ split, soft } triangles the brush split or painted soft; only when it did"
      },
      "strokes": {
-      "means": "The strokes"
+      "means": "How many paint strokes were laid",
+      "unit": "count"
      },
      "facesBrushedOff": {
-      "means": "Faces that a stroke took off the list of the layer"
-     },
-     "note": {
-      "means": "Says in words what gets textured"
+      "means": "[names] faces that a stroke took off the layer's list"
      },
      "masked": {
       "means": "true when any face or triangle is masked"
      },
      "brushed": {
       "means": "{keptTriangles}: triangles that stay masked after a brush took faces off"
+     },
+     "part": {
+      "means": "The label of the part"
+     },
+     "preview": {
+      "means": "{ triangles, ms } the CPU preview followed the change; or { error } or { building, ms }"
      }
     },
     "refusalNotes": [
@@ -963,6 +1017,19 @@
     "returns": {
      "draft": {
       "means": "As texture_draft: every layer with its texture, mode, faces, blend and visibility"
+     },
+     "layer": {
+      "means": "The number of the layer acted on, or the new layer"
+     },
+     "layerCount": {
+      "means": "How many layers the draft has now",
+      "unit": "count"
+     },
+     "part": {
+      "means": "The draft's part, as its label"
+     },
+     "preview": {
+      "means": "{ triangles, ms } the CPU preview followed the change; or { error } or { building, ms }"
      }
     },
     "refusalNotes": [
@@ -1039,11 +1106,10 @@
      "wait": {
       "means": "Seconds to wait for the build before answering",
       "unit": "s",
-      "default": 45,
-      "max": 60
+      "default": 45
      },
      "suggest": {
-      "means": "true: set BumpMesh's suggested refineLength and maxTriangles in the draft for the active layer's texture, and answer them; builds nothing",
+      "means": "true: set BumpMesh's suggested refineLength and maxTriangles in the draft for the active layer's texture, and answer them",
       "values": [
        true
       ]
@@ -1055,7 +1121,7 @@
       ]
      },
      "turntable": {
-      "means": "true spins the 3D view about the part's vertical axis (15 degrees a second, until false or a click in the view); false stops it; a number turns the view once by that many degrees",
+      "means": "true spins the 3D view about the part's vertical axis (15 degrees a second)",
       "forms": [
        "true",
        "false",
@@ -1074,7 +1140,7 @@
      }
     ],
     "effects": [
-     "It shows the preview in the 3D view in place of the part",
+     "It builds the preview, waits for it, and will show it in the 3D view in place of the part",
      "The engine is the same code as the export, so what shows is what prints",
      "The preview coarsens its own edge to fit its triangle budget and 1 GB, so it never refuses for size",
      "previewEdge says how coarse the preview is against the edge of the export",
@@ -1106,54 +1172,67 @@
      "It is taken out of the view when texture_apply or texture_export ends the sequence",
      "The next draft tool brings it back",
      "It changes nothing in the document: the preview is a view, and a save keeps the body shown",
-     "The preview is built in the background; building true means it was not done within the call's time and goes on building, showing in the 3D view when done (coarseShown: a coarse first look shows now). texture_preview {} again waits for it and says what it made; { cancel: true } stops it; { quality: \"draft\" } builds a coarser one sooner. With workerStopped false the worker had not stopped within 2 s: it ends at its next check and its result is dropped, no timer is left waiting. Agent Link's view_snapshot shows the preview; texture_apply adds it to the document.",
-     "previewFiner {previewEdge, refineLength}: the preview is refined finer than texture_apply will refine, so fine detail that shows here may be lost; set settings.refineLength to previewEdge (texture_set) for a result like the picture. A preview is never coarser than the part's largest size / 80.",
-     "turntable true spins the model at degreesPerSecond; any click, wheel or SpaceMouse move in the view stops it, and turntable false stops it. A number of degrees turns the view once: Agent Link's view_snapshot or view_render shows the view; turn again for the next frame."
+     "The preview is built in the background",
+     "building true means it was not done within the call's time and goes on building",
+     "It shows in the 3D view when done (coarseShown: a coarse first look shows now)",
+     "texture_preview {} again waits for it and says what it made; { cancel: true } stops it; { quality: \"draft\" } builds a coarser one sooner",
+     "With workerStopped false the worker had not stopped within 2 s",
+     "It ends at its next check and its result is dropped, no timer is left waiting",
+     "Agent Link's view_snapshot shows the preview; texture_apply adds it to the document",
+     "previewFiner {previewEdge, refineLength}: the preview is refined finer than texture_apply will refine, so fine detail that shows here may be lost",
+     "set settings.refineLength to previewEdge (texture_set) for a result like the picture",
+     "A preview is never coarser than the part's largest size / 80",
+     "turntable true spins the model at degreesPerSecond",
+     "any click, wheel or SpaceMouse move in the view stops it, and turntable false stops it",
+     "A number of degrees turns the view once: Agent Link's view_snapshot or view_render shows the view",
+     "turn again for the next frame",
+     "suggest: builds nothing",
+     "turntable: It spins until false or a click in the view",
+     "turntable: false stops it",
+     "turntable: a number turns the view once by that many degrees",
+     "wait is 60 s at most"
     ],
     "returns": {
      "part": {
-      "means": "The part"
+      "means": "The label of the part"
      },
      "quality": {
-      "means": "The quality"
+      "means": "The preview quality built: draft or a finer one"
      },
      "previewEdge": {
-      "means": "How coarse the preview is",
+      "means": "The edge length the preview is refined to",
       "unit": "mm"
      },
      "triangles": {
-      "means": "Preview triangles"
+      "means": "How many triangles the preview has",
+      "unit": "count"
      },
      "vertices": {
-      "means": "Preview vertices"
+      "means": "How many vertices the preview has",
+      "unit": "count"
      },
      "inputTriangles": {
-      "means": "Input triangles"
+      "means": "How many triangles the part's mesh has",
+      "unit": "count"
      },
      "ms": {
-      "means": "Build time",
+      "means": "How long the preview took to build",
       "unit": "ms"
      },
      "export": {
-      "means": "What texture_apply would make: edge, triangles, memoryMB"
+      "means": "{ edge mm, triangles, memoryMB } what texture_apply would make"
      },
      "warnings": {
       "means": "Warnings; on a small part with a coarse refineLength, names the refineLength that matches"
      },
-     "next": {
-      "means": "The next step"
-     },
      "building": {
-      "means": "true: the preview was not done in time"
-     },
-     "verdict": {
-      "means": "\"still building\", with how long it waited"
+      "means": "true: the preview was not done in time, and the build goes on"
      },
      "reused": {
       "means": "true when a preview was already up to date"
      },
      "window": {
-      "means": "Window state, on cancel and on a built preview"
+      "means": "The window's facts: the draft's document, its Textured result and part"
      },
      "coarseShown": {
       "means": "true: a coarse first look is in the 3D view"
@@ -1164,6 +1243,18 @@
      "previewFiner": {
       "means": "{previewEdge, refineLength}: the preview is finer than the result will be",
       "unit": "mm"
+     },
+     "suggest": {
+      "means": "{ refineLength, maxTriangles, pixelsPerEdge } BumpMesh's suggested values, with suggest"
+     },
+     "draft": {
+      "means": "The draft: as texture_draft gives it, with suggest"
+     },
+     "cancelled": {
+      "means": "true: the preview build was cancelled"
+     },
+     "turntable": {
+      "means": "{ spinning, degreesPerSecond? or turned? } the turntable state, with turntable"
      }
     },
     "refusalNotes": [
@@ -1236,7 +1327,7 @@
     "does": "Textures a part and puts the result in the document (Add to document / Update / Bake Textures).",
     "inputNotes": {
      "body": {
-      "means": "A solid's name or label; with texture / layers the body to texture (the document's one body when left out); with the draft it switches the draft's part"
+      "means": "A solid's name or label"
      },
      "texture": {
       "means": "A library id (texture_list): texture in one call, without the draft"
@@ -1263,7 +1354,9 @@
      "settings": {
       "means": "BumpMesh settings by name (texture_settings lists them)",
       "forms": [
-       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode (0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical, 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap)",
+       "per layer: scaleU (mm per tile), textureHeight (mm), mappingMode",
+       "mappingMode: 0 planar XY, 1 planar XZ, 2 planar YZ, 3 cylindrical, 4 spherical",
+       "mappingMode: 5 triplanar, 6 cubic, 7 surface normal, 8 outline wrap",
        "for the run: refineLength (mm), maxTriangles, bottomAngleLimit"
       ]
      },
@@ -1404,41 +1497,42 @@
      "A one-call object is only marked OutOfDate when its body changes",
      "The Body is hidden while its result shows",
      "Edit > Undo shows the Body again",
-     "After apply: texture_check { object } measures the depth face by face against its body; texture_export for an STL or 3MF; slice the export or the mesh object. Update (texture_apply { update: name }) after the body changes. The body is hidden while its textured result is shown (bodyHidden); hiding or deleting the result shows it again."
+     "After apply: texture_check { object } measures the depth face by face against its body",
+     "texture_export for an STL or 3MF",
+     "slice the export or the mesh object",
+     "Update (texture_apply { update: name }) after the body changes",
+     "The body is hidden while its textured result is shown (bodyHidden); hiding or deleting the result shows it again",
+     "body: with texture / layers the body to texture (the document's one body when left out)",
+     "body: with the draft it switches the draft's part"
     ],
     "returns": {
      "body": {
-      "means": "The body"
+      "means": "The label of the body textured"
      },
      "object": {
       "means": "The Textured object's name"
      },
      "label": {
-      "means": "The object's label"
+      "means": "The label the Textured object has"
      },
      "updated": {
-      "means": "Whether it was updated"
+      "means": "true when an existing Textured object was updated"
      },
      "triangles": {
-      "means": "Result triangles"
+      "means": "How many triangles the result has",
+      "unit": "count"
      },
      "warnings": {
-      "means": "Warnings"
+      "means": "[lines] the engine's warnings"
      },
      "layers": {
-      "means": "The layers"
+      "means": "[{ layer, name, texture, mode, faces }] the layers used"
      },
      "engine": {
-      "means": "The engine"
+      "means": "The engine that made the result"
      },
      "export": {
-      "means": "The export"
-     },
-     "next": {
-      "means": "The next step"
-     },
-     "health": {
-      "means": "the shared health check after the call: { recompute, fault, shapes, sketches, measured, window, addons }, or \"nothing new\""
+      "means": "The file export asked for with the call: path, format, triangles"
      },
      "window": {
       "means": "With FreeCAD's window, the window state"
@@ -1451,6 +1545,36 @@
      },
      "bodyHidden": {
       "means": "true: the Body is hidden while its textured result is shown"
+     },
+     "inputTriangles": {
+      "means": "How many triangles the body's mesh had",
+      "unit": "count"
+     },
+     "repair": {
+      "means": "{ ... } what the engine repaired in the mesh"
+     },
+     "credit": {
+      "means": "The credit line for the textures and engine used"
+     },
+     "outOfDate": {
+      "means": "false: the object is up to date after an update"
+     },
+     "baked": {
+      "means": "The name of the object the mask was baked into"
+     },
+     "maskedTriangles": {
+      "means": "How many triangles were baked as masked",
+      "unit": "count"
+     },
+     "bakedTriangles": {
+      "means": "How many textured triangles the stored mesh holds",
+      "unit": "count"
+     },
+     "included": {
+      "means": "[names] linked objects included in the update"
+     },
+     "previewClosed": {
+      "means": "true when a preview was showing and was taken out of the 3D view"
      }
     },
     "refusalNotes": [
@@ -1679,7 +1803,8 @@
      "A bumpmesh project holds the settings and masks of the draft",
      "A bumpmesh project holds the part's model unless model is false, and your own textures unless texture is false",
      "The default names are <object label>.stl, <part label>_textured.stl and <part label>.bumpmesh",
-     "With neither path nor ask false, and FreeCAD's window open, a file dialog opens and the call waits for a person",
+     "With neither path nor ask false, and FreeCAD's window open, a file dialog opens",
+     "The call waits for a person",
      "For bumpmesh, an options dialog opens too",
      "As one of Agent Link's jobs (past about 45 s, or background: true), it never opens a dialog",
      "Only FreeCAD's window thread may open a dialog",
@@ -1688,20 +1813,23 @@
      "It is a long read when it runs the engine",
      "It runs as a job",
      "Past about 45 s, the call answers with a job id, and job_status gives the answer",
-     "bumpmesh writes BumpMesh's Save Project format: Load Project opens it here or in BumpMesh. After an STL, texture_check { object } (or { path } of the STL) measures it face by face; outOfDate true means the body changed since (Update first)."
+     "bumpmesh writes BumpMesh's Save Project format: Load Project opens it here or in BumpMesh",
+     "After an STL, texture_check { object } (or { path } of the STL) measures it face by face",
+     "outOfDate true means the body changed since (Update first)"
     ],
     "returns": {
      "path": {
-      "means": "The file written"
+      "means": "The path of the file written"
      },
      "format": {
-      "means": "The format"
+      "means": "stl, 3mf or bumpmesh: the format written"
      },
      "triangles": {
-      "means": "Triangles written"
+      "means": "How many triangles were written",
+      "unit": "count"
      },
      "credit": {
-      "means": "The credit"
+      "means": "The credit line for the textures and engine used"
      },
      "warnings": {
       "means": "Warnings; names an object that is out of date"
@@ -1712,14 +1840,20 @@
      "object": {
       "means": "For the STL of an object: the object"
      },
-     "next": {
-      "means": "For the STL of an object: the next step"
-     },
      "files": {
       "means": "For a project: the files"
      },
      "outOfDate": {
       "means": "true: the object's body changed since it was made"
+     },
+     "file": {
+      "means": "The file name written"
+     },
+     "label": {
+      "means": "The label of the object written, for an object"
+     },
+     "previewClosed": {
+      "means": "true when a preview was showing and was taken out of the 3D view"
      }
     },
     "refusalNotes": [
@@ -1839,38 +1973,38 @@
      "Changes nothing in the document",
      "Declared a long read: it runs as a job",
      "Past about 45 s, the call answers with a job id, and job_status gives the answer",
-     "Only the faces listed (include) or all but them (exclude) get the texture; say the faces that must not change back to the person first. Then bumpmesh_texture_file { path, output, layers: [{ texture, settings, mask: { mode, trianglesFile } }], settings: { refineLength } } textures the STL with the output and refineLength given, and texture_check { body, path: the output } measures the depth on each textured face, any face it leaked onto, and whether the mesh is closed."
+     "Only the faces listed (include) or all but them (exclude) get the texture",
+     "say the faces that must not change back to the person first",
+     "Then bumpmesh_texture_file { path, output, layers: [{ texture, settings, mask: { mode, trianglesFile } }], settings: { refineLength } } textures the STL with the output and refineLength given",
+     "texture_check { body, path: the output } measures the depth on each textured face",
+     "texture_check also measures any face it leaked onto, and whether the mesh is closed"
     ],
     "returns": {
      "body": {
-      "means": "The body"
+      "means": "The label of the body"
      },
      "stl": {
-      "means": "The STL written"
+      "means": "Path of the STL written"
      },
      "triangles": {
-      "means": "STL triangles"
+      "means": "How many triangles the STL has",
+      "unit": "count"
      },
      "mask": {
-      "means": "The mask file"
+      "means": "Path of the mask file"
      },
      "maskTriangles": {
-      "means": "Triangles in the mask"
+      "means": "How many triangles the mask holds",
+      "unit": "count"
      },
      "mode": {
-      "means": "The mode"
+      "means": "include or exclude: whether the faces are the ones to texture, or all but them"
      },
      "faces": {
-      "means": "The faces"
-     },
-     "next": {
-      "means": "The bumpmesh_texture_file call to make with these files"
-     },
-     "note": {
-      "means": "A note"
+      "means": "[names] of the faces the mode applies to"
      },
      "output": {
-      "means": "the path bumpmesh_texture_file should write"
+      "means": "The path bumpmesh_texture_file should write"
      },
      "refineLength": {
       "means": "the refine length the part suits",
@@ -2000,17 +2134,26 @@
      "It tessellates the body and measures every vertex of the mesh",
      "A result near the 750 000-triangle default takes a while",
      "Nothing is changed",
-     "The figures are of the texture only when outOfDate is false. Out of date: the mesh is of the body as it was, measured against the body as it is, so the figures mix the body's change with the texture; texture_apply { update: name } (update field), then check again. leaked: the texture reached faces that were to stay plain: check the mask (mode, faces) and run the texture again. bare: faces to be textured under a fifth of whose points moved: a texture too fine for refineLength, or a mask that missed them. far: points farther than reach from the body: a texture deeper than reach (give reach), or the STL is not of this body. mesh: not closed; a slicer may refuse it or fill it wrong, repair before printing."
+     "The figures are of the texture only when outOfDate is false",
+     "Out of date: the mesh is of the body as it was, measured against the body as it is",
+     "So the figures mix the body's change with the texture",
+     "texture_apply { update: name } (update field), then check again",
+     "leaked: the texture reached faces that were to stay plain: check the mask (mode, faces) and run the texture again",
+     "bare: faces to be textured under a fifth of whose points moved",
+     "bare means a texture too fine for refineLength, or a mask that missed them",
+     "far: points farther than reach from the body",
+     "far means a texture deeper than reach (give reach), or the STL is not of this body",
+     "mesh: not closed; a slicer may refuse it or fill it wrong, repair before printing"
     ],
     "returns": {
      "verdict": {
-      "means": "\"ok\" or \"check\""
+      "means": "ok or check; check when a texturing problem or an out-of-date object was found"
      },
      "texturedFaces": {
       "means": "Per face meant for texture: points, moved (the share that moved, 0-1), mean, p95, out, into, in mm"
      },
      "depth": {
-      "means": "The deepest, in mm",
+      "means": "The deepest texture found",
       "unit": "mm"
      },
      "leaked": {
@@ -2023,22 +2166,34 @@
       "means": "Faces that BumpMesh's bottom / top angle limits cover whole"
      },
      "far": {
-      "means": "Points farther than reach"
+      "means": "{ points, reach } points farther from the body than reach",
+      "unit": "mm"
      },
      "mesh": {
-      "means": "openEdges, overSharedEdges: when the mesh is not closed"
-     },
-     "warnings": {
-      "means": "Warnings"
-     },
-     "note": {
-      "means": "Says it in words"
+      "means": "{ openEdges, overSharedEdges } when the mesh is not closed"
      },
      "outOfDate": {
       "means": "true: the body changed since the object's mesh was made"
      },
      "update": {
       "means": "the object name to give texture_apply { update }"
+     },
+     "body": {
+      "means": "The label of the body"
+     },
+     "file": {
+      "means": "The file measured, or the object's mesh"
+     },
+     "triangles": {
+      "means": "How many triangles the measured mesh has",
+      "unit": "count"
+     },
+     "points": {
+      "means": "How many distinct points the measured mesh has",
+      "unit": "count"
+     },
+     "object": {
+      "means": "The name of the Textured object checked"
      }
     },
     "refusalNotes": [

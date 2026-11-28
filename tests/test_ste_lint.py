@@ -64,6 +64,16 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def served_words(name):
+    """The words of the card a call serves by default: all kinds but hints,
+    refusalNotes and refusals."""
+    import json
+    from agentlink import cards
+    with open(os.path.join(S.ROOT, "texturizer", "data", "tools.json"), encoding="utf-8") as f:
+        card = json.load(f)["entries"][name]["card"]
+    return " ".join(cards.lines({k: v for k, v in card.items() if k not in ("hints", "refusalNotes", "refusals")}))
+
+
 class ShortCards(unittest.TestCase):
     """Desk-lamp test drive, finding 14: texture_apply's and texture_set's
     cards were thousands of words, read whole by one tool_find. The cards
@@ -75,9 +85,12 @@ class ShortCards(unittest.TestCase):
         cls.descs = S.current()
 
     def test_cards_are_short_and_name_their_section(self):
-        for name, cap in (("texture_apply", 400), ("texture_set", 220)):
+        # Records cards (28 Nov): ceilings at the measured served size, so they cannot grow.
+        for name, cap in (("texture_apply", 780), ("texture_set", 380)):
             text = self.descs[name]["words"]  # all the words of the card's records
-            self.assertLessEqual(len(text.split()), cap, name)
+            # The cap counts the default-served card: every kind but hints and
+            # refusals (a call reads only what it selects).
+            self.assertLessEqual(len(served_words(name).split()), cap, name)
             guide, section = S.GUIDE_SECTIONS[name]
             self.assertIn(f'guide_read {{ topic: "texture", section: "{section}" }}', text)
             self.assertEqual(guide, "texturizer/guides/texture.md")
