@@ -76,7 +76,7 @@ class ShortCards(unittest.TestCase):
 
     def test_cards_are_short_and_name_their_section(self):
         for name, cap in (("texture_apply", 400), ("texture_set", 220)):
-            text = self.descs[name]["description"]
+            text = self.descs[name]["words"]  # all the words of the card's records
             self.assertLessEqual(len(text.split()), cap, name)
             guide, section = S.GUIDE_SECTIONS[name]
             self.assertIn(f'guide_read {{ topic: "texture", section: "{section}" }}', text)
@@ -106,8 +106,8 @@ class ShortCards(unittest.TestCase):
     def test_texture_last_then_slice_the_textured_mesh(self):
         # slice_with (Workshop for FreeCAD) takes a mesh as it is now; the
         # card says so, and the other way: export the file and slice it.
-        text = self.descs["texture_apply"]["description"]
-        self.assertIn("texture last", text)
+        text = self.descs["texture_apply"]["words"]
+        self.assertIn("texture last", text.lower())
         self.assertIn("slice_with (Workshop for FreeCAD) takes the Textured object as it is", text)
         self.assertIn("texture_export", text)
         self.assertNotIn("then slice the mesh", text)

@@ -35,7 +35,7 @@ def _short(desc, limit=150):
 def read():
     with open(os.path.join(ROOT, SOURCE), encoding="utf-8") as f:
         entries = json.load(f)["entries"]
-    return [(name, e.get("group", ""), e.get("description", "")) for name, e in entries.items()]
+    return [(name, e.get("group", ""), (e.get("card") or {}).get("does") or e.get("description", "")) for name, e in entries.items()]
 
 
 def block():

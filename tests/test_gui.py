@@ -32,6 +32,27 @@ except ImportError:
 FREECAD_ICONS = set()
 
 
+def card_text(e):
+    """The words of a data entry: its card's lines joined, as Agent Link
+    reads them (agentlink.tooldata.card_text); the same reading here when
+    Agent Link is not importable."""
+    try:
+        from agentlink.tooldata import card_text as hub
+        return hub(e)
+    except ImportError:
+        pass
+    c = e.get("card")
+    if not isinstance(c, dict):
+        return e.get("description", "")
+    out = [c.get("does", "")]
+    for k, n in (c.get("inputNotes") or {}).items():
+        out += [f"{k}: {n.get('means', '')}"] + [f"{k}: {f}" for f in n.get("forms") or []]
+    out += [x.get("line", "") for x in c.get("links") or []] + list(c.get("effects") or [])
+    out += [f"{k}: {r.get('means', '')}" for k, r in (c.get("returns") or {}).items()]
+    out += list(c.get("refusalNotes") or []) + list(c.get("hints") or [])
+    return " ".join(x for x in out if x)
+
+
 def tools_json():
     with open(os.path.join(PKG, "data", "tools.json"), encoding="utf-8") as f:
         return json.load(f)["entries"]
@@ -186,7 +207,7 @@ print(json.dumps({"tools": [[t.name, t.description, t.schema, t.changes] for t i
         data = tools_json()
         self.assertEqual([t[0] for t in out["tools"]], list(data))
         for name, desc, schema, changes in out["tools"]:
-            self.assertEqual((desc, schema, changes), (data[name]["description"], data[name]["inputSchema"], data[name]["changes"]))
+            self.assertEqual((desc, schema, changes), (card_text(data[name]), data[name]["inputSchema"], data[name]["changes"]))
         self.assertEqual(out["lent"], [True, True, ["Face1", "Face3"]])
 
 
