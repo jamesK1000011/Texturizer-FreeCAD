@@ -391,9 +391,7 @@
       ]
      },
      "layer": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 3
+      "type": "integer"
      }
     },
     "additionalProperties": false
@@ -755,6 +753,7 @@
      "It is seen along view, else into the surface",
      "paint mode precision (the default, as BumpMesh) splits the triangles under the rim so the mask follows the circle",
      "paint Hardness under 100 fades the mask to the rim",
+     "paint size is held to 0.2 to 100 mm and hardness to 0 to 100, not refused",
      "paint mode standard paints every touched triangle whole",
      "paint Snap faces paints whole CAD faces instead (by name)",
      "Face names are the part's Face1..FaceN (from 1) as it is now",
@@ -1189,8 +1188,7 @@
      "suggest: builds nothing",
      "turntable: It spins until false or a click in the view",
      "turntable: false stops it",
-     "turntable: a number turns the view once by that many degrees",
-     "wait is 60 s at most"
+     "turntable: a number turns the view once by that many degrees"
     ],
     "returns": {
      "part": {
@@ -1271,9 +1269,7 @@
     "type": "object",
     "properties": {
      "layer": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 3
+      "type": "integer"
      },
      "quality": {
       "type": "string",
@@ -1678,9 +1674,7 @@
       "type": "boolean"
      },
      "layer": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 3
+      "type": "integer"
      },
      "include_new": {
       "type": "boolean"
@@ -1892,9 +1886,7 @@
       "type": "boolean"
      },
      "layer": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 3
+      "type": "integer"
      },
      "memoryLimitGB": {
       "type": "number"
