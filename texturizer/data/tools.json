@@ -58,9 +58,6 @@
      "credit": {
       "means": "The credit line"
      },
-     "note": {
-      "means": "A note"
-     },
      "notListed": {
       "means": "custom textures left out: {count, reason: hiddenCharactersInName}"
      }
